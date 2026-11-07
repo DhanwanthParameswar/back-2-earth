@@ -1,0 +1,64 @@
+{
+  "_note": "Authored ECHO lines (owner: C). Shown when the backend is offline, slow, rate-limited, or invalid. Max 180 characters each. Lines rotate in order. These are labeled OFFLINE in the HUD; never present them as live model output.",
+  "run_start": [
+    "ECHO online. Mostly. We are falling toward a black hole, so let's not dawdle. Terminal first.",
+    "Hello again. The ship is tumbling and so am I. Start the evacuation at the terminal."
+  ],
+  "evacuation_started": [
+    "Evacuation started. Six minutes, give or take my rounding errors. Engineering is to the right.",
+    "Clock is running. Engineering next. Hold SPACE when the floor starts arguing with you."
+  ],
+  "power_restored": [
+    "Power restored. The cargo sled is awake, unlike most of my subroutines.",
+    "Lights on. Cargo is open. The next DOWN surge should do the heavy lifting for us."
+  ],
+  "puzzle_solved": [
+    "Navigation recovered. I am choosing to interpret that as optimism.",
+    "The sled hit the plate. Gravity did the work and we take the credit. Grab the core."
+  ],
+  "core_collected": [
+    "Core secured. It is warm, which I'm told is a good sign. Pod bay is open.",
+    "You have the core. I have hope. One of those is load-bearing."
+  ],
+  "clamp_released": [
+    "Clamp released. The pod is free and so, almost, are you.",
+    "Pod is unclamped. Please board before it develops ambitions of its own."
+  ],
+  "launch": [
+    "Course set for Earth. Please remember the stars from somewhere safer."
+  ],
+  "debris_hit_repeat": [
+    "Your suit has filed another complaint. Try the magnetic boots.",
+    "That wreckage is winning. Brace with SPACE when the arrow turns red.",
+    "Debris to the face costs us ten seconds. I'm keeping a tally. Please stop."
+  ],
+  "boots_frequent": [
+    "You and those boots. A lasting relationship.",
+    "Excellent bracing technique. The floor thanks you. I thank you. The black hole does not."
+  ],
+  "low_time": [
+    "Under a minute. I would run, if I had legs.",
+    "Sixty seconds. I recommend panic, but efficiently."
+  ],
+  "help": [
+    "Follow the objective at the top of your screen. I believe in you. Statistically."
+  ],
+  "help_start_evacuation": [
+    "The terminal near the top of the cockpit. Walk up to it and press E."
+  ],
+  "help_restore_power": [
+    "Engineering power console, lower half of the room. Hold SPACE if the pull drags you off course."
+  ],
+  "help_open_compartment": [
+    "Let gravity work. When the arrow says DOWN, the sled slides onto the plate. Stay out of the red debris lanes."
+  ],
+  "help_collect_core": [
+    "Compartment's open, top-right of Cargo. The glowing thing is the core. Please don't lick it."
+  ],
+  "help_release_clamp": [
+    "Clamp console, top of the Pod Bay. Press E and the pod is ours."
+  ],
+  "help_board_pod": [
+    "The pod. Get in the pod. Press E. I'll handle the dramatic music."
+  ]
+}

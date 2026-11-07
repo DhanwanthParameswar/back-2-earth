@@ -1,0 +1,36 @@
+; Engine configuration file.
+; Back2Earth — UBhacks 2026. Owner: A (gameplay/integration).
+; Pinned engine: Godot 4.7.x stable (see README). Everyone must use the same patch.
+
+config_version=5
+
+[application]
+
+config/name="Back2Earth"
+config/description="Escape a ship falling into a black hole. Gravity surges, mag-boots, and a damaged AI named ECHO."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+Settings="*res://scripts/core/settings.gd"
+Sfx="*res://scripts/core/sfx.gd"
+GameState="*res://scripts/core/game_state.gd"
+
+[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=360
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/stretch/scale_mode="integer"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=0
+2d/snap/snap_2d_transforms_to_pixel=true
+environment/defaults/default_clear_color=Color(0.02, 0.02, 0.05, 1)

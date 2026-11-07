@@ -1,0 +1,4 @@
+# Same line endings for every OS on the team (Godot text files diff cleanly).
+* text=auto eol=lf
+*.png binary
+*.wav binary
