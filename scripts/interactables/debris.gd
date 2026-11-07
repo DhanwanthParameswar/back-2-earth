@@ -6,7 +6,9 @@ extends CharacterBody2D
 
 const Art = preload("res://scripts/ship/art.gd")
 const SPEED_FACTOR := 1.6   # moves faster than the player drifts
-const HIT_RADIUS := 18.0
+const HIT_RADIUS := 20.0
+## Player origin is at the feet; test against the middle of the body.
+const PLAYER_BODY_OFFSET := Vector2(0, -16)
 
 var _director = null
 var _player = null
@@ -14,7 +16,6 @@ var _player = null
 
 func _ready() -> void:
 	add_to_group("debris")
-	z_index = 3
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	collision_layer = 0
 	collision_mask = 1
@@ -24,6 +25,14 @@ func _ready() -> void:
 	cs.shape = shape
 	add_child(cs)
 	add_child(Art.make_sprite("res://assets/sprites/debris.png", Art.RED, Vector2(24, 24)))
+	queue_redraw()
+
+
+func _draw() -> void:
+	# Shadow under the wreckage (3/4 view depth cue).
+	draw_set_transform(Vector2(0, 11), 0.0, Vector2(1.0, 0.35))
+	draw_circle(Vector2.ZERO, 11.0, Color(0, 0, 0, 0.35))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _physics_process(_delta: float) -> void:
@@ -39,5 +48,5 @@ func _physics_process(_delta: float) -> void:
 		velocity = _director.get_drift(false) * SPEED_FACTOR
 	move_and_slide()
 
-	if _player != null and global_position.distance_to(_player.global_position) < HIT_RADIUS:
+	if _player != null and global_position.distance_to(_player.global_position + PLAYER_BODY_OFFSET) < HIT_RADIUS:
 		GameState.apply_debris_hit()

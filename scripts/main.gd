@@ -36,10 +36,12 @@ func _ready() -> void:
 	add_child(ship)
 	ship.build_from_file(LAYOUT_PATH)
 
+	# The player lives inside the ship so it y-sorts with props and debris.
 	player = PlayerScene.instantiate()
 	player.position = ship.player_start
-	add_child(player)
+	ship.add_child(player)
 	player.set_camera_limits(ship.get_bounds())
+	player.snap_camera()
 
 	companion = CompanionClient.new()
 	companion.name = "CompanionClient"
@@ -62,6 +64,7 @@ func _add_backdrop() -> void:
 	bh.name = "BlackHole"
 	bh.texture = t
 	bh.z_index = -10
-	# The hole is drawn 80 px right of the image center; park it at the window column.
-	bh.position = Vector2(16 - 80, 192)
+	# The hole is drawn 80 px right of the image center; park it behind the
+	# cockpit windows (layout rows 4-9).
+	bh.position = Vector2(16 - 80, 224)
 	add_child(bh)

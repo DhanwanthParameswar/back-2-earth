@@ -1,12 +1,25 @@
 extends CharacterBody2D
-## Top-down astronaut. Owner: A.
+## The astronaut. Owner: A.
 ## velocity = input * speed + gravity drift, applied in the physics step.
 ## SPACE (held) = mag-boots: slower walking, much less drift.
+##
+## 3/4 view (Stardew-style): the node's origin is at the FEET. The collision box
+## is only the feet, so the head can overlap the wall behind; the ship y-sorts
+## the player against props by this point. The camera smoothly follows the body.
 
 const SPEED := 150.0
 const BOOTS_SPEED := 60.0
 const INTERACT_RADIUS := 44.0
-const WALK_FRAME_TIME := 0.15
+
+## Skin sheets are 6 walk frames side by side (tools/import_astronaut_skins.py).
+const WALK_FRAMES := 6
+const IDLE_FRAME := 5
+const WALK_FPS := 10.0
+const BOOTS_WALK_FPS := 6.0
+
+## Camera feel. Raise the speed (or disable) if you see pixel jitter.
+const CAMERA_SMOOTHING_SPEED := 7.0
+const CAMERA_LOOK_OFFSET := Vector2(0, -20)  # center on the body, not the feet
 
 ## The interactable the HUD should prompt for (null if none in range).
 var current_target = null  # untyped: interactables are duck-typed
@@ -26,6 +39,32 @@ func _ready() -> void:
 	add_to_group("player")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	GameState.damaged.connect(_on_damaged)
+	Settings.changed.connect(apply_skin)
+	apply_skin()
+	camera.position = CAMERA_LOOK_OFFSET
+	camera.position_smoothing_enabled = true
+	camera.position_smoothing_speed = CAMERA_SMOOTHING_SPEED
+	sprite.frame = IDLE_FRAME
+
+
+## Loads the selected suit (Settings.skin). Called again when the picker changes it.
+func apply_skin() -> void:
+	var tex: Texture2D = null
+	var path: String = Settings.skin_sheet_path(Settings.skin)
+	if ResourceLoader.exists(path):
+		tex = load(path)
+	if tex == null:
+		return  # keep whatever the scene had
+	sprite.texture = tex
+	sprite.hframes = WALK_FRAMES
+	sprite.frame = IDLE_FRAME
+	# Bottom of the frame on the feet (origin).
+	sprite.offset = Vector2(0, -tex.get_height() / 2.0)
+
+
+## Snap the camera to the player (no smoothing) — call after teleporting.
+func snap_camera() -> void:
+	camera.reset_smoothing()
 
 
 func set_camera_limits(rect: Rect2) -> void:
@@ -40,6 +79,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 		braced = false
 		current_target = null
+		sprite.frame = IDLE_FRAME
 		queue_redraw()
 		return
 
@@ -98,16 +138,15 @@ func _update_room() -> void:
 
 
 func _update_visuals(input: Vector2, delta: float) -> void:
-	# 2-frame walk cycle, flip for left/right. No rotation (keeps pixels on grid).
+	# 6-frame walk cycle facing right; flip for left. Up/down keep the last
+	# facing. No rotation (keeps pixels on the grid).
 	if input.length() > 0.1:
-		_walk_timer += delta
-		if _walk_timer >= WALK_FRAME_TIME:
-			_walk_timer = 0.0
-			sprite.frame = 1 - sprite.frame
+		_walk_timer += delta * (BOOTS_WALK_FPS if braced else WALK_FPS)
+		sprite.frame = int(_walk_timer) % WALK_FRAMES
 		if absf(input.x) > 0.1:
 			sprite.flip_h = input.x < 0.0
 	else:
-		sprite.frame = 0
+		sprite.frame = IDLE_FRAME
 		_walk_timer = 0.0
 
 	# Hit flash.
@@ -128,10 +167,13 @@ func _update_visuals(input: Vector2, delta: float) -> void:
 
 
 func _draw() -> void:
-	# Mag-boots cue: a cyan ring under the feet while braced.
+	# Floor shadow + mag-boots ring, squashed for the 3/4 floor plane.
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4))
+	draw_circle(Vector2.ZERO, 12.0, Color(0, 0, 0, 0.35))
 	if braced:
-		draw_arc(Vector2(0, 6), 13.0, 0.0, TAU, 20, Color(0.16, 0.68, 1.0), 2.0)
-		draw_arc(Vector2(0, 6), 9.0, 0.0, TAU, 16, Color(0.16, 0.68, 1.0, 0.5), 1.0)
+		draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 24, Color(0.16, 0.68, 1.0), 3.0)
+		draw_arc(Vector2.ZERO, 11.0, 0.0, TAU, 20, Color(0.16, 0.68, 1.0, 0.5), 2.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _on_damaged(_seconds: float) -> void:

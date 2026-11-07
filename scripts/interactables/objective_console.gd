@@ -17,7 +17,10 @@ func setup(p_objective_id: String, p_prompt: String, p_texture: String, p_fallba
 
 func _ready() -> void:
 	super._ready()
+	shadow_radius = 14.0
 	set_visual(texture_path, fallback_color)
+	add_solid_base(Vector2(26, 12))
+	queue_redraw()
 	GameState.objective_changed.connect(_on_objective_changed)
 	_on_objective_changed("")
 

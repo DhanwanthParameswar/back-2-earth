@@ -26,6 +26,13 @@ The game builds walls, doors, and objects from it at startup.
 Rooms are split by the columns of doors `1`, `2`, `3`
 (left of `1` = cockpit, `1`–`2` = engineering, `2`–`3` = cargo, right of `3` = pod bay).
 
+3/4 view notes:
+- The top two rows are both walls on purpose: that makes a 2-tile-tall back
+  wall face, like a Stardew interior. Keep at least two wall rows on top.
+- Any wall with floor directly below it shows its front face automatically.
+- Consoles (`T`, `P`, `L`) and the pod (`O`) are solid at their base. Leave a
+  free tile beside or below them so the player can reach them.
+
 Rules that keep the game fair:
 - The sled channel (`C`, rails, `S`) must not cross the walking route. The player
   cannot enter it, so the sled can never trap the player or block an exit.

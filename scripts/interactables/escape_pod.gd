@@ -10,7 +10,10 @@ func _ready() -> void:
 	super._ready()
 	prompt_text = "Board the pod and launch"
 	highlight_when_current = OBJECTIVE
-	set_visual("res://assets/sprites/pod.png", Art.STEEL_LIGHT, Vector2(64, 64))
+	shadow_radius = 26.0
+	set_visual("res://assets/sprites/pod.png", Art.STEEL_LIGHT, Vector2(64, 64), -4.0)
+	add_solid_base(Vector2(46, 18))
+	queue_redraw()
 
 
 func can_interact(_player) -> bool:

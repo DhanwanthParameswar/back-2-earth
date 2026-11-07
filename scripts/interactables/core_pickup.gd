@@ -9,7 +9,9 @@ func _ready() -> void:
 	super._ready()
 	prompt_text = "Take the navigation core"
 	highlight_when_current = OBJECTIVE
-	set_visual("res://assets/sprites/core.png", Art.CYAN, Vector2(16, 16))
+	shadow_radius = 6.0
+	set_visual("res://assets/sprites/core.png", Art.CYAN, Vector2(16, 16), 6.0)  # floats a little
+	queue_redraw()
 	GameState.inventory_changed.connect(_refresh)
 	_refresh()
 

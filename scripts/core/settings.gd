@@ -15,6 +15,18 @@ var companion_enabled := true
 ## The /companion backend. Default matches server/companion_server.py.
 var companion_url := "http://127.0.0.1:8787/companion"
 
+## Astronaut suits, in picker order. Art: assets/sprites/astronaut_<id>.png
+## (6-frame walk strip) and assets/ui/portrait_<id>.png (picker portrait).
+const SKINS := [
+	{"id": "classic", "name": "CLASSIC", "blurb": "Standard issue"},
+	{"id": "hazard", "name": "HAZARD", "blurb": "Engineering yellow"},
+	{"id": "nebula", "name": "NEBULA", "blurb": "Deep-space violet"},
+	{"id": "mint", "name": "MINT", "blurb": "Medbay mint"},
+]
+var skin := "classic"
+## Runtime only: after the first briefing, restarts go straight to the picker.
+var seen_briefing := false
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -28,6 +40,29 @@ func toggle_mute() -> void:
 	_apply_audio()
 	_save()
 	changed.emit()
+
+
+func set_skin(skin_id: String) -> void:
+	if skin_index(skin_id) < 0 or skin_id == skin:
+		return
+	skin = skin_id
+	_save()
+	changed.emit()
+
+
+func skin_index(skin_id: String) -> int:
+	for i in SKINS.size():
+		if SKINS[i]["id"] == skin_id:
+			return i
+	return -1
+
+
+static func skin_sheet_path(skin_id: String) -> String:
+	return "res://assets/sprites/astronaut_%s.png" % skin_id
+
+
+static func skin_portrait_path(skin_id: String) -> String:
+	return "res://assets/ui/portrait_%s.png" % skin_id
 
 
 func toggle_reduced_shake() -> void:
@@ -50,6 +85,9 @@ func _load() -> void:
 	reduced_shake = bool(cfg.get_value("video", "reduced_shake", reduced_shake))
 	companion_enabled = bool(cfg.get_value("companion", "enabled", companion_enabled))
 	companion_url = str(cfg.get_value("companion", "url", companion_url))
+	var saved_skin := str(cfg.get_value("player", "skin", skin))
+	if skin_index(saved_skin) >= 0:
+		skin = saved_skin
 
 
 func _save() -> void:
@@ -58,4 +96,5 @@ func _save() -> void:
 	cfg.set_value("video", "reduced_shake", reduced_shake)
 	cfg.set_value("companion", "enabled", companion_enabled)
 	cfg.set_value("companion", "url", companion_url)
+	cfg.set_value("player", "skin", skin)
 	cfg.save(SAVE_PATH)

@@ -20,6 +20,7 @@ func _ready() -> void:
 	_test_end_states_are_exclusive()
 	_test_gravity_cycle()
 	_test_companion_validation()
+	_test_skin_assets()
 	await _test_full_run()
 	await _test_restart_resets()
 	print("=== %d passed, %d failed ===\n" % [_passes, _failures])
@@ -132,6 +133,18 @@ func _test_companion_validation() -> void:
 	_check(CompanionClient.sanitize("[b]**Hi**[/b] <i>there</i>") == "Hi there", "markup stripped")
 
 
+func _test_skin_assets() -> void:
+	print("Suit art")
+	for skin in Settings.SKINS:
+		var sheet_path: String = Settings.skin_sheet_path(skin["id"])
+		var portrait_path: String = Settings.skin_portrait_path(skin["id"])
+		var ok := ResourceLoader.exists(sheet_path) and ResourceLoader.exists(portrait_path)
+		_check(ok, "%s has a walk sheet and a portrait" % skin["id"])
+		if ok:
+			var sheet: Texture2D = load(sheet_path)
+			_check(sheet.get_width() % 6 == 0, "%s walk sheet splits into 6 frames" % skin["id"])
+
+
 func _test_full_run() -> void:
 	print("Scripted full run (main scene)")
 	var main = MainScene.instantiate()
@@ -145,6 +158,11 @@ func _test_full_run() -> void:
 	if player == null or ship == null or director == null:
 		main.queue_free()
 		return
+	_check(ship.y_sort_enabled and player.get_parent() == ship, "player is y-sorted inside the ship (3/4 view)")
+	var original_skin: String = Settings.skin
+	Settings.set_skin("nebula")
+	_check(player.get_node("Sprite2D").texture.resource_path.ends_with("astronaut_nebula.png"), "choosing a suit re-skins the player")
+	Settings.set_skin(original_skin)
 
 	_check(not ship.get_node("Door_1").is_open, "cockpit door starts closed")
 	ship.get_node("Console_start_evacuation").interact(player)

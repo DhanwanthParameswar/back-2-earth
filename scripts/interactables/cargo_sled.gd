@@ -9,6 +9,8 @@ extends "res://scripts/interactables/interactable.gd"
 ## It lives in a channel the player can't enter, so it can't trap anyone.
 
 const SPEED := 64.0  # px/s along the rail (4 tiles ~= 2 s, well inside a 6 s pull)
+## start/end are the sled's BASE points: cell center + this (see ship_builder).
+const BASE_DROP := 14.0
 
 var start_pos := Vector2.ZERO
 var end_pos := Vector2.ZERO
@@ -28,7 +30,6 @@ func setup(p_start: Vector2, p_end: Vector2) -> void:
 
 func _ready() -> void:
 	super._ready()
-	z_index = 2
 	prompt_text = "Reset cargo sled"
 	set_visual("res://assets/sprites/crate.png", Art.AMBER.darkened(0.4))
 	# The plate is drawn by a sibling so it stays put while the sled moves.
@@ -36,7 +37,9 @@ func _ready() -> void:
 	_plate_on_tex = Art.tex("res://assets/sprites/plate_on.png")
 	_plate.z_index = -1
 	_plate.top_level = true
-	_plate.position = end_pos if _plate is Node2D else end_pos - Vector2(16, 16)
+	# Plates sit flat on the floor: centered on the cell the sled stops in.
+	var plate_center := end_pos - Vector2(0, BASE_DROP)
+	_plate.position = plate_center if _plate is Node2D else plate_center - Vector2(16, 16)
 	add_child(_plate)
 
 

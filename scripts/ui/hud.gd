@@ -23,6 +23,10 @@ var _hit_flash: ColorRect
 var _edge_flash: Control
 
 var _briefing: Control
+var _picker: Control
+var _picker_cards: Array = []
+var _pick_index := 0
+var _brief_step := 0  # 0 = story, 1 = suit picker
 var _pause: Control
 var _pause_options: Label
 var _lost: Control
@@ -48,6 +52,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_hud()
 	_build_briefing()
+	_build_picker()
 	_build_pause()
 	_build_lost()
 	_build_won()
@@ -92,6 +97,9 @@ func _process(delta: float) -> void:
 	if _briefing.visible:
 		var start_label: Label = _briefing.get_node("Start")
 		start_label.visible = int(_blink_t * 2.0) % 2 == 0
+	if _picker.visible:
+		for i in _picker_cards.size():
+			_picker_cards[i].set_selected(i == _pick_index, _blink_t)
 
 
 func _update_gravity_label() -> void:
@@ -132,9 +140,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var phase: int = GameState.phase
 	if phase == GameState.Phase.BRIEFING:
-		if event.is_action_pressed("confirm"):
-			GameState.begin_play()
-			_handled()
+		if _brief_step == 0:
+			if event.is_action_pressed("confirm"):
+				Settings.seen_briefing = true
+				_show_brief_step(1)
+				_handled()
+		else:
+			if event.is_action_pressed("move_left") or event.is_action_pressed("move_up"):
+				_move_pick(-1)
+				_handled()
+			elif event.is_action_pressed("move_right") or event.is_action_pressed("move_down"):
+				_move_pick(1)
+				_handled()
+			elif event.is_action_pressed("confirm"):
+				Settings.set_skin(Settings.SKINS[_pick_index]["id"])
+				Sfx.play("objective", -8.0)
+				GameState.begin_play()
+				_handled()
+			elif event.is_action_pressed("pause"):
+				_show_brief_step(0)
+				_handled()
 	elif phase == GameState.Phase.PLAYING:
 		if event.is_action_pressed("pause"):
 			GameState.set_paused(not GameState.is_paused())
@@ -165,7 +190,11 @@ func _restart() -> void:
 # --- Signal handlers ----------------------------------------------------------------
 
 func _on_phase_changed(phase: int) -> void:
-	_briefing.visible = phase == GameState.Phase.BRIEFING
+	if phase == GameState.Phase.BRIEFING:
+		_show_brief_step(1 if Settings.seen_briefing else 0)
+	else:
+		_briefing.visible = false
+		_picker.visible = false
 	_pause.visible = false
 	_on_objective_changed("")
 
@@ -412,10 +441,63 @@ func _build_briefing() -> void:
 		Vector2(20, 184), Vector2(600, 60), 11, HORIZONTAL_ALIGNMENT_CENTER)
 	controls.modulate = Color(0.76, 0.76, 0.78)
 	_briefing.add_child(controls)
-	var start := _label("Press E to begin", Vector2(0, 280), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
+	var start := _label("Press E to continue", Vector2(0, 280), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
 	start.name = "Start"
 	start.modulate = Art.AMBER
 	_briefing.add_child(start)
+
+
+func _build_picker() -> void:
+	_picker = _full_screen()
+	_picker.name = "SuitPicker"
+	_picker.visible = false
+	_picker.add_child(_rect(Vector2.ZERO, Vector2(640, 360), Color("080d26")))
+	var title := _label("CHOOSE YOUR SUIT", Vector2(0, 14), Vector2(640, 30), 22, HORIZONTAL_ALIGNMENT_CENTER)
+	title.modulate = Art.WHITE
+	_picker.add_child(title)
+	_picker.add_child(_rect(Vector2(248, 44), Vector2(144, 2), Art.CYAN))
+
+	var card_size := Vector2(136, 206)
+	var gap := 14.0
+	var left := (640.0 - (card_size.x * 4.0 + gap * 3.0)) / 2.0
+	_picker_cards.clear()
+	for i in Settings.SKINS.size():
+		var skin: Dictionary = Settings.SKINS[i]
+		var card := SkinCard.new()
+		card.position = Vector2(left + i * (card_size.x + gap), 60)
+		card.size = card_size
+		_picker.add_child(card)
+		card.setup(
+			Art.tex(Settings.skin_portrait_path(skin["id"])),
+			str(skin["name"]),
+			str(skin["blurb"]),
+			"%d" % (i + 1)
+		)
+		_picker_cards.append(card)
+
+	var help := _label("A / D  or  ← →  choose        E  launch        Esc  back",
+		Vector2(0, 296), Vector2(640, 20), 12, HORIZONTAL_ALIGNMENT_CENTER)
+	help.modulate = Art.AMBER
+	_picker.add_child(help)
+	var note := _label("Your suit is remembered for the next run.", Vector2(0, 318), Vector2(640, 16), 10,
+		HORIZONTAL_ALIGNMENT_CENTER)
+	note.modulate = Color(0.6, 0.6, 0.65)
+	_picker.add_child(note)
+
+
+func _show_brief_step(step: int) -> void:
+	_brief_step = step
+	_briefing.visible = step == 0
+	_picker.visible = step == 1
+	if step == 1:
+		_pick_index = maxi(0, Settings.skin_index(Settings.skin))
+
+
+func _move_pick(delta: int) -> void:
+	var n: int = Settings.SKINS.size()
+	_pick_index = (_pick_index + delta + n) % n
+	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
+	Sfx.play("boots", -10.0)
 
 
 func _build_pause() -> void:
@@ -565,3 +647,66 @@ class Starfield extends Control:
 		for s in _stars:
 			var b := 0.4 + s.z / 100.0
 			draw_rect(Rect2(Vector2(floor(s.x), floor(s.y)), Vector2.ONE * (2.0 if s.z > 45.0 else 1.0)), Color(b, b, b + 0.1))
+
+
+## One suit in the picker: grid panel (like the concept sheet), portrait at 6x,
+## name and blurb. Cyan frame + bobbing portrait when selected.
+class SkinCard extends Control:
+	var _portrait: TextureRect
+	var _name: Label
+	var _blurb: Label
+	var _key: Label
+	var _selected := false
+
+	func setup(portrait: Texture2D, title: String, blurb: String, key: String) -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_portrait = TextureRect.new()
+		_portrait.texture = portrait
+		_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_portrait.size = Vector2(96, 114)  # 16x19 art at 6x
+		_portrait.position = Vector2((size.x - 96.0) / 2.0, 16)
+		add_child(_portrait)
+		_name = _make_label(title, 140, 15)
+		_blurb = _make_label(blurb, 160, 10)
+		_blurb.modulate = Color(0.7, 0.72, 0.8)
+		_key = _make_label(key, 182, 10)
+		_key.modulate = Color(0.45, 0.5, 0.65)
+
+	func _make_label(text: String, y: float, font_size: int) -> Label:
+		var l := Label.new()
+		l.text = text
+		l.position = Vector2(0, y)
+		l.size = Vector2(size.x, 18)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.add_theme_font_size_override("font_size", font_size)
+		add_child(l)
+		return l
+
+	func set_selected(value: bool, t: float) -> void:
+		_selected = value
+		if _portrait != null:
+			var bob := 0.0
+			if value:
+				bob = -2.0 if int(t * 3.0) % 2 == 0 else 0.0
+			_portrait.position.y = 16 + bob
+			_portrait.modulate = Color.WHITE if value else Color(0.55, 0.55, 0.65)
+			_name.modulate = Color("29adff") if value else Color(0.8, 0.8, 0.85)
+		queue_redraw()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color("0b1233"))
+		var grid := Color("16204a")
+		var step := 12.0
+		var x := step
+		while x < size.x:
+			draw_line(Vector2(x, 0), Vector2(x, 132), grid, 1.0)
+			x += step
+		var y := step
+		while y < 132.0:
+			draw_line(Vector2(0, y), Vector2(size.x, y), grid, 1.0)
+			y += step
+		if _selected:
+			draw_rect(Rect2(Vector2.ONE, size - Vector2(2, 2)), Color("29adff"), false, 2.0)
+		else:
+			draw_rect(Rect2(Vector2.ZERO, size), Color("28325a"), false, 1.0)

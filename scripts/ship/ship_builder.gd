@@ -4,6 +4,13 @@ extends Node2D
 ##
 ## Walls become merged rectangle colliders; objects are instantiated at their
 ## characters. Swapping art never changes collisions: tiles are always 32x32.
+##
+## Stardew-style 3/4 view:
+##   - Walls with floor below them draw a FRONT FACE (2 tiles tall where two
+##     walls are stacked, like the back wall); other walls draw their top cap.
+##   - This node has y_sort_enabled: the player, props, and debris are its
+##     children and draw in order of their base/feet y. Tiles and doors are the
+##     ground layer underneath.
 
 const Art = preload("res://scripts/ship/art.gd")
 const Door = preload("res://scripts/interactables/door.gd")
@@ -15,6 +22,12 @@ const Debris = preload("res://scripts/interactables/debris.gd")
 
 const TILE := Art.TILE
 const BLOCKING := "#w|CS"
+const SOLID_WALL := "#w"
+## How far below a cell's center an object's base (y-sort point) sits.
+const CONSOLE_BASE := 14.0
+const CORE_BASE := 6.0
+const POD_BASE := 28.0
+const SLED_BASE := 14.0
 const CHANNEL := "|CS"
 
 ## Door char -> objective that opens it.
@@ -39,6 +52,7 @@ const ROOM_SPLIT_DOORS := ["1", "2", "3"]
 ## Used only if data/ship_layout.txt is missing (e.g. a build that forgot the
 ## export filter). Keep in sync when the layout settles.
 const DEFAULT_LAYOUT := """
+##############################################
 ##############################################
 #.........#.........#.C...x..#....#..x.......#
 #....T....#.........#.|......#.N..#....L.....#
@@ -65,6 +79,7 @@ var _tex := {}
 
 func _ready() -> void:
 	add_to_group("ship")
+	y_sort_enabled = true
 
 
 func build_from_file(path: String) -> void:
@@ -176,22 +191,22 @@ func _build_objects() -> void:
 				var console := ObjectiveConsole.new()
 				console.name = "Console_%s" % cfg[0]
 				console.setup(cfg[0], cfg[1], cfg[2], cfg[3])
-				console.position = pos
+				console.position = pos + Vector2(0, CONSOLE_BASE)
 				add_child(console)
 			elif ch == "N":
 				var core := CorePickup.new()
 				core.name = "NavigationCore"
-				core.position = pos
+				core.position = pos + Vector2(0, CORE_BASE)
 				add_child(core)
 			elif ch == "O":
 				var pod := EscapePod.new()
 				pod.name = "EscapePod"
-				pod.position = pos
+				pod.position = pos + Vector2(0, POD_BASE)
 				add_child(pod)
 			elif ch == "C":
-				sled_start = pos
+				sled_start = pos + Vector2(0, SLED_BASE)
 			elif ch == "S":
-				sled_end = pos
+				sled_end = pos + Vector2(0, SLED_BASE)
 			elif ch == "x":
 				var d := Debris.new()
 				d.position = pos
@@ -229,8 +244,18 @@ func _find_room_splits() -> void:
 
 # --- Drawing ------------------------------------------------------------------
 
+## Which wall tile to draw (3/4 view): a front face where the floor is visible
+## below it, the upper half of a 2-tall face above that, otherwise the top cap.
+func wall_kind(c: int, r: int) -> String:
+	if not SOLID_WALL.contains(cell(c, r + 1)):
+		return "wall_face" if cell(c, r - 1) == "#" else "wall_face_single"
+	if cell(c, r + 1) == "#" and not SOLID_WALL.contains(cell(c, r + 2)):
+		return "wall_face_upper"
+	return "wall"
+
+
 func _load_textures() -> void:
-	for key in ["floor", "wall", "window", "rail"]:
+	for key in ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "window", "rail"]:
 		_tex[key] = Art.tex("res://assets/tiles/%s.png" % key)
 
 
@@ -241,7 +266,8 @@ func _draw() -> void:
 			var pos := Vector2(c * TILE, r * TILE)
 			var rect := Rect2(pos, Vector2(TILE, TILE))
 			if ch == "#":
-				_draw_tile("wall", pos, rect, Art.STEEL)
+				var kind := wall_kind(c, r)
+				_draw_tile(kind, pos, rect, Art.STEEL if kind == "wall" else Art.STEEL_LIGHT.darkened(0.4))
 			elif ch == "w":
 				# Leave the glass empty so the black-hole backdrop shows through.
 				_draw_tile("window", pos, rect, Color(0, 0, 0, 0))

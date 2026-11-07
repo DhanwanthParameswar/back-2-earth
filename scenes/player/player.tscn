@@ -1,13 +1,12 @@
 [gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player.png" id="2_sheet"]
+[ext_resource type="Texture2D" path="res://assets/sprites/astronaut_classic.png" id="2_sheet"]
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_body"]
-radius = 10.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_feet"]
+size = Vector2(18, 10)
 
 [node name="Player" type="CharacterBody2D"]
-z_index = 5
 collision_layer = 2
 collision_mask = 1
 motion_mode = 1
@@ -15,10 +14,15 @@ script = ExtResource("1_player")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 texture = ExtResource("2_sheet")
-hframes = 2
+offset = Vector2(0, -26)
+hframes = 6
+frame = 5
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(0, 4)
-shape = SubResource("CircleShape2D_body")
+position = Vector2(0, -5)
+shape = SubResource("RectangleShape2D_feet")
 
 [node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(0, -20)
+position_smoothing_enabled = true
+position_smoothing_speed = 7.0
