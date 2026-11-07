@@ -50,6 +50,84 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(line.endswith("…"))
 
 
+NPC_VALID = {
+    "npc_id": "crewmate", "run_id": 1042, "message": "  do you have any   instructions? ",
+    "history": [{"role": "player", "text": "hi"}, {"role": "npc", "text": "Hey. Stay close."}],
+    "objective_id": "start_evacuation", "canonical_hint": "Use the cockpit terminal (E).",
+    "room_id": "cockpit", "time_band": "not_started",
+}
+
+
+class NpcValidationTests(unittest.TestCase):
+    def test_valid_request_is_trimmed(self):
+        req, reason = cs.validate_npc_request(dict(NPC_VALID))
+        self.assertIsNotNone(req, reason)
+        self.assertEqual(req["message"], "do you have any instructions?")
+
+    def test_rejects_bad_requests(self):
+        for key, value in [("npc_id", "pirate"), ("run_id", "1"), ("message", ""), ("message", "x" * 201),
+                           ("message", 5), ("history", "hi"), ("history", [{"role": "system", "text": "x"}]),
+                           ("history", [{"role": "player", "text": "x"}] * 9)]:
+            self.assertIsNone(cs.validate_npc_request({**NPC_VALID, key: value})[0], key)
+
+    def test_gemini_request_shape(self):
+        sent = {}
+
+        def fake_post(url, body, headers, timeout):
+            sent.update(url=url, body=body, headers=headers)
+            return {"candidates": [{"content": {"parts": [{"text": "Terminal first, then power."}]}}]}
+
+        old = (cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS)
+        cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS = "gemini", "test-key", fake_post, cs.Limits()
+        try:
+            text = cs.generate_text("sys", [("user", "a"), ("user", "b"), ("model", "c"), ("user", "d")], 50, 1)
+        finally:
+            cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS = old
+        self.assertEqual(text, "Terminal first, then power.")
+        self.assertIn(cs.GEMINI_MODEL, sent["url"])
+        self.assertEqual(sent["headers"]["x-goog-api-key"], "test-key")
+        roles = [c["role"] for c in sent["body"]["contents"]]
+        self.assertEqual(roles, ["user", "model", "user"], "same-role turns are merged")
+        self.assertEqual(sent["body"]["systemInstruction"]["parts"][0]["text"], "sys")
+
+    def test_daily_caps(self):
+        old = (cs.TEXT_CALLS_PER_DAY, cs.TTS_CHARS_PER_DAY)
+        cs.TEXT_CALLS_PER_DAY, cs.TTS_CHARS_PER_DAY = 1, 10
+        try:
+            limits = cs.Limits()
+            self.assertTrue(limits.spend_text_call())
+            self.assertFalse(limits.spend_text_call())
+            self.assertTrue(limits.spend_tts(10))
+            self.assertFalse(limits.spend_tts(1))
+        finally:
+            cs.TEXT_CALLS_PER_DAY, cs.TTS_CHARS_PER_DAY = old
+
+    def test_token_bucket(self):
+        limits = cs.Limits()
+        burst = cs.Limits.BUCKETS["npc"][0]
+        for _ in range(burst):
+            self.assertEqual(limits.allow("npc", "1.2.3.4"), 0.0)
+        self.assertGreater(limits.allow("npc", "1.2.3.4"), 0.0)
+        self.assertEqual(limits.allow("npc", "5.6.7.8"), 0.0, "other clients are separate")
+
+    def test_audio_store_synthesizes_once(self):
+        calls = []
+        old = cs.synthesize
+        cs.synthesize = lambda text, voice_id=None: calls.append(text) or b"ID3" + b"x" * 300
+        try:
+            store = cs.AudioStore(2)
+            key = store.register("voice", "Hello there.")
+            self.assertEqual(store.get_mp3(key)[:3], b"ID3")
+            store.get_mp3(key)
+            self.assertEqual(calls, ["Hello there."], "cached after the first request")
+            self.assertIsNone(store.get_mp3("0" * 20), "unknown ids are refused")
+            store.register("voice", "b")
+            store.register("voice", "c")
+            self.assertIsNone(store.get_mp3(key), "oldest line evicted")
+        finally:
+            cs.synthesize = old
+
+
 class ServerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,14 +139,40 @@ class ServerTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
 
-    def post(self, body: bytes):
-        req = urllib.request.Request(self.base + "/companion", data=body,
+    def setUp(self):
+        cs.LIMITS = cs.Limits()  # fresh rate limits per test
+
+    def post(self, body: bytes, path: str = "/companion"):
+        req = urllib.request.Request(self.base + path, data=body,
                                      headers={"Content-Type": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
+
+    def test_npc_mock_reply(self):
+        cs.MOCK = True
+        code, data = self.post(json.dumps(NPC_VALID).encode(), "/npc/talk")
+        self.assertEqual(code, 200)
+        self.assertEqual((data["npc_id"], data["source"], data["audio_url"]), ("crewmate", "mock", None))
+        self.assertIn("cockpit terminal", data["line"])
+        self.assertLessEqual(len(data["line"]), cs.MAX_NPC_LINE)
+
+    def test_npc_bad_request_is_400(self):
+        code, data = self.post(json.dumps({**NPC_VALID, "npc_id": "pirate"}).encode(), "/npc/talk")
+        self.assertEqual((code, data["error"]), (400, "unknown npc_id"))
+
+    def test_npc_rate_limited_is_429(self):
+        cs.MOCK = True
+        codes = [self.post(json.dumps(NPC_VALID).encode(), "/npc/talk")[0] for _ in range(8)]
+        self.assertEqual(codes[0], 200)
+        self.assertEqual(codes[-1], 429)
+
+    def test_unknown_audio_is_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(self.base + "/npc/audio/" + "a" * 20 + ".mp3", timeout=5)
+        self.assertEqual(ctx.exception.code, 404)
 
     def test_mock_reply_echoes_ids(self):
         cs.MOCK = True

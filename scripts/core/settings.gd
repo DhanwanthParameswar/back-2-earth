@@ -15,9 +15,13 @@ var fullscreen := false
 var companion_enabled := true
 ## The /companion backend. Default matches server/companion_server.py.
 var companion_url := "http://127.0.0.1:8787/companion"
-## Web builds (https://back2earth.pp.ua) call the hosted backend instead: a page
-## served over HTTPS can't reach a local http:// server.
-const WEB_COMPANION_URL := "https://api.back2earth.pp.ua/companion"
+## The hosted backend (server/companion_server.py behind Cloudflare). Crewmate
+## chat always uses it; set the B2E_BACKEND environment variable (e.g.
+## http://127.0.0.1:8787) to test a local server from the editor.
+const BACKEND_URL := "https://api.back2earth.pp.ua"
+## Web builds (https://back2earth.pp.ua) call the hosted backend for ECHO too: a
+## page served over HTTPS can't reach a local http:// server.
+const WEB_COMPANION_URL := BACKEND_URL + "/companion"
 
 ## Astronaut suits, in picker order. Art: assets/sprites/astronaut_<id>.png
 ## (6-frame walk strip) and assets/ui/portrait_<id>.png (picker portrait).
@@ -40,6 +44,11 @@ func _ready() -> void:
 	_apply_audio()
 	if fullscreen and not OS.has_feature("web"):
 		_apply_window()
+
+
+func backend_url() -> String:
+	var override := OS.get_environment("B2E_BACKEND").strip_edges()
+	return override.trim_suffix("/") if override != "" else BACKEND_URL
 
 
 func toggle_mute() -> void:

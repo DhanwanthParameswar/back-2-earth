@@ -158,13 +158,24 @@ Two separate text channels:
 **Run the backend** (Python 3.10+, no packages needed):
 
 ```bash
-python3 server/companion_server.py                 # mock mode: no key, no cost
-export ANTHROPIC_API_KEY=...                        # set a small spending limit first
+python3 server/companion_server.py                 # mock mode: no keys, no cost
+export GEMINI_API_KEY=...                           # Google Gemini writes ECHO's and the crewmate's lines
+export ELEVENLABS_API_KEY=sk_...                    # ElevenLabs speaks the crewmate's lines
 python3 server/companion_server.py                 # live mode
 python3 -m unittest server/test_companion_server.py
 ```
 
-Optional environment variables: `COMPANION_MODEL` (default `claude-haiku-5-5`), `COMPANION_PORT` (8787), `COMPANION_MOCK=1`.
+Optional environment variables: `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), `NPC_VOICE_ID` (default Katie, `HXrznjtuwc7KlmunddH7`), `ELEVENLABS_MODEL` (`eleven_flash_v2_5`), `TEXT_CALLS_PER_DAY` (3000), `TTS_CHARS_PER_DAY` (40000), `COMPANION_PORT` (8787), `COMPANION_MOCK=1` (force mock). On the hosted server the keys live only in `/etc/back2earth/companion.env`.
+
+The endpoints are public, so the server rate-limits each player and stops calling Gemini/ElevenLabs once a daily budget is used up (the game then falls back to scripted lines).
+
+### Crewmate (talk to an NPC)
+
+Layout char `M` places the surviving crewmate (top-left of the cockpit). Walk up and she says the pre-recorded greeting (`assets/voice/crewmate_greeting.mp3`, works offline). Press **E** to open the chat box, type anything, **Enter** to send, **Esc** to close.
+
+Pipeline: game `POST /npc/talk` (message + last few turns + the canonical objective/hint) → Gemini writes a 1-2 sentence in-character reply → the text shows at once → game `GET /npc/audio/<id>.mp3` → ElevenLabs reads it in Katie's voice (cached on the server and by Cloudflare). If the server is unreachable, she answers with a scripted line built from the real hint. She can't change game state: replies are flavor and paraphrased hints only.
+
+To add another NPC: add an entry to `NPCS` in `server/companion_server.py` (persona prompt + voice id), a script like `scripts/interactables/crewmate.gd` with its `npc_id`, and a layout char in `ship_builder.gd`. To pre-record a scripted line in the same voice, run on the server: `python3 /opt/back2earth/server/companion_server.py --tts "Your line." > line.mp3` (with the env file loaded).
 
 The game posts to `http://127.0.0.1:8787/companion`. With no server running, the HUD shows `ECHO: OFFLINE` and the game is fully playable.
 

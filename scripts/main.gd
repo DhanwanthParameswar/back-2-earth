@@ -8,6 +8,8 @@ extends Node2D
 const ShipBuilder = preload("res://scripts/ship/ship_builder.gd")
 const GravityDirector = preload("res://scripts/core/gravity_director.gd")
 const CompanionClient = preload("res://scripts/ai/companion_client.gd")
+const NpcClient = preload("res://scripts/ai/npc_client.gd")
+const NpcChat = preload("res://scripts/ui/npc_chat.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Art = preload("res://scripts/ship/art.gd")
@@ -57,6 +59,14 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.name = "HUD"
 	add_child(hud)
+
+	# Crewmate chat (layout char M): server client + the chat box.
+	var npc_client = NpcClient.new()
+	npc_client.name = "NpcClient"
+	add_child(npc_client)
+	var npc_chat = NpcChat.new()
+	npc_chat.name = "NpcChat"
+	add_child(npc_chat)
 
 	Sfx.start_ambient()
 

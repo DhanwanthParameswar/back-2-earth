@@ -6,6 +6,7 @@ extends Node
 
 const GravityDirector = preload("res://scripts/core/gravity_director.gd")
 const CompanionClient = preload("res://scripts/ai/companion_client.gd")
+const NpcClient = preload("res://scripts/ai/npc_client.gd")
 const MainScene = preload("res://scenes/main.tscn")
 const MenuScene = preload("res://scenes/menu.tscn")
 
@@ -22,6 +23,8 @@ func _ready() -> void:
 	_test_gravity_cycle()
 	_test_companion_validation()
 	_test_skin_assets()
+	_test_npc_helpers()
+	await _test_crewmate()
 	await _test_full_run()
 	await _test_restart_resets()
 	await _test_menu()
@@ -145,6 +148,49 @@ func _test_skin_assets() -> void:
 		if ok:
 			var sheet: Texture2D = load(sheet_path)
 			_check(sheet.get_width() % 6 == 0, "%s walk sheet splits into 6 frames" % skin["id"])
+
+
+func _test_npc_helpers() -> void:
+	print("Crewmate chat (pure)")
+	var hint := "Use the cockpit terminal (E)."
+	_check(NpcClient.offline_line("do you have any instructions?", hint).contains(hint), "offline answer to 'instructions' gives the real hint")
+	_check(NpcClient.offline_line("nice weather", hint).contains(hint), "offline small talk still steers to the hint")
+	var ok := {"npc_id": "crewmate", "line": "[b]Terminal[/b] first.", "source": "model"}
+	_check(NpcClient.validate_reply(ok, "crewmate") == "Terminal first.", "valid NPC reply accepted, markup stripped")
+	var other := ok.duplicate()
+	other["npc_id"] = "echo"
+	_check(NpcClient.validate_reply(other, "crewmate") == "", "reply for another NPC rejected")
+	_check(NpcClient.validate_reply({"npc_id": "crewmate", "line": "x".repeat(300)}, "crewmate") == "", "over-long NPC reply rejected")
+	_check(NpcClient.validate_reply("nope", "crewmate") == "", "non-object NPC reply rejected")
+	_check(ResourceLoader.exists("res://assets/voice/crewmate_greeting.mp3"), "greeting voice line is in the build")
+
+
+func _test_crewmate() -> void:
+	print("Crewmate in the cockpit")
+	var main = MainScene.instantiate()
+	add_child(main)
+	await get_tree().process_frame
+	GameState.begin_play()
+	var ship = get_tree().get_first_node_in_group("ship")
+	var player = get_tree().get_first_node_in_group("player")
+	var mate = ship.get_node_or_null("Crewmate")
+	_check(mate != null, "layout M spawns the crewmate")
+	if mate == null:
+		main.queue_free()
+		await get_tree().process_frame
+		return
+	_check(ship.room_at(mate.global_position) == "cockpit", "crewmate stands in the cockpit")
+	_check(mate.global_position.x < 64 and mate.global_position.y < 144, "crewmate is in the cockpit's top-left corner")
+	_check(mate.can_interact(player), "crewmate can be talked to while playing")
+	var chat = main.get_node("NpcChat")
+	mate.interact(player)
+	await get_tree().process_frame
+	_check(mate.greeted and mate.last_line == mate.GREETING, "talking first plays the greeting")
+	_check(chat.is_open() and player.input_blocked(), "E opens the chat box and freezes the player")
+	chat.close()
+	_check(not chat.is_open() and not player.input_blocked(), "closing the chat frees the player")
+	main.queue_free()
+	await get_tree().process_frame
 
 
 func _test_full_run() -> void:

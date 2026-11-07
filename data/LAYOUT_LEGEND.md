@@ -23,6 +23,7 @@ The game builds walls, doors, and objects from it at startup.
 | `2` | Door Engineering → Cargo | Opens after `restore_power` |
 | `3` | Door Cargo → Pod Bay | Opens after `collect_core` |
 | `x` | Debris | Slides with each pull; −10 s on contact |
+| `M` | Crewmate (NPC) | Greets the player out loud; E opens a chat (AI reply + voice). Solid at her feet, so leave a free tile beside her |
 
 Rooms are split by the columns of doors `1`, `2`, `3`
 (left of `1` = cockpit, `1`–`2` = engineering, `2`–`3` = cargo, right of `3` = pod bay).

@@ -23,6 +23,7 @@ const CorePickup = preload("res://scripts/interactables/core_pickup.gd")
 const EscapePod = preload("res://scripts/interactables/escape_pod.gd")
 const CargoSled = preload("res://scripts/interactables/cargo_sled.gd")
 const Debris = preload("res://scripts/interactables/debris.gd")
+const Crewmate = preload("res://scripts/interactables/crewmate.gd")
 
 const TILE := Art.TILE
 const BLOCKING := "#wW|CS"
@@ -32,6 +33,7 @@ const CONSOLE_BASE := 14.0
 const CORE_BASE := 6.0
 const POD_BASE := 28.0
 const SLED_BASE := 14.0
+const NPC_BASE := 10.0
 const CHANNEL := "|CS"
 
 ## Door char -> objective that opens it.
@@ -59,7 +61,7 @@ const DEFAULT_LAYOUT := """
 ##WWWWWWW#####################################
 ##WWWWWWW#####################################
 #.........#.........#.C...x..#....#..x.......#
-#....T....#.........#.|......#.N..#....L.....#
+#M...T....#.........#.|......#.N..#....L.....#
 w.........#.........#.|......#....#..........#
 w.........#.........#.S......##KK##..........#
 w.........1.........2.............3..........#
@@ -224,6 +226,11 @@ func _build_objects() -> void:
 			elif ch == "@":
 				player_start = pos
 				found_player = true
+			elif ch == "M":
+				var mate := Crewmate.new()
+				mate.name = "Crewmate"
+				mate.position = pos + Vector2(0, NPC_BASE)
+				add_child(mate)
 
 	if sled_start != Vector2.INF and sled_end != Vector2.INF:
 		var sled := CargoSled.new()

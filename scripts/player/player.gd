@@ -78,7 +78,7 @@ func set_camera_limits(rect: Rect2) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not GameState.is_playing():
+	if not GameState.is_playing() or input_blocked():
 		velocity = Vector2.ZERO
 		braced = false
 		current_target = null
@@ -109,6 +109,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		if current_target != null and current_target.can_interact(self):
 			current_target.interact(self)
 			get_viewport().set_input_as_handled()
+
+
+## True while a UI that takes typing (e.g. the crewmate chat box) is open.
+func input_blocked() -> bool:
+	for node in get_tree().get_nodes_in_group("blocks_player_input"):
+		if node.has_method("is_open") and node.is_open():
+			return true
+	return false
 
 
 func _get_director_drift() -> Vector2:
