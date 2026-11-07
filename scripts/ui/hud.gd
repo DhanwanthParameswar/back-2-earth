@@ -5,6 +5,7 @@ extends CanvasLayer
 ## Base resolution is 640x360 (see project.godot); positions are in those pixels.
 
 const Art = preload("res://scripts/ship/art.gd")
+const PressButton = preload("res://scripts/ui/press_button.gd")
 
 const CAPTION_TIME := 6.0
 
@@ -22,11 +23,9 @@ var _status_label: Label
 var _hit_flash: ColorRect
 var _edge_flash: Control
 
-var _briefing: Control
 var _picker: Control
 var _picker_cards: Array = []
 var _pick_index := 0
-var _brief_step := 0  # 0 = story, 1 = suit picker
 var _pause: Control
 var _pause_options: Label
 var _lost: Control
@@ -51,7 +50,6 @@ func _ready() -> void:
 	layer = 10
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_hud()
-	_build_briefing()
 	_build_picker()
 	_build_pause()
 	_build_lost()
@@ -94,9 +92,6 @@ func _process(delta: float) -> void:
 		_caption_panel.modulate.a = clampf(_caption_left / 0.6, 0.0, 1.0)
 		_caption_panel.visible = _caption_left > 0.0
 
-	if _briefing.visible:
-		var start_label: Label = _briefing.get_node("Start")
-		start_label.visible = int(_blink_t * 2.0) % 2 == 0
 	if _picker.visible:
 		for i in _picker_cards.size():
 			_picker_cards[i].set_selected(i == _pick_index, _blink_t)
@@ -140,32 +135,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var phase: int = GameState.phase
 	if phase == GameState.Phase.BRIEFING:
-		if _brief_step == 0:
-			if event.is_action_pressed("confirm"):
-				Settings.seen_briefing = true
-				_show_brief_step(1)
-				_handled()
-			elif event.is_action_pressed("pause") or event.is_action_pressed("to_menu"):
-				_go_to_menu()
-				_handled()
-		else:
-			if event.is_action_pressed("move_left") or event.is_action_pressed("move_up"):
-				_move_pick(-1)
-				_handled()
-			elif event.is_action_pressed("move_right") or event.is_action_pressed("move_down"):
-				_move_pick(1)
-				_handled()
-			elif event.is_action_pressed("confirm"):
-				Settings.set_skin(Settings.SKINS[_pick_index]["id"])
-				Sfx.play("objective", -8.0)
-				GameState.begin_play()
-				_handled()
-			elif event.is_action_pressed("pause"):
-				_show_brief_step(0)
-				_handled()
-			elif event.is_action_pressed("to_menu"):
-				_go_to_menu()
-				_handled()
+		# The suit picker is the only pre-run screen (the menu covers the rest).
+		if event.is_action_pressed("move_left") or event.is_action_pressed("move_up"):
+			_move_pick(-1)
+			_handled()
+		elif event.is_action_pressed("move_right") or event.is_action_pressed("move_down"):
+			_move_pick(1)
+			_handled()
+		elif event.is_action_pressed("confirm"):
+			_launch()
+			_handled()
+		elif event.is_action_pressed("pause") or event.is_action_pressed("to_menu"):
+			_go_to_menu()
+			_handled()
 	elif phase == GameState.Phase.PLAYING:
 		if event.is_action_pressed("pause"):
 			GameState.set_paused(not GameState.is_paused())
@@ -211,9 +193,8 @@ func _go_to_menu() -> void:
 
 func _on_phase_changed(phase: int) -> void:
 	if phase == GameState.Phase.BRIEFING:
-		_show_brief_step(1 if Settings.seen_briefing else 0)
+		_show_picker()
 	else:
-		_briefing.visible = false
 		_picker.visible = false
 	_pause.visible = false
 	_on_objective_changed("")
@@ -434,42 +415,6 @@ func _build_hud() -> void:
 	_caption_panel.add_child(_caption_text)
 
 
-func _build_briefing() -> void:
-	_briefing = _full_screen()
-	_briefing.name = "Briefing"
-	_briefing.add_child(_rect(Vector2.ZERO, Vector2(640, 360), Color.BLACK))
-	var bh_tex := Art.tex("res://assets/backdrops/black_hole.png")
-	if bh_tex != null:
-		var bh := TextureRect.new()
-		bh.texture = bh_tex
-		bh.size = Vector2(640, 360)
-		bh.modulate = Color(1, 1, 1, 0.45)
-		_briefing.add_child(bh)
-	var title := _label("BACK2EARTH", Vector2(0, 40), Vector2(640, 40), 34, HORIZONTAL_ALIGNMENT_CENTER)
-	title.modulate = Art.CYAN
-	_briefing.add_child(title)
-	var story := _label(
-		"A collision left your ship tumbling toward a black hole.\n"
-		+ "Its gravity is failing in surges. Its AI, ECHO, is failing in personality.\n"
-		+ "Restore power, recover the navigation core, and launch the last pod home.",
-		Vector2(40, 96), Vector2(560, 70), 12, HORIZONTAL_ALIGNMENT_CENTER)
-	_briefing.add_child(story)
-	var controls := _label(
-		"WASD / Arrows  move      E  interact      hold SPACE  mag-boots\n"
-		+ "H  ask ECHO      Esc  pause\n"
-		+ "Amber arrow = surge coming.  Red = pulling.  Red dots = debris lanes (-10 s).",
-		Vector2(20, 184), Vector2(600, 60), 11, HORIZONTAL_ALIGNMENT_CENTER)
-	controls.modulate = Color(0.76, 0.76, 0.78)
-	_briefing.add_child(controls)
-	var start := _label("Press E to continue", Vector2(0, 274), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
-	start.name = "Start"
-	start.modulate = Art.AMBER
-	_briefing.add_child(start)
-	var back := _label("Esc  main menu", Vector2(0, 300), Vector2(640, 16), 10, HORIZONTAL_ALIGNMENT_CENTER)
-	back.modulate = Color(0.6, 0.6, 0.65)
-	_briefing.add_child(back)
-
-
 func _build_picker() -> void:
 	_picker = _full_screen()
 	_picker.name = "SuitPicker"
@@ -496,24 +441,48 @@ func _build_picker() -> void:
 			str(skin["blurb"]),
 			"%d" % (i + 1)
 		)
+		card.clicked.connect(_on_card_clicked.bind(i))
 		_picker_cards.append(card)
 
-	var help := _label("A / D or Left / Right  choose        E  launch        Esc  back        Q  menu",
-		Vector2(0, 296), Vector2(640, 20), 12, HORIZONTAL_ALIGNMENT_CENTER)
+	var launch := PressButton.new()
+	launch.name = "Launch"
+	launch.position = Vector2(250, 274)
+	launch.size = Vector2(140, 28)
+	launch.set_label("LAUNCH")
+	launch.pressed.connect(_launch)
+	_picker.add_child(launch)
+
+	var help := _label("Click a suit or use A / D      E  launch      Esc  main menu",
+		Vector2(0, 308), Vector2(640, 18), 11, HORIZONTAL_ALIGNMENT_CENTER)
 	help.modulate = Art.AMBER
 	_picker.add_child(help)
-	var note := _label("Your suit is remembered for the next run.", Vector2(0, 318), Vector2(640, 16), 10,
+	var note := _label("Your suit is remembered for the next run.", Vector2(0, 328), Vector2(640, 16), 10,
 		HORIZONTAL_ALIGNMENT_CENTER)
 	note.modulate = Color(0.6, 0.6, 0.65)
 	_picker.add_child(note)
 
 
-func _show_brief_step(step: int) -> void:
-	_brief_step = step
-	_briefing.visible = step == 0
-	_picker.visible = step == 1
-	if step == 1:
-		_pick_index = maxi(0, Settings.skin_index(Settings.skin))
+func _show_picker() -> void:
+	_picker.visible = true
+	_pick_index = maxi(0, Settings.skin_index(Settings.skin))
+
+
+## Start the run with the highlighted suit.
+func _launch() -> void:
+	if GameState.phase != GameState.Phase.BRIEFING:
+		return
+	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
+	Sfx.play("objective", -8.0)
+	GameState.begin_play()
+
+
+func _on_card_clicked(i: int) -> void:
+	if i == _pick_index:
+		_launch()  # clicking the chosen suit again launches
+	else:
+		_pick_index = i
+		Settings.set_skin(Settings.SKINS[i]["id"])
+		Sfx.play("boots", -10.0)
 
 
 func _move_pick(delta: int) -> void:
@@ -675,14 +644,21 @@ class Starfield extends Control:
 ## One suit in the picker: grid panel (like the concept sheet), portrait at 6x,
 ## name and blurb. Cyan frame + bobbing portrait when selected.
 class SkinCard extends Control:
+	signal clicked
+
 	var _portrait: TextureRect
 	var _name: Label
 	var _blurb: Label
 	var _key: Label
 	var _selected := false
 
+	var _held := false
+	var _base_y := 0.0
+
 	func setup(portrait: Texture2D, title: String, blurb: String, key: String) -> void:
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_base_y = position.y
 		_portrait = TextureRect.new()
 		_portrait.texture = portrait
 		_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -695,6 +671,26 @@ class SkinCard extends Control:
 		_blurb.modulate = Color(0.7, 0.72, 0.8)
 		_key = _make_label(key, 182, 10)
 		_key.modulate = Color(0.45, 0.5, 0.65)
+
+	## Press feel: the card sinks 3 px while held; a release on it is a click.
+	func _gui_input(event: InputEvent) -> void:
+		var mb := event as InputEventMouseButton
+		if mb == null or mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mb.pressed:
+			_held = true
+			position.y = _base_y + 3.0
+		elif _held:
+			_held = false
+			position.y = _base_y
+			if Rect2(Vector2.ZERO, size).has_point(mb.position):
+				clicked.emit()
+		accept_event()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_EXIT and _held:
+			_held = false
+			position.y = _base_y
 
 	func _make_label(text: String, y: float, font_size: int) -> Label:
 		var l := Label.new()

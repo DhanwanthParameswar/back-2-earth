@@ -29,9 +29,9 @@ If you open the project in a different version, Godot asks to convert it. Say no
 
 1. Open Godot 4.7 → **Import** → pick this folder's `project.godot`. The first open imports all PNG/WAV files; wait for it to finish.
 2. Watch the **Output** and **Debugger → Errors** panels. They should show no red errors.
-3. Press **F5**. The animated title menu plays. Hover or arrow through the buttons; each should get a pulsing outline. Open **How to Play**, **Settings**, and **Credits** (Esc closes them). Click the speaker icon: a red slash shows it's muted. Then choose **Start Game**.
-4. The black-hole briefing appears. Press **E**.
-5. The suit picker appears. Press A/D or ←/→ to pick a suit, then **E** to launch.
+3. Press **F5**. The animated title menu plays. Hold the mouse down on each button: it should sink in (the face drops onto its shadow and dims), and act when you let go. Open **How to Play**, **Settings**, and **Credits** (Esc or BACK closes them). Click the speaker icon: a red slash shows it's muted. Then click **Start Game** (or press Enter).
+4. The suit picker opens. Each suit card sinks when clicked.
+5. Click a suit (click it again, press LAUNCH, or press **E** to start). A/D or ←/→ also choose.
 6. Walk to the blue terminal (top of the cockpit) and press **E**. The cockpit door opens and the timer starts. Walk behind the terminal: your astronaut should be hidden behind it, then drawn in front when you walk below it.
 7. Run the automated checks from a terminal in this folder:
    ```bash
@@ -54,8 +54,8 @@ If anything errors, paste the exact error into chat (with the file and line) and
 | Esc / P | Pause (then R restart, M mute, V reduced shake/flash) |
 | R | Restart on the end screens |
 | A/D or ←/→ | Choose a suit on the picker (E to launch, Esc back to the story) |
-| Q | Main menu (from pause, win, lose, briefing, or picker) |
-| Menu | Arrows/WASD choose, E/Enter select, M mute, Esc close a panel; mouse works too |
+| Q | Main menu (from pause, win, lose, or picker; Esc also works on the picker) |
+| Menu | Mouse for every button; Enter/E = Start Game, M = mute, Esc = close a panel |
 
 Input actions are registered in code (`scripts/core/input_setup.gd`). If you add an action with the same name in Project Settings → Input Map, yours wins.
 
@@ -64,13 +64,13 @@ Input actions are registered in code (`scripts/core/input_setup.gd`). If you add
 ## How a run plays
 
 ```
-Title menu ─Start Game─▶ Briefing (first time only) ─E─▶ Suit picker ─E─▶ run
+Title menu ─Start Game─▶ Suit picker ─Launch─▶ run
    ▲                                                                        │
    └──────────── Q from pause / win / lose (R restarts the run) ───────────┘
 ```
 
 ```
-Briefing ─E─▶ Cockpit ──▶ Engineering ──▶ Cargo ──────────────▶ Pod Bay ──▶ Earth
+Picker ─▶ Cockpit ──▶ Engineering ──▶ Cargo ──────────────▶ Pod Bay ──▶ Earth
               terminal     power console   sled slides on a      clamp,
               (timer       (doors 2 open,  DOWN surge → plate    board pod
               starts)      sled powered)   → compartment → core
@@ -112,7 +112,9 @@ scripts/ai/companion_client.gd     C   ECHO client: requests, validation, fallba
 data/dialogue_fallbacks.json       C   authored ECHO lines (offline mode)
 server/                            C   /companion backend (Python stdlib)
 
-scripts/ui/hud.gd                  D   HUD, briefing, pause, lose/win screens
+scripts/ui/hud.gd                  D   HUD, suit picker, pause, lose/win screens
+scripts/ui/press_button.gd         D   panel/picker button that sinks when pressed
+tools/extract_menu_buttons.py      D   cuts the painted button faces out of the menu video
 scenes/menu.tscn, scripts/ui/main_menu.gd   D   title menu over the menu video
 scripts/ui/ui_style.gd             D   shared navy/cyan panel + button style
 data/credits.json                  D   names on the CREDITS panel
@@ -198,7 +200,7 @@ The API key lives only in the server's environment. Never put it in Godot, the r
 ## Suits (skins)
 
 - Four suits: **classic**, **hazard**, **nebula**, **mint**. They are listed in `Settings.SKINS`, and the choice is saved in `user://settings.cfg`.
-- **Flow:** briefing → suit picker → play. After the first briefing, restarts go straight to the picker with your last suit selected.
+- **Flow:** menu → suit picker → play. Every new run and restart opens the picker with your last suit selected.
 - **Art pipeline:** the original drawings live in `art_source/` (a 4×6 walk sheet and the concept sheet). `python3 tools/import_astronaut_skins.py` snaps them to a true pixel grid and writes:
   - `assets/sprites/astronaut_<suit>.png`: 6 walk frames facing right, each 20×26 art px, saved at 2× (40×52 in-game). Frame 5 is idle; left is a flip.
   - `assets/ui/portrait_<suit>.png`: 16×19 front portrait, shown at 6× on the picker.
@@ -207,7 +209,8 @@ The API key lives only in the server's environment. Never put it in Godot, the r
 ## Main menu
 
 - `scenes/menu.tscn` + `scripts/ui/main_menu.gd` is the project's main scene. The title and the five buttons are **painted into** `assets/video/menu_loop.ogv`, which loops every 12 s. The script places invisible buttons exactly over the painted ones (`HOTSPOTS`, in 640×360 px). If the video is redrawn, re-measure those rects: take the 1920×1080 frame and divide the pixel coordinates by 3.
-- **Focus:** keyboard focus is a pulsing outline plus arrows on the big buttons. The cyan fill on START GAME is part of the art (it's the primary button). It doesn't mean "selected".
+- **Press effect:** while a button is held, it's covered with the background color and its face is redrawn lower by the depth of its 3D strip, slightly darker, so it looks pushed in. The face images come from `tools/extract_menu_buttons.py` (`assets/ui/menu_btn_<id>.png`). The action fires on release. There is no hover or selection outline by design.
+- **Keys:** Enter/E presses START GAME and M presses the speaker, both with the same sink animation. Esc closes a panel. Panel buttons and suit cards sink the same way when clicked.
 - **Buttons:**
   - START GAME fades out and loads the game.
   - HOW TO PLAY shows the goal, steps, and controls.

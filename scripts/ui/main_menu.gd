@@ -1,36 +1,42 @@
 extends Control
 ## Title screen (scenes/menu.tscn, the project's main scene). Owner: D.
 ##
-## The title and the five buttons are painted into a looping video. This script
-## lays invisible hit areas exactly over the painted buttons, draws a focus
-## marker for keyboard players, and opens the How to Play / Settings / Credits
-## panels. START GAME loads scenes/main.tscn (briefing -> suit picker -> run).
-## Keys: arrows/WASD move, E/Enter select, M mute, Esc closes a panel.
+## The title and the five buttons are painted into a looping video. Invisible
+## click areas sit exactly over the painted buttons. While a button is held it
+## looks pushed in: the button is covered with background color and its face
+## (cut from the video, assets/ui/menu_btn_<id>.png) is drawn lower by the
+## depth of its 3D strip, slightly darker. The action fires on release.
+## START GAME loads scenes/main.tscn (suit picker -> run).
+## Keys: Enter/E = Start Game, M = sound, Esc = close a panel.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
+const PressButton = preload("res://scripts/ui/press_button.gd")
 const MENU_VIDEO := "res://assets/video/menu_loop.ogv"
 const GAME_SCENE := "res://scenes/main.tscn"
 const CREDITS_PATH := "res://data/credits.json"
 
-## Hit areas in 640x360 base px, measured on the 1920x1080 source and divided
-## by 3. If the menu video is redrawn, re-measure these (see README "Menu").
+## Painted buttons in 640x360 menu px (1080p source / 3). `rect` covers the
+## face plus its 3D strip; `depth` is the strip height; `bg` is the space color
+## right behind the button. Re-measure with tools/extract_menu_buttons.py if
+## the menu video is redrawn.
 const HOTSPOTS := [
-	{"id": "start", "rect": Rect2(205, 175, 228, 38), "label": "START GAME"},
-	{"id": "how", "rect": Rect2(203, 227, 232, 38), "label": "HOW TO PLAY"},
-	{"id": "settings", "rect": Rect2(203, 280, 232, 38), "label": "SETTINGS"},
-	{"id": "credits", "rect": Rect2(11, 320, 73, 27), "label": "CREDITS"},
-	{"id": "sound", "rect": Rect2(588, 316, 40, 32), "label": "SOUND"},
+	{"id": "start", "rect": Rect2(204, 173, 230, 45), "depth": 6, "bg": Color("0b0b2e"), "label": "START GAME"},
+	{"id": "how", "rect": Rect2(202, 228, 233, 43), "depth": 7, "bg": Color("0b0a2d"), "label": "HOW TO PLAY"},
+	{"id": "settings", "rect": Rect2(202, 280, 233, 44), "depth": 7, "bg": Color("0c0c30"), "label": "SETTINGS"},
+	{"id": "credits", "rect": Rect2(10, 321, 74, 29), "depth": 3, "bg": Color("0a0b2d"), "label": "CREDITS"},
+	{"id": "sound", "rect": Rect2(588, 315, 40, 34), "depth": 3, "bg": Color("0b0c2e"), "label": "SOUND"},
 ]
+## How long a keyboard shortcut shows the pushed-in look before acting.
+const KEY_PRESS_TIME := 0.12
 
-var focus_index := 0
 var open_panel := ""  # "", "how", "settings", or "credits"
 
 var _video: VideoStreamPlayer = null
-var _marker: FocusMarker
+var _press_overlays := {}    # id -> Control (shown while that button is held)
+var _mute_slash: MuteSlash
 var _fade: ColorRect
-var _panels := {}           # id -> Control
-var _panel_items := {}      # id -> Array of focusable Buttons
-var _settings_buttons := {} # setting key -> Button
+var _panels := {}            # id -> Control
+var _settings_buttons := {}  # setting key -> PressButton
 var _leaving := false
 
 
@@ -43,16 +49,10 @@ func _ready() -> void:
 	var has_video := _build_background()
 	_build_hotspots(not has_video)
 
-	_marker = FocusMarker.new()
-	_marker.menu = self
-	_marker.size = size
-	add_child(_marker)
-
-	var hint := UiStyle.label("Arrows / WASD  choose     E / Enter  select     M  mute", 9, Color(UiStyle.MUTED, 0.8))
-	hint.position = Vector2(0, 344)
-	hint.size = Vector2(640, 14)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(hint)
+	_mute_slash = MuteSlash.new()
+	_mute_slash.target = HOTSPOTS[4]["rect"]
+	_mute_slash.size = size
+	add_child(_mute_slash)
 
 	_build_how_panel()
 	_build_settings_panel()
@@ -72,13 +72,10 @@ func _ready() -> void:
 
 # --- Actions ----------------------------------------------------------------------
 
-## What each painted button does. Also called by tests.
+## What each painted button does (fires on release). Also called by tests.
 func activate(id: String) -> void:
 	if _leaving:
 		return
-	var idx := _hotspot_index(id)
-	if idx >= 0:
-		focus_index = idx
 	match id:
 		"start":
 			_start_game()
@@ -88,7 +85,6 @@ func activate(id: String) -> void:
 			Settings.toggle_mute()
 			if not Settings.muted:
 				Sfx.play("objective", -8.0)
-	_marker.queue_redraw()
 
 
 func _start_game() -> void:
@@ -102,11 +98,7 @@ func _start_game() -> void:
 func _open(id: String) -> void:
 	_close_panel(false)
 	open_panel = id
-	var panel: Control = _panels[id]
-	panel.visible = true
-	var items: Array = _panel_items[id]
-	if not items.is_empty():
-		items[0].grab_focus()
+	_panels[id].visible = true
 	Sfx.play("door", -10.0)
 
 
@@ -115,33 +107,45 @@ func _close_panel(play_sound := true) -> void:
 		return
 	_panels[open_panel].visible = false
 	open_panel = ""
-	var owner_control := get_viewport().gui_get_focus_owner()
-	if owner_control != null:
-		owner_control.release_focus()
 	if play_sound:
 		Sfx.play("boots", -10.0)
-	_marker.queue_redraw()
 
 
-func _move_focus(step: int) -> void:
-	focus_index = (focus_index + step + HOTSPOTS.size()) % HOTSPOTS.size()
+## Pushed-in look on/off for one painted button.
+func set_pressed_look(id: String, held: bool) -> void:
+	if _press_overlays.has(id):
+		_press_overlays[id].visible = held
+	if id == "sound":
+		_mute_slash.pressed_offset = int(HOTSPOTS[4]["depth"]) if held else 0
+		_mute_slash.queue_redraw()
+
+
+func is_pressed_look(id: String) -> bool:
+	return _press_overlays.has(id) and _press_overlays[id].visible
+
+
+func _on_hotspot_down(id: String) -> void:
+	if not _leaving and open_panel == "":
+		set_pressed_look(id, true)
+		Sfx.play("boots", -12.0)
+
+
+func _on_hotspot_up(id: String) -> void:
+	set_pressed_look(id, false)
+
+
+## Keyboard shortcut: show the press briefly, then act.
+func _press_by_key(id: String) -> void:
+	set_pressed_look(id, true)
 	Sfx.play("boots", -12.0)
-	_marker.queue_redraw()
+	var tw := create_tween()
+	tw.tween_interval(KEY_PRESS_TIME)
+	tw.tween_callback(_release_key_press.bind(id))
 
 
-func get_hotspot_rect(i: int) -> Rect2:
-	return HOTSPOTS[i]["rect"]
-
-
-func is_marker_visible() -> bool:
-	return open_panel == "" and not _leaving
-
-
-func _hotspot_index(id: String) -> int:
-	for i in HOTSPOTS.size():
-		if HOTSPOTS[i]["id"] == id:
-			return i
-	return -1
+func _release_key_press(id: String) -> void:
+	set_pressed_look(id, false)
+	activate(id)
 
 
 # --- Input ------------------------------------------------------------------------
@@ -150,47 +154,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _leaving or not (event is InputEventKey) or not event.is_pressed() or event.is_echo():
 		return
 	if open_panel != "":
-		_panel_input(event)
+		if _any(event, ["pause", "ui_cancel"]):
+			_close_panel()
+			get_viewport().set_input_as_handled()
 		return
-	if _any(event, ["move_up", "move_left", "ui_up", "ui_left"]):
-		_move_focus(-1)
-	elif _any(event, ["move_down", "move_right", "ui_down", "ui_right"]):
-		_move_focus(1)
-	elif _any(event, ["confirm", "ui_accept"]):
-		activate(HOTSPOTS[focus_index]["id"])
+	if _any(event, ["confirm", "ui_accept"]):
+		_press_by_key("start")
 	elif event.is_action_pressed("toggle_mute"):
-		activate("sound")
+		_press_by_key("sound")
 	else:
 		return
 	get_viewport().set_input_as_handled()
-
-
-## Inside a panel: arrows/Enter go through Godot's focus system; W/S/E and Esc here.
-func _panel_input(event: InputEvent) -> void:
-	if _any(event, ["pause", "ui_cancel"]):
-		_close_panel()
-	elif event.is_action_pressed("move_up"):
-		_panel_focus_step(-1)
-	elif event.is_action_pressed("move_down"):
-		_panel_focus_step(1)
-	elif event.is_action_pressed("confirm"):
-		var f = get_viewport().gui_get_focus_owner()  # untyped: we emit a Button signal
-		if f is Button:
-			f.pressed.emit()
-	else:
-		return
-	get_viewport().set_input_as_handled()
-
-
-func _panel_focus_step(step: int) -> void:
-	var items: Array = _panel_items.get(open_panel, [])
-	if items.is_empty():
-		return
-	var current := items.find(get_viewport().gui_get_focus_owner())
-	var next := (maxi(current, 0) + step + items.size()) % items.size()
-	if current < 0:
-		next = 0
-	items[next].grab_focus()
 
 
 static func _any(event: InputEvent, actions: Array) -> bool:
@@ -200,7 +174,7 @@ static func _any(event: InputEvent, actions: Array) -> bool:
 	return false
 
 
-# --- Background and hit areas -----------------------------------------------------------
+# --- Background and painted buttons --------------------------------------------------------
 
 ## Returns true if the video is playing (false = plain fallback menu).
 func _build_background() -> bool:
@@ -224,38 +198,79 @@ func _build_background() -> bool:
 	_video.volume_db = -80.0
 	_video.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_video.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR  # 720p art on a 640x360 canvas
-	_video.finished.connect(func(): _video.play())  # seamless 12 s loop
+	_video.finished.connect(_on_video_finished)
 	add_child(_video)
 	_video.play()
 	return true
 
 
-func _build_hotspots(show_labels: bool) -> void:
-	for i in HOTSPOTS.size():
-		var spot: Dictionary = HOTSPOTS[i]
-		var b := Button.new()
-		b.name = "Hotspot_%s" % spot["id"]
+func _on_video_finished() -> void:
+	_video.play()  # seamless 12 s loop
+
+
+func _build_hotspots(fallback: bool) -> void:
+	for spot in HOTSPOTS:
+		var id: String = spot["id"]
 		var r: Rect2 = spot["rect"]
+		if fallback:
+			# No video: draw the buttons ourselves (they press the same way).
+			var pb := PressButton.new()
+			pb.name = "Hotspot_%s" % id
+			pb.position = r.position
+			pb.size = r.size
+			pb.set_label(spot["label"])
+			pb.pressed.connect(activate.bind(id))
+			pb.add_to_group("menu_hotspot")
+			add_child(pb)
+			continue
+
+		_press_overlays[id] = _make_press_overlay(spot)
+		var b := Button.new()
+		b.name = "Hotspot_%s" % id
 		b.position = r.position
 		b.size = r.size
-		b.focus_mode = Control.FOCUS_NONE  # keyboard focus is ours (FocusMarker)
+		b.focus_mode = Control.FOCUS_NONE
 		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		if show_labels:
-			b.text = spot["label"]
-			UiStyle.style_button(b, 12)
-		else:
-			for state in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
-				b.add_theme_stylebox_override(state, StyleBoxEmpty.new())
-		b.mouse_entered.connect(_on_hotspot_hovered.bind(i))
-		b.pressed.connect(activate.bind(spot["id"]))
+		for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+			b.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+		b.button_down.connect(_on_hotspot_down.bind(id))
+		b.button_up.connect(_on_hotspot_up.bind(id))
+		b.pressed.connect(activate.bind(id))  # on release, inside the button
 		b.add_to_group("menu_hotspot")
 		add_child(b)
 
 
-func _on_hotspot_hovered(i: int) -> void:
-	if open_panel == "" and focus_index != i:
-		focus_index = i
-		_marker.queue_redraw()
+## Background patch over the whole button + its face redrawn lower and darker.
+func _make_press_overlay(spot: Dictionary) -> Control:
+	var r: Rect2 = spot["rect"]
+	var depth := float(spot["depth"])
+	var overlay := Control.new()
+	overlay.name = "Press_%s" % spot["id"]
+	overlay.position = r.position
+	overlay.size = r.size
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.visible = false
+	add_child(overlay)
+
+	var patch := ColorRect.new()
+	patch.color = spot["bg"]
+	patch.size = r.size
+	patch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(patch)
+
+	var path := "res://assets/ui/menu_btn_%s.png" % spot["id"]
+	if ResourceLoader.exists(path):
+		var face := TextureRect.new()
+		face.texture = load(path)
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_SCALE
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		face.position = Vector2(0, depth)
+		face.size = Vector2(r.size.x, r.size.y - depth)
+		face.modulate = Color(0.85, 0.85, 0.85)
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		overlay.add_child(face)
+	return overlay
 
 
 # --- Panels --------------------------------------------------------------------------
@@ -289,34 +304,35 @@ func _make_panel(id: String, title_text: String, panel_size: Vector2) -> VBoxCon
 	vbox.add_child(title)
 
 	_panels[id] = root
-	_panel_items[id] = []
 	return vbox
 
 
-func _add_button(id: String, vbox: VBoxContainer, text: String, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 24)
-	b.focus_mode = Control.FOCUS_ALL
-	UiStyle.style_button(b, 12)
+func _add_button(vbox: VBoxContainer, label_text: String, on_press: Callable) -> PressButton:
+	var b := PressButton.new()
+	b.set_label(label_text)
+	b.custom_minimum_size = Vector2(0, 26)
 	b.pressed.connect(on_press)
-	b.mouse_entered.connect(func(): b.grab_focus())
+	b.button_down.connect(_on_panel_button_down)
 	vbox.add_child(b)
-	_panel_items[id].append(b)
 	return b
 
 
-func _add_back_button(id: String, vbox: VBoxContainer) -> void:
+func _on_panel_button_down() -> void:
+	Sfx.play("boots", -12.0)
+
+
+func _add_back_button(vbox: VBoxContainer) -> void:
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(spacer)
-	_add_button(id, vbox, "BACK", func(): _close_panel())
+	_add_button(vbox, "BACK", _close_panel.bind(true))
 
 
 func _build_how_panel() -> void:
-	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(440, 306))
+	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(440, 318))
 	var body := UiStyle.label(
-		"Reach the escape pod before the 6:00 evacuation window closes.\n\n"
+		"Your ship is tumbling toward a black hole. ECHO, its damaged AI, is still talking.\n"
+		+ "Reach the escape pod before the 6:00 evacuation window closes.\n\n"
 		+ "1   Start the evacuation at the cockpit terminal.\n"
 		+ "2   Restore power in Engineering.\n"
 		+ "3   Wait for a DOWN surge: it slides the cargo sled onto the plate.\n"
@@ -325,37 +341,41 @@ func _build_how_panel() -> void:
 		+ "Amber arrow = surge coming.   Red arrow = pulling.\n"
 		+ "Hold SPACE for mag-boots: slower, but the pull barely moves you.\n"
 		+ "Red lanes carry debris. Each hit costs 10 seconds.\n"
-		+ "Press H to ask ECHO, the ship's damaged AI, for help.",
+		+ "Press H to ask ECHO for help.",
 		11)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(body)
 	var keys := UiStyle.label("WASD / arrows  move    E  interact    SPACE  boots    H  ECHO    Esc  pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
-	_add_back_button("how", vbox)
+	_add_back_button(vbox)
 
 
 func _build_settings_panel() -> void:
-	var vbox := _make_panel("settings", "SETTINGS", Vector2(330, 250))
-	_settings_buttons["sound"] = _add_button("settings", vbox, "", func(): Settings.toggle_mute())
-	_settings_buttons["shake"] = _add_button("settings", vbox, "", func(): Settings.toggle_reduced_shake())
-	_settings_buttons["echo"] = _add_button("settings", vbox, "", func(): Settings.toggle_companion())
+	var vbox := _make_panel("settings", "SETTINGS", Vector2(330, 262))
+	_settings_buttons["sound"] = _add_button(vbox, "", Settings.toggle_mute)
+	_settings_buttons["shake"] = _add_button(vbox, "", Settings.toggle_reduced_shake)
+	_settings_buttons["echo"] = _add_button(vbox, "", Settings.toggle_companion)
 	if not OS.has_feature("web"):
-		_settings_buttons["fullscreen"] = _add_button("settings", vbox, "", func(): Settings.toggle_fullscreen())
-		_add_button("settings", vbox, "QUIT GAME", func(): get_tree().quit())
-	_add_back_button("settings", vbox)
+		_settings_buttons["fullscreen"] = _add_button(vbox, "", Settings.toggle_fullscreen)
+		_add_button(vbox, "QUIT GAME", _quit)
+	_add_back_button(vbox)
+
+
+func _quit() -> void:
+	get_tree().quit()
 
 
 func _refresh_settings_labels() -> void:
 	if _settings_buttons.is_empty():
 		return
-	_settings_buttons["sound"].text = "SOUND: %s" % ("OFF" if Settings.muted else "ON")
-	_settings_buttons["shake"].text = "REDUCED SHAKE & FLASH: %s" % ("ON" if Settings.reduced_shake else "OFF")
-	_settings_buttons["echo"].text = "ECHO LIVE REPLIES: %s" % ("ON" if Settings.companion_enabled else "OFF")
+	_settings_buttons["sound"].set_label("SOUND: %s" % ("OFF" if Settings.muted else "ON"))
+	_settings_buttons["shake"].set_label("REDUCED SHAKE & FLASH: %s" % ("ON" if Settings.reduced_shake else "OFF"))
+	_settings_buttons["echo"].set_label("ECHO LIVE REPLIES: %s" % ("ON" if Settings.companion_enabled else "OFF"))
 	if _settings_buttons.has("fullscreen"):
-		_settings_buttons["fullscreen"].text = "FULLSCREEN: %s" % ("ON" if Settings.fullscreen else "OFF")
-	if _marker != null:
-		_marker.queue_redraw()  # the speaker icon's mute slash
+		_settings_buttons["fullscreen"].set_label("FULLSCREEN: %s" % ("ON" if Settings.fullscreen else "OFF"))
+	if _mute_slash != null:
+		_mute_slash.queue_redraw()
 
 
 func _build_credits_panel() -> void:
@@ -377,7 +397,7 @@ func _build_credits_panel() -> void:
 		body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vbox.add_child(body)
-	_add_back_button("credits", vbox)
+	_add_back_button(vbox)
 
 
 func _load_credits() -> Dictionary:
@@ -391,40 +411,20 @@ func _load_credits() -> Dictionary:
 	return parsed if typeof(parsed) == TYPE_DICTIONARY else fallback
 
 
-# --- Focus marker ----------------------------------------------------------------------
+# --- Mute indicator ----------------------------------------------------------------------
 
-## Pulsing outline (and arrows on the big buttons) around the focused painted
-## button, plus a red slash over the speaker icon while muted.
-class FocusMarker extends Control:
-	var menu = null
-	var _t := 0.0
+## Red slash over the painted speaker while sound is off (moves with the press).
+class MuteSlash extends Control:
+	var target := Rect2()
+	var pressed_offset := 0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	func _process(delta: float) -> void:
-		_t += delta
-		queue_redraw()
-
 	func _draw() -> void:
-		if menu == null:
+		if not Settings.muted:
 			return
-		var sound_rect: Rect2 = menu.get_hotspot_rect(4)
-		if Settings.muted:
-			draw_line(sound_rect.position + Vector2(8, sound_rect.size.y - 6),
-				sound_rect.position + Vector2(sound_rect.size.x - 8, 6), Color("ff004d"), 3.0)
-		if not menu.is_marker_visible():
-			return
-		var i: int = menu.focus_index
-		var r: Rect2 = menu.get_hotspot_rect(i)
-		var a := 0.55 + 0.45 * sin(_t * 6.0)
-		var c := Color(1, 1, 1, a)
-		draw_rect(r.grow(3), c, false, 2.0)
-		if i <= 2:  # the three big buttons get pixel arrows
-			var mid := r.position.y + r.size.y / 2.0
-			var lx := r.position.x - 10.0 - 2.0 * sin(_t * 6.0)
-			var rx := r.end.x + 10.0 + 2.0 * sin(_t * 6.0)
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(lx - 6, mid - 6), Vector2(lx, mid), Vector2(lx - 6, mid + 6)]), Color("3df0ff"))
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(rx + 6, mid - 6), Vector2(rx, mid), Vector2(rx + 6, mid + 6)]), Color("3df0ff"))
+		var r := target
+		r.position.y += pressed_offset
+		draw_line(r.position + Vector2(8, r.size.y - 8), r.position + Vector2(r.size.x - 8, 6),
+			Color("ff004d"), 3.0)

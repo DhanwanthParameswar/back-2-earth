@@ -152,7 +152,9 @@ func _test_full_run() -> void:
 	var main = MainScene.instantiate()
 	add_child(main)
 	await get_tree().process_frame
+	_check(main.get_node("HUD/SuitPicker").visible, "a new run opens straight on the suit picker")
 	GameState.begin_play()
+	_check(not main.get_node("HUD/SuitPicker").visible, "launching hides the picker")
 	var player = get_tree().get_first_node_in_group("player")
 	var ship = get_tree().get_first_node_in_group("ship")
 	var director = get_tree().get_first_node_in_group("gravity_director")
@@ -227,6 +229,11 @@ func _test_menu() -> void:
 	add_child(menu)
 	await get_tree().process_frame
 	_check(get_tree().get_nodes_in_group("menu_hotspot").size() == 5, "five clickable areas over the painted buttons")
+	for id in ["start", "how", "settings", "credits", "sound"]:
+		menu.set_pressed_look(id, true)
+		var down: bool = menu.is_pressed_look(id)
+		menu.set_pressed_look(id, false)
+		_check(down and not menu.is_pressed_look(id), "%s button shows a pushed-in look while held" % id)
 	var was_muted: bool = Settings.muted
 	menu.activate("sound")
 	_check(Settings.muted != was_muted, "speaker button toggles sound")

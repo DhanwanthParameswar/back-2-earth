@@ -25,8 +25,6 @@ const SKINS := [
 	{"id": "mint", "name": "MINT", "blurb": "Medbay mint"},
 ]
 var skin := "classic"
-## Runtime only: after the first briefing, restarts go straight to the picker.
-var seen_briefing := false
 
 
 func _ready() -> void:

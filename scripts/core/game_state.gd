@@ -130,7 +130,7 @@ func new_run() -> void:
 	time_changed.emit(int(ceil(time_left)))
 
 
-## Leave the briefing screen and hand control to the player.
+## Leave the suit picker (BRIEFING phase) and hand control to the player.
 func begin_play() -> void:
 	if phase != Phase.BRIEFING:
 		return
@@ -191,7 +191,7 @@ func is_objective_complete(objective_id: String) -> bool:
 ## Never contacts the model.
 func get_canonical() -> Dictionary:
 	if phase == Phase.BRIEFING:
-		return {"id": "briefing", "text": "Get ready", "hint": "Press E to begin."}
+		return {"id": "briefing", "text": "Choose your suit", "hint": "Click a suit, then LAUNCH."}
 	if objective_index >= OBJECTIVES.size():
 		return {"id": "done", "text": "Escape pod launched", "hint": ""}
 	var o: Dictionary = OBJECTIVES[objective_index]
