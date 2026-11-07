@@ -20,6 +20,9 @@ const BOOTS_WALK_FPS := 6.0
 ## Camera feel. Raise the speed (or disable) if you see pixel jitter.
 const CAMERA_SMOOTHING_SPEED := 7.0
 const CAMERA_LOOK_OFFSET := Vector2(0, -20)  # center on the body, not the feet
+## The HUD's top bar covers 46 px; let the camera rise this far above the map
+## so the back wall (and its window) is never hidden under it.
+const HUD_TOP_RESERVE := 48
 
 ## The interactable the HUD should prompt for (null if none in range).
 var current_target = null  # untyped: interactables are duck-typed
@@ -69,7 +72,7 @@ func snap_camera() -> void:
 
 func set_camera_limits(rect: Rect2) -> void:
 	camera.limit_left = int(rect.position.x)
-	camera.limit_top = int(rect.position.y)
+	camera.limit_top = int(rect.position.y) - HUD_TOP_RESERVE
 	camera.limit_right = int(rect.end.x)
 	camera.limit_bottom = int(rect.end.y)
 

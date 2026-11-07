@@ -6,7 +6,8 @@ The game builds walls, doors, and objects from it at startup.
 | Char | Meaning | Notes |
 |---|---|---|
 | `#` | Wall | Blocks player and debris |
-| `w` | Window | Wall you can see the black hole through |
+| `w` | Side window | Wall you can see the black hole through (one frame per group) |
+| `W` | Space window | Wall with glass showing the looping nebula video; put it in the 2-row back wall |
 | `.` | Floor | |
 | `@` | Player start | Exactly one |
 | `T` | Cockpit terminal | Completes `start_evacuation` |
@@ -30,6 +31,9 @@ Rooms are split by the columns of doors `1`, `2`, `3`
 - The top two rows are both walls on purpose: that makes a 2-tile-tall back
   wall face, like a Stardew interior. Keep at least two wall rows on top.
 - Any wall with floor directly below it shows its front face automatically.
+- Each connected group of `W` (or `w`) cells becomes ONE window with one frame,
+  so a 7x2 block of `W` is a single wide pane. Each `W` group plays its own
+  copy of the video, so keep it to one or two windows.
 - Consoles (`T`, `P`, `L`) and the pod (`O`) are solid at their base. Leave a
   free tile beside or below them so the player can reach them.
 

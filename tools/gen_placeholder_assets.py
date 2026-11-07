@@ -66,12 +66,56 @@ FACE_DARK = (40, 44, 64, 255)
 
 
 def floor_tile() -> None:
-    im, d = img(16, 16, "navy")
-    d.line([0, 0, 15, 0], fill=FLOOR_LINE)
-    d.line([0, 0, 0, 15], fill=FLOOR_LINE)
-    d.line([0, 8, 15, 8], fill=(25, 37, 72, 255))
-    for x, y in [(3, 3), (12, 3), (3, 12), (12, 12)]:
-        d.point((x, y), fill=(52, 64, 112, 255))
+    """One continuous floor, no tile grid: a 256x256 seamless texture.
+
+    The ship samples it by world position, so it reads as a single surface
+    across the whole ship (no 32 px seams). Low-frequency mottling in three
+    navy tones, plus scattered scuffs and specks, all wrapped so it tiles.
+    """
+    n = 128  # art pixels (saved at 2x -> 256 world px)
+    rng = np.random.default_rng(11)
+    coarse = rng.uniform(-1, 1, (8, 8))
+    # Wrap-around bilinear upsample of the coarse field -> seamless mottling.
+    ys = np.arange(n) / n * 8
+    y0 = np.floor(ys).astype(int)
+    fy = ys - y0
+    field = np.zeros((n, n))
+    for j in range(n):
+        for i in range(n):
+            x = i / n * 8
+            x0 = int(x)
+            fx = x - x0
+            c00 = coarse[y0[j] % 8, x0 % 8]
+            c10 = coarse[y0[j] % 8, (x0 + 1) % 8]
+            c01 = coarse[(y0[j] + 1) % 8, x0 % 8]
+            c11 = coarse[(y0[j] + 1) % 8, (x0 + 1) % 8]
+            top = c00 * (1 - fx) + c10 * fx
+            bot = c01 * (1 - fx) + c11 * fx
+            field[j, i] = top * (1 - fy[j]) + bot * fy[j]
+    bayer = np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) / 16 - 0.5
+    tones = [(26, 39, 76), (29, 43, 83), (32, 47, 90)]
+    px = np.zeros((n, n, 4), dtype=np.uint8)
+    for j in range(n):
+        for i in range(n):
+            v = field[j, i] * 1.2 + bayer[j % 4, i % 4] * 0.5   # ordered dither between tones
+            t = 0 if v < -0.45 else (2 if v > 0.45 else 1)
+            px[j, i] = (*tones[t], 255)
+    im = Image.fromarray(px, "RGBA")
+    d = ImageDraw.Draw(im)
+
+    def wrap_point(x: int, y: int, color) -> None:
+        d.point((x % n, y % n), fill=color)
+
+    for _ in range(70):  # specks
+        wrap_point(int(rng.integers(n)), int(rng.integers(n)), (52, 64, 112, 255))
+    for _ in range(14):  # scuffs: short diagonal strokes
+        x, y = int(rng.integers(n)), int(rng.integers(n))
+        for k in range(int(rng.integers(2, 5))):
+            wrap_point(x + k, y + k // 2, (20, 30, 60, 255))
+    for _ in range(6):   # bolt pairs, placed freely (not on a grid)
+        x, y = int(rng.integers(n)), int(rng.integers(n))
+        wrap_point(x, y, (60, 72, 120, 255))
+        wrap_point(x + 3, y, (60, 72, 120, 255))
     save2x(im, "tiles/floor.png")
 
 
@@ -121,15 +165,6 @@ def wall_tiles() -> None:
     save2x(im, "tiles/wall_face_upper.png")
 
 
-def window_tile() -> None:
-    im, d = img(16, 16)
-    d.rectangle([0, 0, 15, 15], outline=CAP_EDGE)
-    d.rectangle([1, 1, 14, 14], outline=CAP)
-    d.line([2, 2, 4, 2], fill=(255, 255, 255, 110))
-    d.line([2, 2, 2, 4], fill=(255, 255, 255, 110))
-    save2x(im, "tiles/window.png")
-
-
 def rail_tile() -> None:
     im, d = img(16, 16)
     d.rectangle([0, 0, 15, 15], fill=(14, 20, 40, 255))
@@ -150,8 +185,8 @@ def door_tiles() -> None:
     d.rectangle([6, 6, 9, 9], fill=P["red"])  # locked light
     save2x(im, "tiles/door_closed.png")
 
-    im, d = img(16, 16, "navy")
-    d.line([0, 0, 15, 0], fill=FLOOR_LINE)
+    # Open door: just the jambs and a green light; the floor shows through.
+    im, d = img(16, 16)
     d.rectangle([0, 0, 1, 15], fill=CAP)
     d.rectangle([14, 0, 15, 15], fill=CAP)
     d.rectangle([7, 7, 8, 8], fill=P["green"])
@@ -352,7 +387,7 @@ def sounds() -> None:
 
 
 def main() -> None:
-    floor_tile(); wall_tiles(); window_tile(); rail_tile(); door_tiles()
+    floor_tile(); wall_tiles(); rail_tile(); door_tiles()
     console("terminal", "blue", "blue")
     console("power_console", "orange", "orange")
     console("clamp_console", "yellow", "orange")

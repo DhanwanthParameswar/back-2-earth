@@ -159,6 +159,8 @@ func _test_full_run() -> void:
 		main.queue_free()
 		return
 	_check(ship.y_sort_enabled and player.get_parent() == ship, "player is y-sorted inside the ship (3/4 view)")
+	var views := get_tree().get_nodes_in_group("space_window")
+	_check(ship.space_windows.size() >= 1 and views.size() == ship.space_windows.size(), "each W window gets a video view")
 	var original_skin: String = Settings.skin
 	Settings.set_skin("nebula")
 	_check(player.get_node("Sprite2D").texture.resource_path.ends_with("astronaut_nebula.png"), "choosing a suit re-skins the player")

@@ -29,26 +29,73 @@ def main(skin: str = "classic") -> None:
         return rows[r][c] if 0 <= r < h and 0 <= c < w else "#"
 
     im = Image.new("RGBA", (w * T, h * T), (2, 2, 8, 255))
-    tiles = {k: load(f"tiles/{k}.png") for k in ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "window", "rail", "door_closed"]}
+    SOLID_ALL = "#wW"
+    tiles = {k: load(f"tiles/{k}.png") for k in
+             ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "rail", "door_closed"]}
+    floor = tiles["floor"]
+
+    # Space windows (W): a still of the nebula video behind the glass.
+    wins = [(c, r) for r in range(h) for c in range(w) if cell(c, r) == "W"]
+    if wins:
+        x0, x1 = min(c for c, _ in wins) * T, (max(c for c, _ in wins) + 1) * T
+        y0, y1 = min(r for _, r in wins) * T, (max(r for _, r in wins) + 1) * T
+        still_path = ROOT / "art_source/nebula_frame0.png"
+        if still_path.exists():
+            still = Image.open(still_path).convert("RGBA")
+            # Same framing as SpaceWindow.FOCUS at the start of a run.
+            focus_x, focus_y = 330, 40
+            ox = min(max(focus_x - (x1 - x0) // 2, 0), still.width - (x1 - x0))
+            oy = min(max(focus_y - (y1 - y0) // 2, 0), still.height - (y1 - y0))
+            im.alpha_composite(still.crop((ox, oy, ox + x1 - x0, oy + y1 - y0)), (x0, y0))
+
     for r in range(h):
         for c in range(w):
             ch = cell(c, r)
+            if ch in "wW":
+                continue  # glass (frames drawn below)
             if ch == "#":
-                if cell(c, r + 1) not in SOLID:
+                if cell(c, r + 1) not in SOLID_ALL:
                     key = "wall_face" if cell(c, r - 1) == "#" else "wall_face_single"
-                elif cell(c, r + 1) == "#" and cell(c, r + 2) not in SOLID:
+                elif cell(c, r + 1) == "#" and cell(c, r + 2) not in SOLID_ALL:
                     key = "wall_face_upper"
                 else:
                     key = "wall"
-            elif ch == "w":
-                key = "window"
             elif ch in "|CS":
                 key = "rail"
-            elif ch in "123K":
-                key = "door_closed"
             else:
                 key = "floor"
-            im.alpha_composite(tiles[key], (c * T, r * T))
+            if key == "floor":  # one continuous floor, sampled by world position
+                sx, sy = (c * T) % floor.width, (r * T) % floor.height
+                im.alpha_composite(floor.crop((sx, sy, sx + T, sy + T)), (c * T, r * T))
+                if ch in "123K":
+                    im.alpha_composite(tiles["door_closed"], (c * T, r * T))
+            else:
+                im.alpha_composite(tiles[key], (c * T, r * T))
+
+    d = ImageDraw.Draw(im)
+    # Debris lane guide lines.
+    for c in sorted({c for r in range(h) for c in range(w) if cell(c, r) == "x"}):
+        x = c * T + 16
+        for r in range(h):
+            if cell(c, r) not in "#wW|CS":
+                for side in (-11, 11):
+                    d.rectangle([x + side - 1, r * T, x + side, r * T + T - 1], fill=(160, 0, 50, 255))
+    # Window frames, one pane per group (mirrors ShipBuilder._draw_window_frame).
+    def frame(ch: str) -> None:
+        cells = [(c, r) for r in range(h) for c in range(w) if cell(c, r) == ch]
+        if not cells:
+            return
+        fx0, fx1 = min(c for c, _ in cells) * T, (max(c for c, _ in cells) + 1) * T
+        fy0, fy1 = min(r for _, r in cells) * T, (max(r for _, r in cells) + 1) * T
+        d.rectangle([fx0, fy0, fx1 - 1, fy0 + 5], fill=(58, 56, 72, 255))
+        d.rectangle([fx0, fy0, fx0 + 5, fy1 - 1], fill=(58, 56, 72, 255))
+        d.rectangle([fx1 - 6, fy0, fx1 - 1, fy1 - 1], fill=(58, 56, 72, 255))
+        d.rectangle([fx0, fy1 - 8, fx1 - 1, fy1 - 1], fill=(95, 92, 112, 255))
+        d.rectangle([fx0, fy1 - 2, fx1 - 1, fy1 - 1], fill=(40, 44, 64, 255))
+        d.rectangle([fx0 + 6, fy0 + 6, fx1 - 7, fy0 + 7], fill=(112, 122, 156, 255))
+
+    frame("W")
+    frame("w")
 
     # Props: (feet_y, sprite, x, y) sorted by feet, like Godot's y-sort.
     props = []

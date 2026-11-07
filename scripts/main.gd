@@ -11,6 +11,7 @@ const CompanionClient = preload("res://scripts/ai/companion_client.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Art = preload("res://scripts/ship/art.gd")
+const SpaceWindow = preload("res://scripts/ship/space_window.gd")
 
 const LAYOUT_PATH := "res://data/ship_layout.txt"
 
@@ -35,6 +36,12 @@ func _ready() -> void:
 	ship.name = "Ship"
 	add_child(ship)
 	ship.build_from_file(LAYOUT_PATH)
+
+	# A looping nebula video behind every `W` window in the layout.
+	for rect in ship.space_windows:
+		var view = SpaceWindow.new()
+		view.setup(rect)
+		add_child(view)
 
 	# The player lives inside the ship so it y-sorts with props and debris.
 	player = PlayerScene.instantiate()

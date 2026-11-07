@@ -180,6 +180,8 @@ The API key lives only in the server's environment. Never put it in Godot, the r
 - **Feet collision:** the player collides with an 18×10 box at the feet, so the head can overlap the wall behind, like Stardew. Consoles and the pod have solid footprints.
 - **Camera:** smoothly follows the body (`CAMERA_SMOOTHING_SPEED` in `player.gd`) and stops at the map edges. If you see pixel jitter while moving, raise the speed or turn smoothing off there.
 - **Shadows:** soft ovals under the player, props, and debris sell the floor plane.
+- **Floor:** one continuous surface with no tile grid. `assets/tiles/floor.png` is a 256×256 seamless texture, and each floor cell draws its own slice of it by world position. If you replace it, keep it seamless and a multiple of 32 px.
+- **Space window:** the `W` block in the cockpit's back wall is one wide pane. The nebula video plays behind it (`scripts/ship/space_window.gd`). The video is clipped to the glass, loops every 12 s, and shifts slightly as the camera moves (`PARALLAX`). `FOCUS` picks which part of the video is centered at the start of a run. The camera can rise 48 px above the map, so the HUD bar never covers the back wall.
 
 ## Suits (skins)
 
@@ -189,6 +191,15 @@ The API key lives only in the server's environment. Never put it in Godot, the r
   - `assets/sprites/astronaut_<suit>.png`: 6 walk frames facing right, each 20×26 art px, saved at 2× (40×52 in-game). Frame 5 is idle; left is a flip.
   - `assets/ui/portrait_<suit>.png`: 16×19 front portrait, shown at 6× on the picker.
 - **Adding a suit:** add a row to both source sheets (or drop in the two PNGs), add an entry to `Settings.SKINS`, then re-run the tool.
+
+## Video
+
+- `art_source/pixel_nebula_loop_1080p.ogv` is the original (Ogg Theora, 1920×1080, 30 fps, 12 s).
+- `assets/video/nebula_loop.ogv` is the game copy, re-encoded to 480×270 so each art pixel is 2×2 in-game, like everything else. It is ~16× cheaper to decode, which matters for laptops and web builds. To redo it:
+  ```bash
+  ffmpeg -i art_source/pixel_nebula_loop_1080p.ogv -vf "scale=480:270:flags=area" -c:v libtheora -q:v 9 -g 30 -an assets/video/nebula_loop.ogv
+  ```
+- Godot only plays Ogg Theora (`.ogv`). Convert any MP4/WebM first.
 
 ## Art and sound
 
