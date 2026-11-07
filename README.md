@@ -187,6 +187,22 @@ The API key lives only in the server's environment. Never put it in Godot, the r
 
 ---
 
+## Hosting (web build)
+
+| Address | What | Served by |
+|---|---|---|
+| `https://back2earth.pp.ua` | The web build | Caddy on the team server, `/var/www/back2earth` |
+| `https://www.back2earth.pp.ua` | Redirects to the address above | Caddy |
+| `https://api.back2earth.pp.ua/companion` | ECHO backend (web builds call this, see `Settings.WEB_COMPANION_URL`) | Caddy → `back2earth-companion` service on `127.0.0.1:8787` |
+
+Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (strict)** and a Cloudflare Origin CA certificate on the server. The server's firewall allows port 443 from Cloudflare's IP ranges only, so it can't be reached directly.
+
+**Redeploy the game:** copy `.env.example` to `.env` (gitignored) and fill in the server login, SSH key path, and Godot path, then run `tools/deploy_web.sh` (exports, gzips the wasm, uploads, swaps in). Ask a teammate for the server details; they are never committed.
+
+**Update the backend:** copy `server/companion_server.py` to `/opt/back2earth/server/` on the server, then `sudo systemctl restart back2earth-companion`. Secrets (e.g. `ANTHROPIC_API_KEY`) go in `/etc/back2earth/companion.env`, never in the repo. The endpoint is public: add rate limiting before switching ECHO to live mode.
+
+---
+
 ## View and camera (Stardew-style 3/4)
 
 - **Perspective:** top-down at a 3/4 angle. Walls with floor below them show a **front face**. The back wall is 2 tiles tall (the layout's top two rows). Other walls show their top cap. The rules are in `ShipBuilder.wall_kind()`.

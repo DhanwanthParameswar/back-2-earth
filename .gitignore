@@ -13,7 +13,11 @@ builds/
 
 # Secrets
 .env
+.env.*
+!.env.example
 server/.env
+*.key
+*.pem
 
 # Python
 __pycache__/

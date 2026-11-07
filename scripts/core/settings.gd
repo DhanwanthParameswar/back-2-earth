@@ -15,6 +15,9 @@ var fullscreen := false
 var companion_enabled := true
 ## The /companion backend. Default matches server/companion_server.py.
 var companion_url := "http://127.0.0.1:8787/companion"
+## Web builds (https://back2earth.pp.ua) call the hosted backend instead: a page
+## served over HTTPS can't reach a local http:// server.
+const WEB_COMPANION_URL := "https://api.back2earth.pp.ua/companion"
 
 ## Astronaut suits, in picker order. Art: assets/sprites/astronaut_<id>.png
 ## (6-frame walk strip) and assets/ui/portrait_<id>.png (picker portrait).
@@ -31,6 +34,9 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	InputSetup.ensure_actions()
 	_load()
+	if OS.has_feature("web"):
+		# Not saved per player, so a changed backend address takes effect for everyone.
+		companion_url = WEB_COMPANION_URL
 	_apply_audio()
 	if fullscreen and not OS.has_feature("web"):
 		_apply_window()
