@@ -7,6 +7,7 @@ extends Node
 const GravityDirector = preload("res://scripts/core/gravity_director.gd")
 const CompanionClient = preload("res://scripts/ai/companion_client.gd")
 const MainScene = preload("res://scenes/main.tscn")
+const MenuScene = preload("res://scenes/menu.tscn")
 
 var _failures := 0
 var _passes := 0
@@ -23,6 +24,7 @@ func _ready() -> void:
 	_test_skin_assets()
 	await _test_full_run()
 	await _test_restart_resets()
+	await _test_menu()
 	print("=== %d passed, %d failed ===\n" % [_passes, _failures])
 	get_tree().quit(_failures)
 
@@ -216,3 +218,28 @@ func _test_restart_resets() -> void:
 		main.queue_free()
 		await get_tree().process_frame
 	_check(seen_ids[0] != seen_ids[1] and seen_ids[1] != seen_ids[2], "each restart gets a new run_id")
+
+
+func _test_menu() -> void:
+	print("Main menu")
+	_check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/menu.tscn", "the game boots into the menu")
+	var menu = MenuScene.instantiate()
+	add_child(menu)
+	await get_tree().process_frame
+	_check(get_tree().get_nodes_in_group("menu_hotspot").size() == 5, "five clickable areas over the painted buttons")
+	var was_muted: bool = Settings.muted
+	menu.activate("sound")
+	_check(Settings.muted != was_muted, "speaker button toggles sound")
+	menu.activate("sound")
+	for id in ["how", "settings", "credits"]:
+		menu.activate(id)
+		_check(menu.open_panel == id and menu.get_node("Panel_%s" % id).visible, "%s opens its panel" % id)
+		menu._close_panel()
+		_check(menu.open_panel == "" and not menu.get_node("Panel_%s" % id).visible, "%s panel closes" % id)
+	var echo_before: bool = Settings.companion_enabled
+	Settings.toggle_companion()
+	_check(Settings.companion_enabled != echo_before, "settings can switch ECHO live replies")
+	Settings.toggle_companion()
+	_check(ResourceLoader.exists("res://scenes/main.tscn"), "START GAME has a scene to load")
+	menu.queue_free()
+	await get_tree().process_frame

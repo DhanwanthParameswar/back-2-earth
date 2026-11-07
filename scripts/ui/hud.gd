@@ -145,6 +145,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				Settings.seen_briefing = true
 				_show_brief_step(1)
 				_handled()
+			elif event.is_action_pressed("pause") or event.is_action_pressed("to_menu"):
+				_go_to_menu()
+				_handled()
 		else:
 			if event.is_action_pressed("move_left") or event.is_action_pressed("move_up"):
 				_move_pick(-1)
@@ -160,6 +163,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.is_action_pressed("pause"):
 				_show_brief_step(0)
 				_handled()
+			elif event.is_action_pressed("to_menu"):
+				_go_to_menu()
+				_handled()
 	elif phase == GameState.Phase.PLAYING:
 		if event.is_action_pressed("pause"):
 			GameState.set_paused(not GameState.is_paused())
@@ -167,6 +173,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif GameState.is_paused():
 			if event.is_action_pressed("restart"):
 				_restart()
+			elif event.is_action_pressed("to_menu"):
+				_go_to_menu()
 			elif event.is_action_pressed("toggle_mute"):
 				Settings.toggle_mute()
 			elif event.is_action_pressed("toggle_shake"):
@@ -174,6 +182,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_handled()
 	elif _end_input_ready and (event.is_action_pressed("restart") or event.is_action_pressed("confirm")):
 		_restart()
+		_handled()
+	elif _end_input_ready and event.is_action_pressed("to_menu"):
+		_go_to_menu()
 		_handled()
 
 
@@ -185,6 +196,15 @@ func _restart() -> void:
 	GameState.set_paused(false)
 	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+const MENU_SCENE := "res://scenes/menu.tscn"
+
+
+func _go_to_menu() -> void:
+	GameState.set_paused(false)
+	get_tree().paused = false
+	get_tree().change_scene_to_file(MENU_SCENE)
 
 
 # --- Signal handlers ----------------------------------------------------------------
@@ -288,7 +308,7 @@ func _show_caption(text: String, tag: String, tag_color: Color, seconds: float) 
 func _refresh_pause_options() -> void:
 	if _pause_options == null:
 		return
-	_pause_options.text = "[Esc] Resume\n[R] Restart run\n[M] Sound: %s\n[V] Reduced shake/flash: %s" % [
+	_pause_options.text = "[Esc] Resume\n[R] Restart run\n[M] Sound: %s\n[V] Reduced shake/flash: %s\n[Q] Main menu" % [
 		"OFF" if Settings.muted else "ON",
 		"ON" if Settings.reduced_shake else "OFF",
 	]
@@ -441,10 +461,13 @@ func _build_briefing() -> void:
 		Vector2(20, 184), Vector2(600, 60), 11, HORIZONTAL_ALIGNMENT_CENTER)
 	controls.modulate = Color(0.76, 0.76, 0.78)
 	_briefing.add_child(controls)
-	var start := _label("Press E to continue", Vector2(0, 280), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
+	var start := _label("Press E to continue", Vector2(0, 274), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
 	start.name = "Start"
 	start.modulate = Art.AMBER
 	_briefing.add_child(start)
+	var back := _label("Esc  main menu", Vector2(0, 300), Vector2(640, 16), 10, HORIZONTAL_ALIGNMENT_CENTER)
+	back.modulate = Color(0.6, 0.6, 0.65)
+	_briefing.add_child(back)
 
 
 func _build_picker() -> void:
@@ -475,7 +498,7 @@ func _build_picker() -> void:
 		)
 		_picker_cards.append(card)
 
-	var help := _label("A / D  or  ← →  choose        E  launch        Esc  back",
+	var help := _label("A / D or Left / Right  choose        E  launch        Esc  back        Q  menu",
 		Vector2(0, 296), Vector2(640, 20), 12, HORIZONTAL_ALIGNMENT_CENTER)
 	help.modulate = Art.AMBER
 	_picker.add_child(help)
@@ -521,7 +544,7 @@ func _build_lost() -> void:
 	_lost.add_child(t)
 	_lost.add_child(_label("The safe window closed before the pod launched.",
 		Vector2(0, 156), Vector2(640, 20), 13, HORIZONTAL_ALIGNMENT_CENTER))
-	var r := _label("[R] Try again", Vector2(0, 210), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
+	var r := _label("[R] Try again      [Q] Main menu", Vector2(0, 210), Vector2(640, 24), 16, HORIZONTAL_ALIGNMENT_CENTER)
 	r.modulate = Art.AMBER
 	_lost.add_child(r)
 
@@ -563,7 +586,7 @@ func _build_won() -> void:
 	_won_stats = _label("", Vector2(0, 280), Vector2(640, 18), 11, HORIZONTAL_ALIGNMENT_CENTER)
 	_won_stats.modulate = Color(0.76, 0.76, 0.78)
 	_won.add_child(_won_stats)
-	_won_prompt = _label("[R] Play again", Vector2(0, 312), Vector2(640, 22), 15, HORIZONTAL_ALIGNMENT_CENTER)
+	_won_prompt = _label("[R] Play again      [Q] Main menu", Vector2(0, 312), Vector2(640, 22), 15, HORIZONTAL_ALIGNMENT_CENTER)
 	_won_prompt.modulate = Art.AMBER
 	_won.add_child(_won_prompt)
 

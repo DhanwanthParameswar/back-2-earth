@@ -29,10 +29,11 @@ If you open the project in a different version, Godot asks to convert it. Say no
 
 1. Open Godot 4.7 → **Import** → pick this folder's `project.godot`. The first open imports all PNG/WAV files; wait for it to finish.
 2. Watch the **Output** and **Debugger → Errors** panels. They should show no red errors.
-3. Press **F5**. You should see the black-hole briefing screen. Press **E**.
-4. The suit picker appears. Press A/D or ←/→ to pick a suit, then **E** to launch.
-5. Walk to the blue terminal (top of the cockpit) and press **E**. The cockpit door opens and the timer starts. Walk behind the terminal: your astronaut should be hidden behind it, then drawn in front when you walk below it.
-6. Run the automated checks from a terminal in this folder:
+3. Press **F5**. The animated title menu plays. Hover or arrow through the buttons; each should get a pulsing outline. Open **How to Play**, **Settings**, and **Credits** (Esc closes them). Click the speaker icon: a red slash shows it's muted. Then choose **Start Game**.
+4. The black-hole briefing appears. Press **E**.
+5. The suit picker appears. Press A/D or ←/→ to pick a suit, then **E** to launch.
+6. Walk to the blue terminal (top of the cockpit) and press **E**. The cockpit door opens and the timer starts. Walk behind the terminal: your astronaut should be hidden behind it, then drawn in front when you walk below it.
+7. Run the automated checks from a terminal in this folder:
    ```bash
    godot --headless --path . res://tests/test_runner.tscn
    ```
@@ -53,12 +54,20 @@ If anything errors, paste the exact error into chat (with the file and line) and
 | Esc / P | Pause (then R restart, M mute, V reduced shake/flash) |
 | R | Restart on the end screens |
 | A/D or ←/→ | Choose a suit on the picker (E to launch, Esc back to the story) |
+| Q | Main menu (from pause, win, lose, briefing, or picker) |
+| Menu | Arrows/WASD choose, E/Enter select, M mute, Esc close a panel; mouse works too |
 
 Input actions are registered in code (`scripts/core/input_setup.gd`). If you add an action with the same name in Project Settings → Input Map, yours wins.
 
 ---
 
 ## How a run plays
+
+```
+Title menu ─Start Game─▶ Briefing (first time only) ─E─▶ Suit picker ─E─▶ run
+   ▲                                                                        │
+   └──────────── Q from pause / win / lose (R restarts the run) ───────────┘
+```
 
 ```
 Briefing ─E─▶ Cockpit ──▶ Engineering ──▶ Cargo ──────────────▶ Pod Bay ──▶ Earth
@@ -104,6 +113,9 @@ data/dialogue_fallbacks.json       C   authored ECHO lines (offline mode)
 server/                            C   /companion backend (Python stdlib)
 
 scripts/ui/hud.gd                  D   HUD, briefing, pause, lose/win screens
+scenes/menu.tscn, scripts/ui/main_menu.gd   D   title menu over the menu video
+scripts/ui/ui_style.gd             D   shared navy/cyan panel + button style
+data/credits.json                  D   names on the CREDITS panel
 scripts/core/settings.gd           D   mute, reduced shake (autoload Settings)
 scripts/core/sfx.gd                D   sound player (autoload Sfx)
 scripts/ship/art.gd                D   palette + texture helpers
@@ -192,12 +204,29 @@ The API key lives only in the server's environment. Never put it in Godot, the r
   - `assets/ui/portrait_<suit>.png`: 16×19 front portrait, shown at 6× on the picker.
 - **Adding a suit:** add a row to both source sheets (or drop in the two PNGs), add an entry to `Settings.SKINS`, then re-run the tool.
 
+## Main menu
+
+- `scenes/menu.tscn` + `scripts/ui/main_menu.gd` is the project's main scene. The title and the five buttons are **painted into** `assets/video/menu_loop.ogv`, which loops every 12 s. The script places invisible buttons exactly over the painted ones (`HOTSPOTS`, in 640×360 px). If the video is redrawn, re-measure those rects: take the 1920×1080 frame and divide the pixel coordinates by 3.
+- **Focus:** keyboard focus is a pulsing outline plus arrows on the big buttons. The cyan fill on START GAME is part of the art (it's the primary button). It doesn't mean "selected".
+- **Buttons:**
+  - START GAME fades out and loads the game.
+  - HOW TO PLAY shows the goal, steps, and controls.
+  - SETTINGS has sound, reduced shake & flash, ECHO live replies, fullscreen, and quit. Fullscreen and quit are hidden on web.
+  - CREDITS reads `data/credits.json`. **Put your names in it.**
+  - The speaker icon toggles sound.
+- Every setting is saved in `user://settings.cfg`.
+- **Fallback:** if the video is missing, the menu still works and shows labeled buttons.
+
 ## Video
 
 - `art_source/pixel_nebula_loop_1080p.ogv` is the original (Ogg Theora, 1920×1080, 30 fps, 12 s).
 - `assets/video/nebula_loop.ogv` is the game copy, re-encoded to 480×270 so each art pixel is 2×2 in-game, like everything else. It is ~16× cheaper to decode, which matters for laptops and web builds. To redo it:
   ```bash
   ffmpeg -i art_source/pixel_nebula_loop_1080p.ogv -vf "scale=480:270:flags=area" -c:v libtheora -q:v 9 -g 30 -an assets/video/nebula_loop.ogv
+  ```
+- `art_source/menu_loop_1080p.ogv` is the original menu video. `assets/video/menu_loop.ogv` is a 1280×720 re-encode, drawn with smooth filtering because the menu art isn't on the game's pixel grid:
+  ```bash
+  ffmpeg -i art_source/menu_loop_1080p.ogv -vf "scale=1280:720:flags=lanczos" -c:v libtheora -q:v 6 -g 30 -an assets/video/menu_loop.ogv
   ```
 - Godot only plays Ogg Theora (`.ogv`). Convert any MP4/WebM first.
 

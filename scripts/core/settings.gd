@@ -9,6 +9,7 @@ const SAVE_PATH := "user://settings.cfg"
 
 var muted := false
 var reduced_shake := false
+var fullscreen := false
 ## Set false to force the scripted (offline) companion, e.g. for a web build
 ## with no HTTPS backend.
 var companion_enabled := true
@@ -33,6 +34,8 @@ func _ready() -> void:
 	InputSetup.ensure_actions()
 	_load()
 	_apply_audio()
+	if fullscreen and not OS.has_feature("web"):
+		_apply_window()
 
 
 func toggle_mute() -> void:
@@ -71,6 +74,25 @@ func toggle_reduced_shake() -> void:
 	changed.emit()
 
 
+## Live model replies for ECHO on/off (off = authored lines only, no network).
+func toggle_companion() -> void:
+	companion_enabled = not companion_enabled
+	_save()
+	changed.emit()
+
+
+func toggle_fullscreen() -> void:
+	fullscreen = not fullscreen
+	_apply_window()
+	_save()
+	changed.emit()
+
+
+func _apply_window() -> void:
+	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	DisplayServer.window_set_mode(mode)
+
+
 func _apply_audio() -> void:
 	var bus_idx := AudioServer.get_bus_index("Master")
 	if bus_idx >= 0:
@@ -83,6 +105,7 @@ func _load() -> void:
 		return
 	muted = bool(cfg.get_value("audio", "muted", muted))
 	reduced_shake = bool(cfg.get_value("video", "reduced_shake", reduced_shake))
+	fullscreen = bool(cfg.get_value("video", "fullscreen", fullscreen))
 	companion_enabled = bool(cfg.get_value("companion", "enabled", companion_enabled))
 	companion_url = str(cfg.get_value("companion", "url", companion_url))
 	var saved_skin := str(cfg.get_value("player", "skin", skin))
@@ -94,6 +117,7 @@ func _save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("audio", "muted", muted)
 	cfg.set_value("video", "reduced_shake", reduced_shake)
+	cfg.set_value("video", "fullscreen", fullscreen)
 	cfg.set_value("companion", "enabled", companion_enabled)
 	cfg.set_value("companion", "url", companion_url)
 	cfg.set_value("player", "skin", skin)

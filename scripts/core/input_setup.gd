@@ -17,6 +17,7 @@ const ACTIONS := {
 	"restart": [KEY_R],
 	"toggle_mute": [KEY_M],
 	"toggle_shake": [KEY_V],
+	"to_menu": [KEY_Q],
 }
 
 

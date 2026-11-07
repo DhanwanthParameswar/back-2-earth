@@ -1,0 +1,30 @@
+{
+  "_note": "Shown on the main menu's CREDITS panel (owner: D). Edit freely; one entry per line. Keep this file in the export filter (data/*.json).",
+  "title": "BACK2EARTH",
+  "subtitle": "Made in 24 hours at UBhacks 2026",
+  "sections": [
+    {
+      "heading": "TEAM",
+      "lines": [
+        "Gameplay & integration — your name",
+        "Level & puzzles — your name",
+        "ECHO companion & backend — your name",
+        "Art, UI & release — your name"
+      ]
+    },
+    {
+      "heading": "ART & SOUND",
+      "lines": [
+        "Astronaut suits, nebula and menu videos — the Back2Earth team",
+        "Ship tiles and chiptune effects — generated in-repo (tools/)"
+      ]
+    },
+    {
+      "heading": "BUILT WITH",
+      "lines": [
+        "Godot Engine 4.7",
+        "ECHO's live lines via a language model (labeled LIVE in-game)"
+      ]
+    }
+  ]
+}
