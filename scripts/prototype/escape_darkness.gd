@@ -37,12 +37,30 @@ var _beam_dirs := {}
 var _dark := 1.0             # 1 = no power, 0 = lights on (fades between)
 ## Light per cell this frame (Vector2i -> 0..1). Cells not in it are dark.
 var lit := {}
+## Speed: walls in a byte grid (built once), line of sight cached per light cell,
+## and the dark drawn as ONE small image (a pixel per tile) stretched with smoothing.
+var _opaque := PackedByteArray()
+var _locker := {}
+var _locker_clear := false
+var _sight_cache := {}       # source cell -> {cell: true} visible from it (within beam range)
+var _image: Image
+var _texture: ImageTexture
 
 
 func _ready() -> void:
 	z_index = 100            # above the ship, crew and props; the HUD is a separate layer
 	z_as_relative = false
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR  # the smoothing between tiles
 	_dark = 0.0 if is_powered() else 1.0
+	var size: Vector2i = mission.map_size
+	_opaque.resize(size.x * size.y)
+	for y in size.y:
+		for x in size.x:
+			_opaque[y * size.x + x] = 1 if mission.cell_char(Vector2i(x, y)) in OPAQUE else 0
+	for c in mission._locker_cells():
+		_locker[c] = true
+	_image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	_texture = ImageTexture.create_from_image(_image)
 
 
 func is_powered() -> bool:
@@ -117,9 +135,12 @@ static func _swing(current: Vector2, target: Vector2, weight: float) -> Vector2:
 # --- Line of sight ------------------------------------------------------------------
 
 func is_opaque(cell: Vector2i) -> bool:
-	if mission.cell_char(cell) in OPAQUE:
+	var size: Vector2i = mission.map_size
+	if cell.x < 0 or cell.y < 0 or cell.x >= size.x or cell.y >= size.y:
 		return true
-	return not mission.state.has_flag("locker_clear") and mission._locker_cells().has(cell)
+	if _opaque[cell.y * size.x + cell.x] == 1:
+		return true
+	return not _locker_clear and _locker.has(cell)
 
 
 ## Clear straight line from `from` to `to` (the end cell itself may be a wall: it gets lit).
@@ -139,6 +160,10 @@ func _cell(p: Vector2) -> Vector2i:
 
 
 func _compute_light() -> void:
+	var clear: bool = mission.state.has_flag("locker_clear")
+	if clear != _locker_clear:
+		_locker_clear = clear
+		_sight_cache.clear()  # the hallway opened: sight lines change
 	lit.clear()
 	var me: Vector2 = mission.player.position + Vector2(0, -8)
 	_add_circle(me, BASE_RADIUS)
@@ -150,47 +175,49 @@ func _compute_light() -> void:
 			_add_beam(actor.position + Vector2(0, -8), _beam_dirs[id])
 
 
-func _add_circle(origin: Vector2, radius: float) -> void:
-	var src := _cell(origin)
-	var r := ceili(radius / TILE) + 1
+## Everything visible from a cell, worked out once per cell (walls don't move).
+func _sight(src: Vector2i) -> Dictionary:
+	if _sight_cache.has(src):
+		return _sight_cache[src]
+	var seen := {}
+	var r := ceili(BEAM_RANGE / TILE) + 1
 	for y in range(src.y - r, src.y + r + 1):
 		for x in range(src.x - r, src.x + r + 1):
 			var c := Vector2i(x, y)
-			var dist := origin.distance_to(Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0)
-			var v := 1.0 - smoothstep(radius - SOFT_EDGE, radius, dist)
-			if v > 0.0:
-				_light(src, c, v)
+			if line_of_sight(src, c):
+				seen[c] = true
+				if is_opaque(c) and is_opaque(c + Vector2i.UP) and mission.cell_char(c + Vector2i.UP) != " ":
+					seen[c + Vector2i.UP] = true  # upper half of a 2-tile wall face
+	if _sight_cache.size() > 400:
+		_sight_cache.clear()
+	_sight_cache[src] = seen
+	return seen
+
+
+func _add_circle(origin: Vector2, radius: float) -> void:
+	var seen := _sight(_cell(origin))
+	for c in seen.keys():
+		var dist := origin.distance_to(Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0)
+		if dist < radius:
+			_add(c, 1.0 - smoothstep(radius - SOFT_EDGE, radius, dist))
 
 
 func _add_beam(origin: Vector2, dir: Vector2) -> void:
-	var src := _cell(origin)
-	var r := ceili(BEAM_RANGE / TILE) + 1
+	var seen := _sight(_cell(origin))
 	var spread := tan(BEAM_HALF_ANGLE)
-	for y in range(src.y - r, src.y + r + 1):
-		for x in range(src.x - r, src.x + r + 1):
-			var c := Vector2i(x, y)
-			var v: Vector2 = Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0 - origin
-			var along := v.dot(dir)
-			var perp := absf(v.cross(dir))
-			var half_w := BEAM_START_WIDTH + maxf(along, 0.0) * spread
-			var side := 1.0 - smoothstep(half_w * 0.5, half_w, perp)
-			var back := smoothstep(-BEAM_START_WIDTH * 0.5, BEAM_START_WIDTH * 0.6, along)
-			var reach := 1.0 - smoothstep(BEAM_RANGE * 0.55, BEAM_RANGE, along)
-			var amount := side * back * reach
-			if amount > 0.0:
-				_light(src, c, amount)
-
-
-## Light a cell if it's in sight; a lit wall also lights the wall tile above it
-## (the upper half of a 2-tile wall face).
-func _light(src: Vector2i, c: Vector2i, amount: float) -> void:
-	if not line_of_sight(src, c):
-		return
-	_add(c, amount)
-	if is_opaque(c):
-		var above := c + Vector2i.UP
-		if is_opaque(above) and mission.cell_char(above) != " ":
-			_add(above, amount)
+	for c in seen.keys():
+		var v: Vector2 = Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0 - origin
+		var along := v.dot(dir)
+		if along < -BEAM_START_WIDTH * 0.5 or along > BEAM_RANGE:
+			continue
+		var perp := absf(v.cross(dir))
+		var half_w := BEAM_START_WIDTH + maxf(along, 0.0) * spread
+		if perp > half_w:
+			continue
+		var side := 1.0 - smoothstep(half_w * 0.5, half_w, perp)
+		var back := smoothstep(-BEAM_START_WIDTH * 0.5, BEAM_START_WIDTH * 0.6, along)
+		var reach := 1.0 - smoothstep(BEAM_RANGE * 0.55, BEAM_RANGE, along)
+		_add(c, side * back * reach)
 
 
 func _add(c: Vector2i, amount: float) -> void:
@@ -199,32 +226,26 @@ func _add(c: Vector2i, amount: float) -> void:
 
 # --- Drawing -------------------------------------------------------------------------
 
-## The dark overlay: each tile is a quad whose corners blend the light of the four
-## tiles around them, so edges are soft instead of blocky.
+## The dark overlay: ONE image with a pixel per tile (alpha = how dark), drawn
+## over the whole map. Linear filtering blends neighbouring tiles: soft edges.
 func _draw() -> void:
 	if not is_dark():
 		return
-	var view := get_viewport().get_visible_rect()
-	var to_world := get_viewport().get_canvas_transform().affine_inverse()
-	var area := to_world * view
-	var c0 := _cell(area.position) - Vector2i(1, 1)
-	var c1 := _cell(area.end) + Vector2i(1, 1)
-	var colors := PackedColorArray([Color(), Color(), Color(), Color()])
-	for y in range(c0.y, c1.y + 1):
-		for x in range(c0.x, c1.x + 1):
-			var corners := [_corner(x, y), _corner(x + 1, y), _corner(x + 1, y + 1), _corner(x, y + 1)]
-			if corners[0] >= 0.999 and corners[1] >= 0.999 and corners[2] >= 0.999 and corners[3] >= 0.999:
-				continue  # fully lit tile: nothing to draw
-			for i in 4:
-				colors[i] = Color(DARK_COLOR, _dark * (1.0 - corners[i]))
-			var p := Vector2(x, y) * TILE
-			draw_polygon(PackedVector2Array([p, p + Vector2(TILE, 0), p + Vector2(TILE, TILE), p + Vector2(0, TILE)]), colors)
-
-
-## Light at a tile corner: the average of the four tiles that share it.
-func _corner(x: int, y: int) -> float:
-	return (lit.get(Vector2i(x - 1, y - 1), 0.0) + lit.get(Vector2i(x, y - 1), 0.0)
-		+ lit.get(Vector2i(x - 1, y), 0.0) + lit.get(Vector2i(x, y), 0.0)) / 4.0
+	_image.fill(Color(DARK_COLOR, _dark))
+	var size: Vector2i = mission.map_size
+	for c in lit.keys():
+		if c.x >= 0 and c.y >= 0 and c.x < size.x and c.y < size.y:
+			_image.set_pixel(c.x, c.y, Color(DARK_COLOR, _dark * (1.0 - lit[c])))
+	_texture.update(_image)
+	# Black beyond the map edges, then the map-sized light image.
+	var m := Vector2(size) * TILE
+	var edge := Color(DARK_COLOR, _dark)
+	var pad := 3000.0
+	draw_rect(Rect2(-pad, -pad, m.x + 2.0 * pad, pad), edge)        # above the map
+	draw_rect(Rect2(-pad, m.y, m.x + 2.0 * pad, pad), edge)         # below
+	draw_rect(Rect2(-pad, 0, pad, m.y), edge)                       # left
+	draw_rect(Rect2(m.x, 0, pad, m.y), edge)                        # right
+	draw_texture_rect(_texture, Rect2(Vector2.ZERO, Vector2(size) * TILE), false)
 
 
 ## Names under crew and objects show only when you're close enough to press E.
