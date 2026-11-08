@@ -696,6 +696,14 @@ func _test_darkness() -> void:
 	check(dark.beam_direction("player").dot(Vector2.UP) < 0.95, "Turning from right to up swings the beam (no instant snap)")
 	for i in 40: await get_tree().process_frame
 	check(dark.beam_direction("player").dot(Vector2.UP) > 0.99, "...and it settles pointing up")
+	var diagonal := Vector2(1, 1).normalized()
+	dark.facing = diagonal
+	for i in 40: await get_tree().process_frame
+	check(dark.beam_direction("player").dot(diagonal) > 0.99, "The beam points diagonally too (the way you walk)")
+	check(dark.beam_shape(1.0) > 0.99 and dark.beam_shape(cos(deg_to_rad(25.0))) < 0.5 \
+		and dark.beam_shape(cos(deg_to_rad(40.0))) == 0.0, "Flashlight beam: bright hotspot, dimmer spill, then dark")
+	check(dark.falloff(32.0, dark.BEAM_NEAR, dark.BEAM_REACH) > dark.falloff(160.0, dark.BEAM_NEAR, dark.BEAM_REACH) \
+		and dark.falloff(dark.BEAM_REACH, dark.BEAM_NEAR, dark.BEAM_REACH) == 0.0, "...that fades with distance, to black")
 	dark.toggle_flashlight()
 	await get_tree().process_frame
 	check(not dark.is_beam_on("player"), "F again turns it off")
