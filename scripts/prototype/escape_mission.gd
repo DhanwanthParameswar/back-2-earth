@@ -362,7 +362,7 @@ func available_actions(id: String) -> Dictionary:
 	if state.has_flag("clamps"): return {"none": "The crew is boarding. Answer briefly; do not leave the shuttle."}
 	if _busy_actors.has(id): return {"none": "Currently completing an assigned task. Report progress; do not start another task."}
 	if id == "mara":
-		if not state.has_flag("locker_clear"): actions["help_locker"] = "Walk to the locker and hold it while the player pushes."
+		if not state.has_flag("locker_clear"): actions["help_locker"] = "Walk to the jammed locker blocking the cabin doorway (the 'door') and hold it while the player pushes."
 		if state.has_flag("battery_out") and not state.has_flag("battery_loaded"): actions["load_battery"] = "Help the player lift the lab battery onto the cart. Player must be beside the cart."
 	if id == "ivo" and state.has_flag("assessed") and not state.has_flag("case_requested") and not state.has_flag("battery_out"):
 		actions["fetch_case"] = "Fetch the insulated case from the shuttle and deliver it to the lab freezer."
