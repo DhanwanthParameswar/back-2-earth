@@ -5,7 +5,6 @@ extends CanvasLayer
 ## Base resolution is 640x360 (see project.godot); positions are in those pixels.
 
 const Art = preload("res://scripts/ship/art.gd")
-const PressButton = preload("res://scripts/ui/press_button.gd")
 const IntroCutscene = preload("res://scripts/ui/intro_cutscene.gd")
 
 const CAPTION_TIME := 6.0
@@ -23,9 +22,6 @@ var _status_label: Label
 var _hit_flash: ColorRect
 var _edge_flash: Control
 
-var _picker: Control
-var _picker_cards: Array = []
-var _pick_index := 0
 var _pause: Control
 var _pause_options: Label
 var _lost: Control
@@ -44,7 +40,6 @@ var _intro = null  # the opening story while it plays (intro_cutscene.gd)
 var _caption_left := 0.0
 var _launch_line := ""
 var _end_input_ready := false
-var _blink_t := 0.0
 
 var _companion = null
 var _director = null
@@ -55,8 +50,7 @@ func _ready() -> void:
 	layer = 10
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_hud()
-	_build_objective_card()  # above the HUD, under the picker/pause/end screens
-	_build_picker()
+	_build_objective_card()  # above the HUD, under the pause/end screens
 	_build_pause()
 	_build_lost()
 	_build_won()
@@ -84,7 +78,6 @@ func _ready() -> void:
 # --- Per-frame ------------------------------------------------------------------
 
 func _process(delta: float) -> void:
-	_blink_t += delta
 	if _director == null or not is_instance_valid(_director):
 		_director = get_tree().get_first_node_in_group("gravity_director")
 	if _player == null or not is_instance_valid(_player):
@@ -97,10 +90,6 @@ func _process(delta: float) -> void:
 		_caption_left -= delta
 		_caption_panel.modulate.a = clampf(_caption_left / 0.6, 0.0, 1.0)
 		_caption_panel.visible = _caption_left > 0.0
-
-	if _picker.visible:
-		for i in _picker_cards.size():
-			_picker_cards[i].set_selected(i == _pick_index, _blink_t)
 
 
 func _update_gravity_label() -> void:
@@ -138,21 +127,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_intro_playing():
 		return  # the cutscene takes all input until it hands over
 	var phase: int = GameState.phase
-	if phase == GameState.Phase.BRIEFING:
-		# The suit picker is the only pre-run screen (the menu covers the rest).
-		if event.is_action_pressed("move_left") or event.is_action_pressed("move_up"):
-			_move_pick(-1)
-			_handled()
-		elif event.is_action_pressed("move_right") or event.is_action_pressed("move_down"):
-			_move_pick(1)
-			_handled()
-		elif event.is_action_pressed("confirm"):
-			_launch()
-			_handled()
-		elif event.is_action_pressed("pause") or event.is_action_pressed("to_menu"):
-			_go_to_menu()
-			_handled()
-	elif phase == GameState.Phase.PLAYING:
+	if phase == GameState.Phase.PLAYING:
 		if event.is_action_pressed("pause"):
 			GameState.set_paused(not GameState.is_paused())
 			_handled()
@@ -197,9 +172,7 @@ func _go_to_menu() -> void:
 
 func _on_phase_changed(phase: int) -> void:
 	if phase == GameState.Phase.BRIEFING:
-		_show_picker()
-	else:
-		_picker.visible = false
+		_start_run()
 	_pause.visible = false
 	_on_objective_changed("")
 
@@ -416,70 +389,19 @@ func _build_hud() -> void:
 	_caption_panel.add_child(_caption_text)
 
 
-func _build_picker() -> void:
-	_picker = _full_screen()
-	_picker.name = "SuitPicker"
-	_picker.visible = false
-	_picker.add_child(_rect(Vector2.ZERO, Vector2(640, 360), Color("080d26")))
-	var title := _label("CHOOSE YOUR SUIT", Vector2(0, 14), Vector2(640, 30), 22, HORIZONTAL_ALIGNMENT_CENTER)
-	title.modulate = Art.WHITE
-	_picker.add_child(title)
-	_picker.add_child(_rect(Vector2(248, 44), Vector2(144, 2), Art.CYAN))
-
-	var card_size := Vector2(136, 206)
-	var gap := 14.0
-	var left := (640.0 - (card_size.x * 4.0 + gap * 3.0)) / 2.0
-	_picker_cards.clear()
-	for i in Settings.SKINS.size():
-		var skin: Dictionary = Settings.SKINS[i]
-		var card := SkinCard.new()
-		card.position = Vector2(left + i * (card_size.x + gap), 60)
-		card.size = card_size
-		_picker.add_child(card)
-		card.setup(
-			Art.tex(Settings.skin_portrait_path(skin["id"])),
-			str(skin["name"]),
-			str(skin["blurb"]),
-			"%d" % (i + 1)
-		)
-		card.clicked.connect(_on_card_clicked.bind(i))
-		_picker_cards.append(card)
-
-	var launch := PressButton.new()
-	launch.name = "Launch"
-	launch.position = Vector2(250, 274)
-	launch.size = Vector2(140, 28)
-	launch.set_label("LAUNCH")
-	launch.pressed.connect(_launch)
-	_picker.add_child(launch)
-
-	var help := _label("Click a suit or use A / D      E  launch      Esc  main menu",
-		Vector2(0, 308), Vector2(640, 18), 11, HORIZONTAL_ALIGNMENT_CENTER)
-	help.modulate = Art.AMBER
-	_picker.add_child(help)
-	var note := _label("Your suit is remembered for the next run.", Vector2(0, 328), Vector2(640, 16), 10,
-		HORIZONTAL_ALIGNMENT_CENTER)
-	note.modulate = Color(0.6, 0.6, 0.65)
-	_picker.add_child(note)
-
-
-func _show_picker() -> void:
-	_picker.visible = true
-	_pick_index = maxi(0, Settings.skin_index(Settings.skin))
-
-
-## Start the run with the highlighted suit. Coming from the main menu, the
-## opening story plays first; restarts (R) go straight in.
-func _launch() -> void:
+## A new run. Coming from the main menu, the opening story plays first (it
+## covers the screen from the very first frame); restarts (R) go straight in.
+## There's no suit picker: the player is Johnny, in the suit he wears in the
+## film (Settings.PLAYER_SKIN).
+func _start_run() -> void:
 	if GameState.phase != GameState.Phase.BRIEFING or is_intro_playing():
 		return
-	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
 	if Settings.intro_pending:
 		Settings.intro_pending = false
 		_play_intro()
 	else:
-		Sfx.play("objective", -8.0)
-		_begin_run()
+		# Next frame, once the rest of the scene (run recorder, chat) is listening.
+		_begin_run.call_deferred()
 
 
 func is_intro_playing() -> bool:
@@ -487,13 +409,12 @@ func is_intro_playing() -> bool:
 
 
 func _play_intro() -> void:
-	_picker.visible = false
 	Sfx.stop_ambient()  # the film has its own soundtrack, silences included
 	_intro = IntroCutscene.new()
 	_intro.name = "IntroCutscene"
 	add_child(_intro)
 	_intro.finished.connect(_on_intro_finished)
-	_intro.play_for_skin(Settings.skin)
+	_intro.play()
 
 
 func _on_intro_finished() -> void:
@@ -505,6 +426,8 @@ func _on_intro_finished() -> void:
 
 ## Hand control to the player and announce the first objective.
 func _begin_run() -> void:
+	if GameState.phase != GameState.Phase.BRIEFING:
+		return
 	GameState.begin_play()
 	_show_objective_card()
 
@@ -525,22 +448,6 @@ func _show_objective_card() -> void:
 	_card_tween.tween_interval(2.0)
 	_card_tween.tween_property(_card, "modulate:a", 0.0, 0.6)
 	_card_tween.tween_callback(func(): _card.visible = false)
-
-
-func _on_card_clicked(i: int) -> void:
-	if i == _pick_index:
-		_launch()  # clicking the chosen suit again launches
-	else:
-		_pick_index = i
-		Settings.set_skin(Settings.SKINS[i]["id"])
-		Sfx.play("boots", -10.0)
-
-
-func _move_pick(delta: int) -> void:
-	var n: int = Settings.SKINS.size()
-	_pick_index = (_pick_index + delta + n) % n
-	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
-	Sfx.play("boots", -10.0)
 
 
 func _build_objective_card() -> void:
@@ -704,93 +611,3 @@ class Starfield extends Control:
 		for s in _stars:
 			var b := 0.4 + s.z / 100.0
 			draw_rect(Rect2(Vector2(floor(s.x), floor(s.y)), Vector2.ONE * (2.0 if s.z > 45.0 else 1.0)), Color(b, b, b + 0.1))
-
-
-## One suit in the picker: grid panel (like the concept sheet), portrait at 6x,
-## name and blurb. Cyan frame + bobbing portrait when selected.
-class SkinCard extends Control:
-	signal clicked
-
-	var _portrait: TextureRect
-	var _name: Label
-	var _blurb: Label
-	var _key: Label
-	var _selected := false
-
-	var _held := false
-	var _base_y := 0.0
-
-	func setup(portrait: Texture2D, title: String, blurb: String, key: String) -> void:
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		_base_y = position.y
-		_portrait = TextureRect.new()
-		_portrait.texture = portrait
-		_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		_portrait.size = Vector2(96, 114)  # 16x19 art at 6x
-		_portrait.position = Vector2((size.x - 96.0) / 2.0, 16)
-		add_child(_portrait)
-		_name = _make_label(title, 140, 15)
-		_blurb = _make_label(blurb, 160, 10)
-		_blurb.modulate = Color(0.7, 0.72, 0.8)
-		_key = _make_label(key, 182, 10)
-		_key.modulate = Color(0.45, 0.5, 0.65)
-
-	## Press feel: the card sinks 3 px while held; a release on it is a click.
-	func _gui_input(event: InputEvent) -> void:
-		var mb := event as InputEventMouseButton
-		if mb == null or mb.button_index != MOUSE_BUTTON_LEFT:
-			return
-		if mb.pressed:
-			_held = true
-			position.y = _base_y + 3.0
-		elif _held:
-			_held = false
-			position.y = _base_y
-			if Rect2(Vector2.ZERO, size).has_point(mb.position):
-				clicked.emit()
-		accept_event()
-
-	func _notification(what: int) -> void:
-		if what == NOTIFICATION_MOUSE_EXIT and _held:
-			_held = false
-			position.y = _base_y
-
-	func _make_label(text: String, y: float, font_size: int) -> Label:
-		var l := Label.new()
-		l.text = text
-		l.position = Vector2(0, y)
-		l.size = Vector2(size.x, 18)
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		l.add_theme_font_size_override("font_size", font_size)
-		add_child(l)
-		return l
-
-	func set_selected(value: bool, t: float) -> void:
-		_selected = value
-		if _portrait != null:
-			var bob := 0.0
-			if value:
-				bob = -2.0 if int(t * 3.0) % 2 == 0 else 0.0
-			_portrait.position.y = 16 + bob
-			_portrait.modulate = Color.WHITE if value else Color(0.55, 0.55, 0.65)
-			_name.modulate = Color("29adff") if value else Color(0.8, 0.8, 0.85)
-		queue_redraw()
-
-	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color("0b1233"))
-		var grid := Color("16204a")
-		var step := 12.0
-		var x := step
-		while x < size.x:
-			draw_line(Vector2(x, 0), Vector2(x, 132), grid, 1.0)
-			x += step
-		var y := step
-		while y < 132.0:
-			draw_line(Vector2(0, y), Vector2(size.x, y), grid, 1.0)
-			y += step
-		if _selected:
-			draw_rect(Rect2(Vector2.ONE, size - Vector2(2, 2)), Color("29adff"), false, 2.0)
-		else:
-			draw_rect(Rect2(Vector2.ZERO, size), Color("28325a"), false, 1.0)

@@ -46,7 +46,7 @@ func _ready() -> void:
 	sprite.frame = IDLE_FRAME
 
 
-## Loads the selected suit (Settings.skin). Called again when the picker changes it.
+## Loads the player's suit (Settings.skin). Called again if it changes.
 func apply_skin() -> void:
 	var tex: Texture2D = null
 	var path: String = Settings.skin_sheet_path(Settings.skin)

@@ -30,8 +30,8 @@ If you open the project in a different version, Godot asks to convert it. Say no
 1. Open Godot 4.7 → **Import** → pick this folder's `project.godot`. The first open imports all PNG/WAV files; wait for it to finish.
 2. Watch the **Output** and **Debugger → Errors** panels. They should show no red errors.
 3. Press **F5**. The animated title menu plays. Hold the mouse down on each button: it should sink in (the face drops onto its shadow and dims), and act when you let go. Open **How to Play**, **Settings**, and **Credits** (Esc or BACK closes them). Click the speaker icon: a red slash shows it's muted. Then click **Start Game** (or press Enter).
-4. The suit picker opens. Each suit card sinks when clicked.
-5. Click a suit (click it again, press LAUNCH, or press **E** to start). A/D or ←/→ also choose.
+4. The opening story plays (36.8 s, with voices). Watch it through once, then restart and press **E** to check it skips.
+5. Gameplay starts on the RESTORE EMERGENCY POWER card. You're Johnny, in the classic suit.
 6. Walk to the blue terminal (top of the cockpit) and press **E**. The cockpit door opens and the timer starts. Walk behind the terminal: your astronaut should be hidden behind it, then drawn in front when you walk below it.
 7. Run the automated checks from a terminal in this folder:
    ```bash
@@ -52,8 +52,8 @@ If anything errors, paste the exact error into chat (with the file and line) and
 | H | Ask ECHO for help |
 | Esc / P | Pause (then R restart, M mute, V reduced shake/flash) |
 | R | Restart on the end screens |
-| A/D or ←/→ | Choose a suit on the picker (E to launch, Esc back to the story) |
-| Q | Main menu (from pause, win, lose, or picker; Esc also works on the picker) |
+| E / Enter / Space / Esc / click | Skip the opening story |
+| Q | Main menu (from pause, win, or lose) |
 | Menu | Mouse for every button; Enter/E = Start Game, M = mute, Esc = close a panel |
 
 Input actions are registered in code (`scripts/core/input_setup.gd`). If you add an action with the same name in Project Settings → Input Map, yours wins.
@@ -63,13 +63,13 @@ Input actions are registered in code (`scripts/core/input_setup.gd`). If you add
 ## How a run plays
 
 ```
-Title menu ─Start Game─▶ Suit picker ─Launch─▶ Opening story (38 s, skippable) ─▶ run
-   ▲                                                                              │
-   └──────────── Q from pause / win / lose (R restarts the run, no story) ────────┘
+Title menu ─Start Game─▶ Opening story (36.8 s, skippable) ─▶ run
+   ▲                                                         │
+   └──── Q from pause / win / lose (R restarts the run, no story) ───┘
 ```
 
 ```
-Picker ─▶ Cockpit ──▶ Engineering ──▶ Cargo ──────────────▶ Pod Bay ──▶ Earth
+Story ──▶ Cockpit ──▶ Engineering ──▶ Cargo ──────────────▶ Pod Bay ──▶ Earth
               terminal     power console   sled slides on a      clamp,
               (timer       (doors 2 open,  DOWN surge → plate    board pod
               starts)      sled powered)   → compartment → core
@@ -111,8 +111,8 @@ scripts/ai/companion_client.gd     C   ECHO client: requests, validation, fallba
 data/dialogue_fallbacks.json       C   authored ECHO lines (offline mode)
 server/                            C   /companion backend (Python stdlib)
 
-scripts/ui/hud.gd                  D   HUD, suit picker, pause, lose/win screens
-scripts/ui/press_button.gd         D   panel/picker button that sinks when pressed
+scripts/ui/hud.gd                  D   HUD, objective card, pause, lose/win screens
+scripts/ui/press_button.gd         D   panel button that sinks when pressed
 tools/extract_menu_buttons.py      D   cuts the painted button faces out of the menu video
 scenes/menu.tscn, scripts/ui/main_menu.gd   D   title menu over the menu video
 scripts/ui/ui_style.gd             D   shared navy/cyan panel + button style
@@ -236,11 +236,11 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 
 ## Suits (skins)
 
-- Four suits: **classic**, **hazard**, **nebula**, **mint**. They are listed in `Settings.SKINS`, and the choice is saved in `user://settings.cfg`.
-- **Flow:** menu → suit picker → play. Every new run and restart opens the picker with your last suit selected.
+- Four suits: **classic**, **hazard**, **nebula**, **mint**, listed in `Settings.SKINS`.
+- **No suit picker.** The player is always Johnny in the **classic** suit (`Settings.PLAYER_SKIN`), because that's what he wears in the opening film. The in-game crewmate (Aaron) takes the first other suit in `SUIT_PREFERENCE` (`crewmate.gd`): hazard, as in the film. If you re-edit the film with a different suit, change `PLAYER_SKIN` to match.
 - **Art pipeline:** the original drawings live in `art_source/` (a 4×6 walk sheet and the concept sheet). `python3 tools/import_astronaut_skins.py` snaps them to a true pixel grid and writes:
   - `assets/sprites/astronaut_<suit>.png`: 6 walk frames facing right, each 20×26 art px, saved at 2× (40×52 in-game). Frame 5 is idle; left is a flip.
-  - `assets/ui/portrait_<suit>.png`: 16×19 front portrait, shown at 6× on the picker.
+  - `assets/ui/portrait_<suit>.png`: 16×19 front portrait (from when there was a picker; kept for future UI).
 - **Adding a suit:** add a row to both source sheets (or drop in the two PNGs), add an entry to `Settings.SKINS`, then re-run the tool.
 
 ## Main menu
@@ -259,40 +259,27 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 
 ## Opening story
 
-A 38-second cutscene plays after the suit picker when a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Launch key doesn't skip it too).
+The team's 36.8-second cut (with voices) plays as soon as a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Start key doesn't skip it too).
 
-The crew: **Johnny** (the player), **Aaron** (pulls Johnny to safety), **Kien** (pulled out into space), **Dhan** (gets ahead, locked in the East Section).
+The crew: **Johnny** (the player, classic suit), **Aaron** (pulls Johnny to safety, hazard), **Kien** (pulled out into space), **Dhan** (gets ahead, locked in the East Section).
 
-| Time | Beat |
+| Time (approx.) | Beat |
 |---|---|
-| 0:00–0:03 | THE YEAR 2126, slowly dissolving into space |
-| 0:02–0:05 | The ship cruises past stars and small, far-off planets |
-| 0:05–0:09 | Cabin: four crew asleep. Monitor: MARS SPACE STATION / REPAIRS MISSION: **SUCCESS** (glowing green) / RETURNING HOME |
-| 0:09–0:11 | Dashboard: nav map from Mars, DISTANCE TO EARTH 676,767 MI |
-| 0:11–0:19 | Kien wakes: "Real food. Finally." Impact, lights fail, emergency red. "SYSTEM: Collision detected. Evacuate now." Crew unbuckle and hurry aft through the corridor door |
-| 0:19–0:24 | Corridor: Dhan ducks through the EAST SECTION door first. The second impact slams it shut and locks it, and tears the hull open. "KIEN: \*Sucked out of the ship\*"; Johnny reaches and misses |
-| 0:24–0:27 | Outside: the same ship, breached; Kien tumbles away, in silence |
-| 0:27–0:38 | Aaron pulls Johnny through the bulkhead, the door slams, breathing. Terminal: MAIN POWER OFFLINE. Johnny turns to Aaron: "That was a close one! We need to fix power first. Then find Dhan." Fade to black |
+| 0:00–0:05 | THE YEAR 2126 dissolves into space; the ship cruises past small, far-off planets |
+| 0:05–0:11 | Cabin: four crew asleep. MARS SPACE STATION / REPAIRS MISSION: **SUCCESS** / RETURNING HOME. Dashboard: DISTANCE TO EARTH 676,767 MI |
+| 0:11–0:19 | Kien: "Real food. Finally." Impact, red alarm. "SYSTEM: Collision detected. Evacuate now." Crew hurry aft |
+| 0:19–0:24 | Corridor: Dhan gets through the EAST SECTION door before it locks; "KIEN: \*Sucked out of the ship\*"; Johnny reaches and misses |
+| 0:24–0:27 | Outside: the breached ship; Kien tumbles away |
+| 0:27–0:37 | Aaron pulls Johnny through the bulkhead; MAIN POWER OFFLINE; Johnny: "That was a close one! We need to fix power first. Then find Dhan." Fade to black |
 
-- **Four astronauts, one per suit.** Johnny wears the suit the player picked. Aaron wears the same suit as the in-game crewmate NPC (first of `SUIT_PREFERENCE` in `crewmate.gd` that isn't yours); Kien and Dhan wear the next two. There's one video per suit (`assets/video/intro_<suit>.ogv`) plus one shared soundtrack (`assets/audio/intro.ogg`) that `scripts/ui/intro_cutscene.gd` plays alongside.
-- **Voice-over.** The soundtrack has no voices, and nothing loud plays under the spoken lines (effects are left out and the rest is turned down), so recordings sit on top. Drop them into `assets/audio/intro_vo/` and they play when their captions appear:
-
-  | File (`.ogg`, `.wav` or `.mp3`) | Line | Starts | Caption ends |
-  |---|---|---|---|
-  | `crew_1` | KIEN: "Real food. Finally." | 12.2 s | 14.5 s |
-  | `system_1` | SYSTEM: "Collision detected. Evacuate now." | 15.9 s | 19.4 s |
-  | `kien_1` (optional) | KIEN: \*Sucked out of the ship\* (effects keep playing under it) | 21.7 s | 24.2 s |
-  | `crew_2` | JOHNNY (gasping): "That was a close one! We need to fix power first. Then find Dhan." | 33.6 s | 37.6 s |
-
-  Or export one full-length voice track as `assets/audio/intro_vo/full.ogg` (aligned to the video from 0:00) and it plays instead. The times come from `data/intro_timing.json`, which the renderer writes.
-- **Re-render** after changing the script, timing, or art:
+- **In the game:** `assets/video/intro.ogv` (640×360 Theora, silent) plus `assets/audio/intro.ogg` (the cut's sound, voices included), played side by side by `scripts/ui/intro_cutscene.gd`. If the video is missing, the run starts straight away.
+- **Swapping in a new cut:** export from your editor at any size/frame rate (the original was 4K/120 fps, ~99 MB, too big for the repo, so it isn't in it), then:
   ```bash
-  pip install pillow numpy scipy   # ffmpeg with libtheora + libvorbis required
-  python3 tools/make_intro.py                      # all suits + soundtrack + timing (~1.5 min)
-  python3 tools/make_intro.py --preview /tmp/intro # key frames as PNGs, classic suit
+  ffmpeg -i Back2EarthPregameScene.mp4 -an -vf "fps=30,scale=640:360:flags=area" -c:v libtheora -q:v 7 -g 60 assets/video/intro.ogv
+  ffmpeg -i Back2EarthPregameScene.mp4 -vn -c:a libvorbis -q:a 4 assets/audio/intro.ogg
   ```
-  The timeline, captions, monitor lines, and the distance figure are constants at the top of `tools/make_intro.py`. If `SUIT_PREFERENCE` in `crewmate.gd` changes, change it there too.
-- **Missing files:** if a suit's video is missing, the classic one plays. If there's no intro video at all, the run starts straight away. Missing voice files are simply skipped.
+  If the new cut runs longer, also raise `LENGTH` in `intro_cutscene.gd` (it's only a safety net; the video ending normally hands over to gameplay).
+- **Base footage:** `python3 tools/make_intro.py` re-renders the silent pixel-art film the cut was edited from (timeline, captions, monitor text and the distance figure are constants at the top), into `art_source/intro_base/`, which is git-ignored. It never overwrites the game's copy.
 
 ## Video
 

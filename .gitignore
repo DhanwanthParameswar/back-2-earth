@@ -26,3 +26,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Base footage from tools/make_intro.py (the game ships the edited cut instead)
+art_source/intro_base/

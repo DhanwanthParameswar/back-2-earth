@@ -241,9 +241,9 @@ func _test_full_run() -> void:
 	var main = MainScene.instantiate()
 	add_child(main)
 	await get_tree().process_frame
-	_check(main.get_node("HUD/SuitPicker").visible, "a new run opens straight on the suit picker")
-	GameState.begin_play()
-	_check(not main.get_node("HUD/SuitPicker").visible, "launching hides the picker")
+	_check(main.get_node_or_null("HUD/SuitPicker") == null, "there is no suit picker")
+	_check(GameState.phase == GameState.Phase.PLAYING, "a new run starts straight away")
+	_check(Settings.skin == Settings.PLAYER_SKIN, "the player wears Johnny's suit from the film")
 	var player = get_tree().get_first_node_in_group("player")
 	var ship = get_tree().get_first_node_in_group("ship")
 	var director = get_tree().get_first_node_in_group("gravity_director")
@@ -298,7 +298,7 @@ func _test_restart_resets() -> void:
 		add_child(main)
 		await get_tree().process_frame
 		var ship = get_tree().get_first_node_in_group("ship")
-		var ok: bool = GameState.phase == GameState.Phase.BRIEFING \
+		var ok: bool = GameState.phase == GameState.Phase.PLAYING \
 			and GameState.objective_index == 0 \
 			and is_equal_approx(GameState.time_left, GameState.START_TIME) \
 			and GameState.inventory.is_empty() \
@@ -343,32 +343,21 @@ func _test_menu() -> void:
 
 func _test_intro() -> void:
 	print("Opening story")
-	for skin in Settings.SKINS:
-		_check(ResourceLoader.exists(IntroCutscene.VIDEO_PATH % skin["id"]), "%s suit has its intro video" % skin["id"])
-	_check(ResourceLoader.exists(IntroCutscene.AUDIO_PATH), "intro soundtrack is in the build")
-	_check(IntroCutscene.video_path_for("no_such_suit") == IntroCutscene.VIDEO_PATH % "classic", "unknown suit falls back to the classic intro")
-	var timing: Dictionary = IntroCutscene.load_timing()
-	var ids := []
-	for line in timing.get("lines", []):
-		ids.append(line["id"])
-	_check(ids == ["crew_1", "system_1", "kien_1", "crew_2"], "intro timing lists the voice-over lines in order")
-	_check(float(timing.get("length", 0.0)) > 30.0, "intro timing has the film length")
-	_check(IntroCutscene.vo_path_for("no_such_line") == "", "missing voice-over files are skipped")
+	_check(ResourceLoader.exists(IntroCutscene.VIDEO_PATH), "intro video is in the build")
+	_check(ResourceLoader.exists(IntroCutscene.AUDIO_PATH), "intro sound is in the build")
 
-	# From the main menu: suit picker -> story -> gameplay.
+	# From the main menu: straight into the story (no suit picker), then gameplay.
 	Settings.intro_pending = true
 	var main = MainScene.instantiate()
 	add_child(main)
-	await get_tree().process_frame
 	var hud = main.get_node("HUD")
-	hud._launch()
 	var intro = hud.get_node_or_null("IntroCutscene")
-	_check(intro != null and hud.is_intro_playing(), "launching from the menu plays the story first")
+	_check(intro != null and hud.is_intro_playing(), "starting from the menu plays the story from the first frame")
+	await get_tree().process_frame
 	_check(GameState.phase == GameState.Phase.BRIEFING, "the run waits while the story plays")
-	_check(not main.get_node("HUD/SuitPicker").visible, "the suit picker is hidden during the story")
 	_check(not Settings.intro_pending, "the story is used up once it starts")
-	hud._launch()
-	_check(GameState.phase == GameState.Phase.BRIEFING, "launch is ignored while the story plays")
+	hud._start_run()
+	_check(hud.get_node_or_null("IntroCutscene") == intro, "starting again while it plays does nothing")
 	if intro != null:
 		intro.skip()
 	_check(GameState.phase == GameState.Phase.PLAYING, "skipping (or the story ending) starts the run")
@@ -382,7 +371,6 @@ func _test_intro() -> void:
 	add_child(main)
 	await get_tree().process_frame
 	hud = main.get_node("HUD")
-	hud._launch()
 	_check(hud.get_node_or_null("IntroCutscene") == null and GameState.phase == GameState.Phase.PLAYING, "restarts skip the story")
 	main.queue_free()
 	await get_tree().process_frame

@@ -78,7 +78,8 @@ func _ready() -> void:
 	board.name = "LeaderboardPanel"
 	add_child(board)
 
-	Sfx.start_ambient()
+	if not hud.is_intro_playing():  # the opening film has its own sound; the HUD starts the hum after it
+		Sfx.start_ambient()
 
 
 ## The black hole sits in world space just outside the cockpit, so you see it

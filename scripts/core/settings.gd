@@ -23,15 +23,18 @@ const BACKEND_URL := "https://api.back2earth.pp.ua"
 ## page served over HTTPS can't reach a local http:// server.
 const WEB_COMPANION_URL := BACKEND_URL + "/companion"
 
-## Astronaut suits, in picker order. Art: assets/sprites/astronaut_<id>.png
-## (6-frame walk strip) and assets/ui/portrait_<id>.png (picker portrait).
+## Astronaut suits. Art: assets/sprites/astronaut_<id>.png (6-frame walk strip)
+## and assets/ui/portrait_<id>.png (portrait). The player always wears
+## PLAYER_SKIN (no suit picker); the in-game crewmate picks another one.
 const SKINS := [
 	{"id": "classic", "name": "CLASSIC", "blurb": "Standard issue"},
 	{"id": "hazard", "name": "HAZARD", "blurb": "Engineering yellow"},
 	{"id": "nebula", "name": "NEBULA", "blurb": "Deep-space violet"},
 	{"id": "mint", "name": "MINT", "blurb": "Medbay mint"},
 ]
-var skin := "classic"
+## The player is Johnny, who wears this suit in the opening film.
+const PLAYER_SKIN := "classic"
+var skin := PLAYER_SKIN
 ## Set by the main menu's START so the opening story (intro_cutscene.gd) plays
 ## once before that run. The HUD clears it; restarts (R) skip the story.
 ## Not saved.
@@ -158,9 +161,7 @@ func _load() -> void:
 	fullscreen = bool(cfg.get_value("video", "fullscreen", fullscreen))
 	companion_enabled = bool(cfg.get_value("companion", "enabled", companion_enabled))
 	companion_url = str(cfg.get_value("companion", "url", companion_url))
-	var saved_skin := str(cfg.get_value("player", "skin", skin))
-	if skin_index(saved_skin) >= 0:
-		skin = saved_skin
+	skin = PLAYER_SKIN  # ignore a suit saved back when there was a picker
 	account_name = str(cfg.get_value("account", "name", ""))
 	account_token = str(cfg.get_value("account", "token", ""))
 	guest_id = str(cfg.get_value("player", "guest_id", ""))

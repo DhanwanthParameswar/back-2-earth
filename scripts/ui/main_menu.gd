@@ -6,7 +6,7 @@ extends Control
 ## looks pushed in: the button is covered with background color and its face
 ## (cut from the video, assets/ui/menu_btn_<id>.png) is drawn lower by the
 ## depth of its 3D strip, slightly darker. The action fires on release.
-## START GAME loads scenes/main.tscn (suit picker -> run).
+## START GAME loads scenes/main.tscn (opening story -> run).
 ## Keys: Enter/E = Start Game, M = sound, Esc = close a panel.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
@@ -89,7 +89,7 @@ func activate(id: String) -> void:
 
 func _start_game() -> void:
 	_leaving = true
-	Settings.intro_pending = true  # suit picker -> opening story -> gameplay
+	Settings.intro_pending = true  # opening story -> gameplay
 	Sfx.play("launch", -6.0)
 	var tw := create_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.35)
