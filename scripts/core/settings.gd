@@ -32,6 +32,10 @@ const SKINS := [
 	{"id": "mint", "name": "MINT", "blurb": "Medbay mint"},
 ]
 var skin := "classic"
+## Set by the main menu's START so the opening story (intro_cutscene.gd) plays
+## once before that run. The HUD clears it; restarts (R) skip the story.
+## Not saved.
+var intro_pending := false
 
 
 func _ready() -> void:

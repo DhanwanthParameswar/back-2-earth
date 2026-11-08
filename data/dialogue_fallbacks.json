@@ -1,12 +1,12 @@
 {
   "_note": "Authored ECHO lines (owner: C). Shown when the backend is offline, slow, rate-limited, or invalid. Max 180 characters each. Lines rotate in order. These are labeled OFFLINE in the HUD; never present them as live model output.",
   "run_start": [
-    "ECHO online. Mostly. We are falling toward a black hole, so let's not dawdle. Terminal first.",
-    "Hello again. The ship is tumbling and so am I. Start the evacuation at the terminal."
+    "ECHO online. Mostly. Breach sealed, main power gone, black hole ahead. Terminal first: emergency power.",
+    "Hello again. The ship is tumbling and so am I. Emergency power first. The terminal is right there."
   ],
   "evacuation_started": [
-    "Evacuation started. Six minutes, give or take my rounding errors. Engineering is to the right.",
-    "Clock is running. Engineering next. Hold SPACE when the floor starts arguing with you."
+    "Emergency power on. Evacuation clock started: six minutes, give or take my rounding errors. Engineering is to the right.",
+    "Clock is running. Main power is in Engineering. Hold SPACE when the floor starts arguing with you."
   ],
   "power_restored": [
     "Power restored. The cargo sled is awake, unlike most of my subroutines.",

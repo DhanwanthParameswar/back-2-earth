@@ -32,12 +32,12 @@ const LOW_TIME_THRESHOLD := 60.0
 const OBJECTIVES := [
 	{
 		"id": "start_evacuation", "room": "cockpit",
-		"text": "Start the evacuation",
+		"text": "Restore emergency power",
 		"hint": "Use the cockpit terminal (E). Hold SPACE during a surge to brace with mag-boots.",
 	},
 	{
 		"id": "restore_power", "room": "engineering",
-		"text": "Restore power",
+		"text": "Restore main power",
 		"hint": "Go right into Engineering and activate the amber power console.",
 	},
 	{

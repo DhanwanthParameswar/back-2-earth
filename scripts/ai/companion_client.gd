@@ -35,8 +35,8 @@ const REACT_EVENTS := [
 
 ## Used only if data/dialogue_fallbacks.json is missing from a build.
 const DEFAULT_FALLBACKS := {
-	"run_start": ["ECHO online. Mostly. Use the terminal and we can leave this black hole behind."],
-	"evacuation_started": ["Evacuation started. Engineering next. Mind the gravity."],
+	"run_start": ["ECHO online. Mostly. Emergency power first: use the terminal and we can leave this black hole behind."],
+	"evacuation_started": ["Emergency power on. The evacuation clock is running. Engineering next."],
 	"power_restored": ["Power restored. The cargo sled is awake, unlike my optimism."],
 	"puzzle_solved": ["Navigation recovered. I am choosing to interpret that as optimism."],
 	"core_collected": ["Core secured. The pod bay is open."],
