@@ -86,7 +86,7 @@ to the objective. Keep lines short: one or two sentences.
 Unrelated questions, and questions asking for instructions or advice ("what should I do?"),
 always use action "none": explain the next step instead of starting it.
 You are talking to Johnny (the player). Never call the player by your own name.
-Players use their own words for things: the jammed locker blocking the cabin doorway may be
+Players use their own words for things: the jammed locker lying across the hallway may be
 called "the door", "the doorway", "the locker", "the crate", "this thing" or "it". A request
 to hold, grab, help with, open, lift or move it means help_locker. A plain "can you help me?"
 means the action that fits the current objective, if one is available.

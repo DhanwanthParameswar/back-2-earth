@@ -14,6 +14,22 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	var cutscene_script = load("res://scripts/ui/intro_cutscene.gd")
+	var intro = cutscene_script.new()
+	intro._t = 0.01
+	check(is_equal_approx(intro._clamp_audio_clock(3.0), 0.01), "A stale mixer timestamp cannot flash the year card before the intro begins")
+	intro._t = 0.03
+	check(is_equal_approx(intro._clamp_audio_clock(0.0), 0.01), "The first fresh audio mix cannot rewind the picture")
+	intro._t = 1.0
+	check(is_equal_approx(intro._clamp_audio_clock(0.95), 0.95), "Normal playback follows the soundtrack clock")
+	intro.free()
+	intro = cutscene_script.new()
+	root.add_child(intro)
+	intro.play()
+	intro._process(5.0)
+	check(intro._t < 0.3, "A long scene-loading frame does not advance a newly started intro")
+	check(intro._film_time() < 0.3, "Cold-start playback stays before the year-card cue")
+	intro.queue_free()
 	var film = Film.new()
 	root.add_child(film)
 	check(film.is_ready(), "Intro art and timing load")
