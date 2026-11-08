@@ -10,6 +10,8 @@ const GravityDirector = preload("res://scripts/core/gravity_director.gd")
 const CompanionClient = preload("res://scripts/ai/companion_client.gd")
 const NpcClient = preload("res://scripts/ai/npc_client.gd")
 const NpcChat = preload("res://scripts/ui/npc_chat.gd")
+const RunRecorder = preload("res://scripts/core/run_recorder.gd")
+const LeaderboardPanel = preload("res://scripts/ui/leaderboard_panel.gd")
 const Hud = preload("res://scripts/ui/hud.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Art = preload("res://scripts/ship/art.gd")
@@ -67,6 +69,14 @@ func _ready() -> void:
 	var npc_chat = NpcChat.new()
 	npc_chat.name = "NpcChat"
 	add_child(npc_chat)
+
+	# Runs -> Tiger Cloud database; leaderboard + optional account on the win screen.
+	var recorder = RunRecorder.new()
+	recorder.name = "RunRecorder"
+	add_child(recorder)
+	var board = LeaderboardPanel.new()
+	board.name = "LeaderboardPanel"
+	add_child(board)
 
 	Sfx.start_ambient()
 

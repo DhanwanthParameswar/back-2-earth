@@ -33,11 +33,21 @@ const SKINS := [
 ]
 var skin := "classic"
 
+## Leaderboard account (optional: everyone starts as a guest). The token is a
+## login session from the server; the password is never stored.
+var account_name := ""
+var account_token := ""
+## Random id made once per device: guest wins show as Guest + its first 4 characters.
+var guest_id := ""
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	InputSetup.ensure_actions()
 	_load()
+	if guest_id.length() < 8:
+		guest_id = Crypto.new().generate_random_bytes(6).hex_encode()  # 12 lowercase hex chars
+		_save()
 	if OS.has_feature("web"):
 		# Not saved per player, so a changed backend address takes effect for everyone.
 		companion_url = WEB_COMPANION_URL
@@ -49,6 +59,29 @@ func _ready() -> void:
 func backend_url() -> String:
 	var override := OS.get_environment("B2E_BACKEND").strip_edges()
 	return override.trim_suffix("/") if override != "" else BACKEND_URL
+
+
+func is_logged_in() -> bool:
+	return account_token != ""
+
+
+## How this player appears on the leaderboard (matches the server's view).
+func player_name() -> String:
+	return account_name if is_logged_in() else "Guest" + guest_id.left(4).to_upper()
+
+
+func set_account(username: String, token: String) -> void:
+	account_name = username
+	account_token = token
+	_save()
+	changed.emit()
+
+
+func clear_account() -> void:
+	account_name = ""
+	account_token = ""
+	_save()
+	changed.emit()
 
 
 func toggle_mute() -> void:
@@ -124,6 +157,9 @@ func _load() -> void:
 	var saved_skin := str(cfg.get_value("player", "skin", skin))
 	if skin_index(saved_skin) >= 0:
 		skin = saved_skin
+	account_name = str(cfg.get_value("account", "name", ""))
+	account_token = str(cfg.get_value("account", "token", ""))
+	guest_id = str(cfg.get_value("player", "guest_id", ""))
 
 
 func _save() -> void:
@@ -134,4 +170,7 @@ func _save() -> void:
 	cfg.set_value("companion", "enabled", companion_enabled)
 	cfg.set_value("companion", "url", companion_url)
 	cfg.set_value("player", "skin", skin)
+	cfg.set_value("account", "name", account_name)
+	cfg.set_value("account", "token", account_token)
+	cfg.set_value("player", "guest_id", guest_id)
 	cfg.save(SAVE_PATH)

@@ -169,6 +169,17 @@ Optional environment variables: `GEMINI_MODEL` (default `gemini-3.5-flash-lite`)
 
 The endpoints are public, so the server rate-limits each player and stops calling Gemini/ElevenLabs once a daily budget is used up (the game then falls back to scripted lines).
 
+### Leaderboard and accounts (Tiger Cloud database)
+
+Everyone plays as a **guest**; no login needed. Each device gets a random guest id, and guest wins go on the leaderboard as **GuestXXXX** automatically. After a **win**, the win screen shows the **top 10** (left; ranks 1-10 always listed, `---` when empty) and **your time** plus the name it was saved under (right). To put your own name on it, create an account (username + password) or log in right there: that run moves to your username, the game stays logged in on that device, and later wins save under your name. Losses count in the stats.
+
+- Database: Tiger Cloud `back2earth-db` (PostgreSQL + TimescaleDB). Schema: `server/schema.sql` (safe to rerun). The backend reads `DATABASE_URL` from its environment; the game never talks to the database.
+- Endpoints: `/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me`, `/runs/start`, `/runs/end`, `/runs/claim`, `/leaderboard` (see `server/game_db.py`).
+- Fair play: the **server** times each run (start to end), a run ends once, and wins under 12 s are refused (real speedruns take ~20 s). Run reports can be up to 64 KB (a full run's event log is ~20 KB).
+- Accounts: usernames 3-16 letters/numbers/_ (unique, basic bad-word filter); passwords 8+ characters, stored as scrypt hashes only; 5 wrong passwords lock that username for 5 minutes. No email, so no password reset.
+- Stats views: `leaderboard`, `run_stats` (plays, wins, fails, best time), `events_by_room` (where players struggle).
+- Tests: `python3 -m unittest server/test_game_db.py` (uses an in-memory fake database).
+
 ### Crewmate (talk to an NPC)
 
 Layout char `M` places the surviving crewmate (top-left of the cockpit). Walk up and she says the pre-recorded greeting (`assets/voice/crewmate_greeting.mp3`, works offline). Press **E** to open the chat box, type anything, **Enter** to send, **Esc** to close.

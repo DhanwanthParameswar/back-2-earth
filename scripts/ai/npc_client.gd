@@ -23,6 +23,8 @@ var npc_id := "crewmate"
 ## The conversation so far, oldest first: {"role": "player"|"npc", "text": String}.
 var history: Array = []
 var busy := false
+## Questions sent this run (recorded in the run's stats).
+var messages_sent := 0
 
 var _talk: HTTPRequest
 var _audio: HTTPRequest
@@ -60,6 +62,7 @@ func ask(message: String) -> bool:
 	}
 	_remember("player", message)
 	_last_message = message
+	messages_sent += 1
 	_sent_run_id = GameState.run_id
 	_audio.cancel_request()  # an older answer's voice should not start now
 	var err := _talk.request(

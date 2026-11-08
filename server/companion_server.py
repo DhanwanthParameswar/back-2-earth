@@ -21,7 +21,18 @@ POST /npc/talk         Crewmate chat. body = {"npc_id", "run_id", "message", "hi
                        "objective_id", "canonical_hint", "room_id", "time_band"}
                        200 -> {"npc_id", "line", "source", "audio_url"}
 GET  /npc/audio/<id>.mp3  The voice for a line this server wrote (synthesized once, cached).
-GET  /health           -> {"ok": true, "mode": ..., "npc_voice": ...}
+GET  /health           -> {"ok": true, "mode": ..., "npc_voice": ..., "database": ...}
+
+Accounts, runs, leaderboard (server/game_db.py; needs DATABASE_URL). Logged-in calls
+send "Authorization: Bearer <token>".
+POST /auth/register {"username", "password"} -> {"username", "token"}
+POST /auth/login    {"username", "password"} -> {"username", "token"}
+POST /auth/logout   (bearer)                 -> {"ok": true}
+GET  /auth/me       (bearer)                 -> {"username", "best"}
+POST /runs/start    {"suit", "client"} (bearer optional) -> {"run_token", "username"}
+POST /runs/end      {"run_token", "outcome", stats..., "events"} -> {"duration_s", "best", ...}
+POST /runs/claim    {"run_token"} (bearer)   -> save a just-finished guest run to the account
+GET  /leaderboard?limit=10 (bearer optional) -> {"entries": [{"rank", "player", "seconds"}], "me"}
 
 The server only ever returns short lines of flavor text and audio. It cannot change
 game state; the game validates everything before showing it.
@@ -39,6 +50,9 @@ import urllib.error
 import urllib.request
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+
+import game_db
 
 HOST = os.environ.get("COMPANION_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COMPANION_PORT", "8787"))
@@ -68,6 +82,10 @@ ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")  # fastes
 ELEVEN_FORMAT = os.environ.get("ELEVENLABS_FORMAT", "mp3_44100_64")
 TTS_TIMEOUT = float(os.environ.get("TTS_TIMEOUT", "10"))
 
+# --- Database: accounts, runs, leaderboard (Tiger Cloud Postgres) -----------------------
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+GAME = game_db.Service(game_db.Store(DATABASE_URL)) if DATABASE_URL else None
+
 # --- Limits (the endpoints are public and the keys cost money) ---------------------------
 TEXT_CALLS_PER_DAY = int(os.environ.get("TEXT_CALLS_PER_DAY", "3000"))
 TTS_CHARS_PER_DAY = int(os.environ.get("TTS_CHARS_PER_DAY", "40000"))
@@ -77,7 +95,8 @@ MAX_LINE = 180        # ECHO
 MAX_NPC_LINE = 240    # crewmate
 MAX_MESSAGE = 200     # what the player may type
 MAX_HISTORY = 8
-MAX_BODY = 8192
+# A full run's event log is ~90 bytes per event, up to 300 events.
+MAX_BODY = 65536
 
 SNAPSHOT_FIELDS = {
     "run_id": int,
@@ -221,6 +240,9 @@ class Limits:
         "companion": (6, 5.0),
         "npc": (5, 6.0),
         "audio": (10, 3.0),
+        "auth": (6, 10.0),
+        "runs": (12, 2.0),
+        "board": (30, 1.0),
     }
 
     def __init__(self) -> None:
@@ -438,10 +460,14 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self) -> None:
         # CORS so a browser (web export) build can call us.
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 
     def _send(self, code: int, payload: dict, retry_after: float = 0.0) -> None:
+        if code >= 400 and code != 404:
+            # Why a request was refused (never includes passwords or tokens).
+            print(f"[refused] {self.path.split('?')[0]} -> {code} {payload.get('error')}: "
+                  f"{str(payload.get('message', ''))[:120]}", file=sys.stderr)
         data = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -473,14 +499,44 @@ class Handler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError):
             return None, "invalid_json"
 
+    def _token(self) -> str:
+        auth = self.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        return token if 0 < len(token) <= 100 else ""
+
+    def _game(self, bucket: str, call) -> None:
+        """Run a game_db.Service call with rate limiting and database-error handling."""
+        if GAME is None:
+            self._send(503, {"error": "db_unavailable", "message": "Leaderboard is offline"})
+            return
+        if self._limited(bucket):
+            return
+        try:
+            self._send(*call())
+        except game_db.DbError as exc:
+            print(f"[db] {exc!r}", file=sys.stderr)
+            self._send(503, {"error": "db_unavailable", "message": "Leaderboard is offline"})
+
     def do_OPTIONS(self) -> None:  # noqa: N802 (http.server naming)
         self._send(204, {})
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/health":
+        url = urlsplit(self.path)
+        if url.path == "/health":
             self._send(200, {"ok": True, "mode": "mock" if MOCK else "live",
                              "model": None if MOCK else (GEMINI_MODEL if PROVIDER == "gemini" else MODEL),
-                             "npc_voice": bool(ELEVEN_API_KEY) and not MOCK})
+                             "npc_voice": bool(ELEVEN_API_KEY) and not MOCK,
+                             "database": GAME is not None})
+            return
+        if url.path == "/leaderboard":
+            try:
+                limit = int(parse_qs(url.query).get("limit", ["10"])[0])
+            except ValueError:
+                limit = 10
+            self._game("board", lambda: GAME.leaderboard(limit, self._token()))
+            return
+        if url.path == "/auth/me":
+            self._game("board", lambda: GAME.me(self._token()))
             return
         match = _AUDIO_PATH.match(self.path)
         if not match:
@@ -505,13 +561,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(mp3)
 
+    GAME_POSTS = {
+        "/auth/register": ("auth", lambda h, d: GAME.register(d)),
+        "/auth/login": ("auth", lambda h, d: GAME.login(d)),
+        "/auth/logout": ("auth", lambda h, d: GAME.logout(h._token())),
+        "/runs/start": ("runs", lambda h, d: GAME.start_run(d, h._token())),
+        "/runs/end": ("runs", lambda h, d: GAME.end_run(d)),
+        "/runs/claim": ("runs", lambda h, d: GAME.claim_run(d, h._token())),
+    }
+
     def do_POST(self) -> None:  # noqa: N802
-        if self.path not in ("/companion", "/npc/talk"):
+        if self.path not in ("/companion", "/npc/talk") and self.path not in self.GAME_POSTS:
             self._send(404, {"error": "not_found"})
             return
         data, err = self._read_json()
         if err:
-            self._send(400, {"error": err})
+            self._send(400, {"error": err, "message": f"Content-Length {self.headers.get('Content-Length')}"})
+            return
+        if self.path in self.GAME_POSTS:
+            bucket, call = self.GAME_POSTS[self.path]
+            self._game(bucket, lambda: call(self, data))
             return
         if self.path == "/companion":
             snapshot, reason = validate_snapshot(data)
@@ -540,7 +609,8 @@ def main() -> None:
         return
     mode = "MOCK (canned lines)" if MOCK else f"LIVE ({PROVIDER}: {GEMINI_MODEL if PROVIDER == 'gemini' else MODEL})"
     voice = f"voice {NPC_VOICE_ID} via {ELEVEN_MODEL}" if ELEVEN_API_KEY else "no voice (no ELEVENLABS_API_KEY)"
-    print(f"Back2Earth backend on http://{HOST}:{PORT} — {mode}; crewmate {voice}")
+    db = "leaderboard on" if GAME is not None else "leaderboard off (no DATABASE_URL)"
+    print(f"Back2Earth backend on http://{HOST}:{PORT} — {mode}; crewmate {voice}; {db}")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
 

@@ -7,6 +7,7 @@ extends Node
 const GravityDirector = preload("res://scripts/core/gravity_director.gd")
 const CompanionClient = preload("res://scripts/ai/companion_client.gd")
 const NpcClient = preload("res://scripts/ai/npc_client.gd")
+const RunRecorder = preload("res://scripts/core/run_recorder.gd")
 const MainScene = preload("res://scenes/main.tscn")
 const MenuScene = preload("res://scenes/menu.tscn")
 
@@ -25,6 +26,7 @@ func _ready() -> void:
 	_test_skin_assets()
 	_test_npc_helpers()
 	await _test_crewmate()
+	await _test_leaderboard()
 	await _test_full_run()
 	await _test_restart_resets()
 	await _test_menu()
@@ -189,6 +191,45 @@ func _test_crewmate() -> void:
 	_check(chat.is_open() and player.input_blocked(), "E opens the chat box and freezes the player")
 	chat.close()
 	_check(not chat.is_open() and not player.input_blocked(), "closing the chat frees the player")
+	main.queue_free()
+	await get_tree().process_frame
+
+
+func _test_leaderboard() -> void:
+	print("Runs + leaderboard (offline server)")
+	_check(RunRecorder.format_time(95.0) == "1:35.0" and RunRecorder.format_time(5.24) == "0:05.2", "times show as m:ss.s")
+	var saved_name: String = Settings.account_name
+	var saved_token: String = Settings.account_token
+	Settings.clear_account()
+	var main = MainScene.instantiate()
+	add_child(main)
+	await get_tree().process_frame
+	GameState.begin_play()
+	var recorder = main.get_node("RunRecorder")
+	var board = main.get_node("LeaderboardPanel")
+	_check(recorder != null and board != null, "main scene has the run recorder and leaderboard panel")
+	GameState.request_help()
+	_check(recorder.events.size() >= 1 and recorder.events[-1]["event"] == "help", "game events are logged with a time")
+	var body: Dictionary = recorder.build_end_body()
+	var keys_ok := true
+	for key in ["run_token", "outcome", "time_left_s", "debris_hits", "boots_uses", "npc_messages", "objectives_done", "events"]:
+		keys_ok = keys_ok and body.has(key)
+	_check(keys_ok and body["outcome"] == "lost", "end-of-run report has every stat")
+	_check(not board.is_open(), "leaderboard hidden during play")
+	board.open()
+	_check(board.is_open() and board._guest_box.visible and not board._user_box.visible, "guests see the save-to-leaderboard form")
+	Settings.set_account("Tester", "test-token")
+	_check(board._user_box.visible and not board._guest_box.visible, "logged-in players see their account instead")
+	board.show_entries([{"rank": 1, "player": "Tester", "seconds": 95.0}, {"rank": 2, "player": "Bob", "seconds": 100.0}])
+	_check(board._name_labels[0].text == "Tester" and board._time_labels[0].text == "1:35.0", "top 10 lists names and times")
+	_check(board._rank_labels[9].text == "10." and board._name_labels[9].text == "---", "ranks 1-10 always shown, empty slots ---")
+	Settings.clear_account()
+	_check(Settings.guest_id.length() >= 8 and Settings.player_name().begins_with("Guest") and Settings.player_name().length() == 9,
+		"guests get a GuestXXXX name from their device id")
+	_check(recorder.build_end_body().has("run_token"), "recorder still builds its report")
+	_check(board.save_error_text("implausible").contains("too fast") and board.save_error_text("offline").contains("offline"),
+		"a refused save says why instead of 'server busy'")
+	Settings.set_account(saved_name, saved_token)
 	main.queue_free()
 	await get_tree().process_frame
 
