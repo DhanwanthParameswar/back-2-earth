@@ -36,8 +36,10 @@ func _run() -> void:
 	check(auth.code == 401 and not settings.is_logged_in(), "Incorrect password cannot open an account")
 	auth = await saves.authenticate("login", name, "test-password-123")
 	check(auth.code == 200 and saves.has_progress(), "Sign in loads the saved mission")
+	check(saves.checkpoint().memory_notes.mara == data.memory_notes.mara, "Crew memories travel with the account's cloud checkpoint")
 	var competing: Dictionary = data.duplicate(true)
 	competing.elapsed = 444
+	competing.memory_notes.mara = ["A different device's saved memory"]
 	var remote: Dictionary = await saves._api("/save", {"snapshot": competing, "revision": int(saves._record.revision)}, settings.account_token)
 	check(remote.code == 200, "Another device updates the cloud checkpoint")
 	saves.store(data)
@@ -45,6 +47,7 @@ func _run() -> void:
 	check(saves.conflict and saves.checkpoint().elapsed != 444, "Stale autosave preserves local progress instead of overwriting cloud")
 	await saves.resolve_conflict(true)
 	check(not saves.conflict and saves.checkpoint().elapsed == 444, "Choosing cloud loads the other device's progress")
+	check(saves.checkpoint().memory_notes.mara == competing.memory_notes.mara, "Conflict resolution selects progress and crew memory as one save")
 	# Delete while a deliberately slow upload is in flight: final cloud state must be deleted.
 	saves.store(data)
 	saves._sync()

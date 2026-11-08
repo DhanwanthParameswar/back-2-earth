@@ -595,11 +595,12 @@ class Handler(BaseHTTPRequestHandler):
             if self._limited("npc"):
                 return
             voice_id = os.environ.get("PILOT_VOICE_ID", NPC_VOICE_ID) if isinstance(data, dict) and data.get("npc_id") == "ivo" else NPC_VOICE_ID
-            # Each crewmate has its own memory of each player (database); without one, the
-            # client's recent history is used instead.
+            # Current clients save each crewmate's memory with mission progress.
+            # Keep the independent database path only for older web builds.
             key, memory = None, None
             npc_id = data.get("npc_id") if isinstance(data, dict) else None
-            if GAME is not None and npc_id in escape_dialogue.PERSONAS:
+            saved_memory = isinstance(data, dict) and "memory_notes" in data
+            if not saved_memory and GAME is not None and npc_id in escape_dialogue.PERSONAS:
                 try:
                     key = GAME.npc_player_key(self._token(), data.get("guest_id"))
                     memory = GAME.store.npc_memory(key, npc_id) if key else None
@@ -608,6 +609,10 @@ class Handler(BaseHTTPRequestHandler):
             code, body = escape_dialogue.reply(data, generate_text, MOCK, AUDIO.register if ELEVEN_API_KEY else None,
                                                voice_id, memory)
             remember = body.pop("_remember", None)
+            if saved_memory and code == 200 and body.get("source") == "live":
+                # No independent write: the game commits this fact with the
+                # accepted reply and world state in one versioned checkpoint.
+                body["memory_note"] = remember
             if code == 200 and key and memory is not None and body.get("source") == "live":
                 rows = [("turn", "player", str(data.get("message", "")).strip()), ("turn", "npc", body["line"])]
                 if remember:

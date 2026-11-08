@@ -38,6 +38,7 @@ func _run() -> void:
 	first.crew.mara.facing = Vector2.UP
 	first.darkness.flashlight = true
 	first.ui.radio.histories.mara = [{"role": "player", "text": "Help me"}, {"role": "npc", "text": "On my way"}]
+	first.ui.radio.memory_notes.mara = ["Johnny wants to save the samples"]
 	first.active = false
 	var snapshot: Dictionary = first.progress_snapshot()
 	check(saves.compatible(snapshot), "Real mission produces a compatible checkpoint")
@@ -64,6 +65,14 @@ func _run() -> void:
 	check(resumed.player.position.distance_to(Vector2(snapshot.player.position[0], snapshot.player.position[1])) < 1, "Player position restored")
 	check(resumed.crew.mara.light_on and resumed.darkness.flashlight, "Flashlights restored")
 	check(resumed.ui.radio.histories.mara.size() == 2, "Recent crew conversation restored")
+	check(resumed.ui.radio.memory_notes.mara == ["Johnny wants to save the samples"] and resumed.ui.radio.memory_notes.ivo.is_empty(), "Resume restores each crewmate's own remembered facts")
+	resumed.ui.radio.pending_id = "ivo"
+	resumed.ui.radio.pending_message = "I prefer the repair route"
+	resumed.ui.radio._deliver({"line": "Understood.", "action": "none", "memory_note": "Johnny prefers repairing engineering"})
+	check(saves.checkpoint().memory_notes.ivo == ["Johnny prefers repairing engineering"] and saves.checkpoint().history.ivo.size() == 2, "Accepted reply and remembered fact are saved immediately together")
+	resumed.ui.radio.pending_version = -1
+	resumed.ui.radio._on_reply(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify({"line": "Old reply", "action": "none", "memory_note": "Stale fact"}).to_utf8_buffer())
+	check(not resumed.ui.radio.memory_notes.ivo.has("Stale fact"), "A stale reply cannot add memories")
 	resumed.active = false
 	resumed._save_ready = false
 	resumed.queue_free()
@@ -72,6 +81,8 @@ func _run() -> void:
 	settings.account_token = "test-not-a-real-token"
 	saves._profile_changed()
 	check(not saves.has_progress(), "Guest progress is isolated from signed-in accounts")
+	saves.import_guest()
+	check(saves.checkpoint().memory_notes.mara == snapshot.memory_notes.mara, "Importing guest progress also imports its crew memories")
 	check(saves.store(snapshot), "Account checkpoint stored locally while offline")
 	settings.account_name = "TestBob"
 	saves._profile_changed()
@@ -81,16 +92,30 @@ func _run() -> void:
 	check(saves.has_progress(), "Switching back restores the correct account slot")
 	check(not FileAccess.get_file_as_string(saves._path()).contains("test-not-a-real-token"), "Credentials are never written into checkpoints")
 	check(saves.delete_progress() and not saves.has_progress(), "Delete removes the resume slot")
+	check(not saves.checkpoint().has("memory_notes"), "Delete removes the crew memories with the checkpoint")
 	saves._profile = ""
 	saves._profile_changed()
 	check(not saves.has_progress() and saves._record.dirty, "Deletion tombstone survives restart for later cloud sync")
 	var corrupt := snapshot.duplicate(true)
 	corrupt.crew.mara.position = ["bad", 3]
 	check(not saves.compatible(corrupt), "Corrupt actor coordinates rejected")
+	corrupt = snapshot.duplicate(true)
+	corrupt.memory_notes.mara = ["x".repeat(121)]
+	check(not saves.compatible(corrupt), "Oversized crew memories rejected")
+	var legacy := snapshot.duplicate(true)
+	legacy.erase("memory_notes")
+	check(saves.compatible(legacy), "Existing saves without notes remain compatible")
 	saves.enabled = false
 	settings.account_name = ""
 	settings.account_token = ""
 	saves._profile_changed()
+	var fresh = mission()
+	await process_frame
+	await process_frame
+	check(fresh.ui.radio.memory_notes.mara.is_empty() and fresh.ui.radio.memory_notes.ivo.is_empty() and fresh.ui.radio.histories.mara.is_empty(), "A new game starts with empty crew memories and conversations")
+	fresh._save_ready = false
+	fresh.queue_free()
+	await process_frame
 	await _test_crew_tasks(snapshot)
 	print("SAVES: %d checks, %d failures" % [checks, failures])
 	quit(failures)

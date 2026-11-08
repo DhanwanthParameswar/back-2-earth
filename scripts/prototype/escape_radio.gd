@@ -15,6 +15,7 @@ var mission
 var live_enabled := true
 var busy := false
 var histories := {"mara": [], "ivo": []}
+var memory_notes := {"mara": [], "ivo": []}
 var request: HTTPRequest
 var audio_request: HTTPRequest
 var voice: AudioStreamPlayer
@@ -61,8 +62,8 @@ func ask(id: String, message: String) -> void:
 	var body: Dictionary = mission.snapshot(id)
 	body["message"] = pending_message
 	body["history"] = histories[id]
-	# Who is talking: the server keeps each crewmate's own memory of each player
-	# (logged-in account, else this device's guest id).
+	body["memory_notes"] = memory_notes[id]
+	# Conversations and remembered facts belong to this saved mission.
 	body["guest_id"] = Settings.guest_id
 	var headers := PackedStringArray(["Content-Type: application/json"])
 	if Settings.account_token != "":
@@ -128,6 +129,11 @@ func _deliver(data: Dictionary) -> void:
 	histories[pending_id].append({"role": "player", "text": pending_message})
 	histories[pending_id].append({"role": "npc", "text": data.line})
 	while histories[pending_id].size() > 6: histories[pending_id].pop_front()
+	var note = data.get("memory_note")
+	if note is String and note.length() > 0 and note.length() <= 120:
+		if not memory_notes[pending_id].has(note): memory_notes[pending_id].append(note)
+		while memory_notes[pending_id].size() > 12: memory_notes[pending_id].pop_front()
+	mission.save_progress()
 	data["npc_id"] = pending_id
 	answered.emit(data)
 

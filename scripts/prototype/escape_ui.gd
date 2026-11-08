@@ -482,6 +482,6 @@ func _confirm_restart() -> void:
 	_panel("START OVER?", "pause")
 	pause_was_active = mission.active
 	mission.active = false
-	_text("Your current saved progress will be replaced with a new game.")
+	_text("Your saved progress and the crew's memories will be reset for a new game.")
 	_button("Cancel", show_pause)
 	_button("Start new game", mission.restart_run)

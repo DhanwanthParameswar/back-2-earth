@@ -600,7 +600,8 @@ func progress_snapshot() -> Dictionary:
 	return {"schema": 1, "map": "escape-v1", "state": {"flags": state.flags.duplicate(), "route": state.route,
 		"carrying": state.carrying, "version": state.version, "journal": state.journal.slice(maxi(0, state.journal.size() - 40))},
 		"player": {"position": [player.position.x, player.position.y]}, "crew": actors, "elapsed": elapsed,
-		"flashlight": darkness.flashlight, "history": ui.radio.histories.duplicate(true)}
+		"flashlight": darkness.flashlight, "history": ui.radio.histories.duplicate(true),
+		"memory_notes": ui.radio.memory_notes.duplicate(true)}
 
 func _safe_saved_point(point: Array, fallback: Vector2) -> Vector2:
 	var target := Vector2(float(point[0]), float(point[1]))
@@ -637,6 +638,7 @@ func _restore_progress(data: Dictionary) -> void:
 		if saved.task != "": _resume_tasks[id] = saved.task
 	darkness.flashlight = bool(data.flashlight)
 	ui.radio.histories = {"mara": data.get("history", {}).get("mara", []).duplicate(true), "ivo": data.get("history", {}).get("ivo", []).duplicate(true)}
+	ui.radio.memory_notes = {"mara": data.get("memory_notes", {}).get("mara", []).duplicate(true), "ivo": data.get("memory_notes", {}).get("ivo", []).duplicate(true)}
 	_resumed = true
 	var cover_layer := CanvasLayer.new()
 	cover_layer.layer = 150

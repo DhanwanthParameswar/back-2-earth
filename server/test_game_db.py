@@ -156,6 +156,15 @@ class HelperTests(unittest.TestCase):
 
 
 class SaveValidationTests(unittest.TestCase):
+    def test_checkpoint_memory_bounds_and_legacy_compatibility(self):
+        import save_games
+        checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())
+        self.assertTrue(save_games.valid(checkpoint))
+        checkpoint['memory_notes'] = {'mara': ['Johnny wants to save the samples'], 'ivo': []}
+        self.assertTrue(save_games.valid(checkpoint))
+        for bad in ([], {'mara': 'fact'}, {'mara': ['x'] * 13}, {'mara': ['x' * 121]}, {'mara': [None]}, {'pirate': []}):
+            self.assertFalse(save_games.valid({**checkpoint, 'memory_notes': bad}), bad)
+
     def test_corrupt_and_oversized_snapshots_are_rejected(self):
         import save_games
         checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())
@@ -395,6 +404,41 @@ class HttpTests(unittest.TestCase):
             self.assertNotIn("samples", ivo_ctx, "Dhan doesn't know Aaron's notes")
             talk("mara", "hello", guest="cafe0002")
             self.assertNotIn("samples", " ".join(t[1] for t in seen[4]), "another player starts with a fresh memory")
+        finally:
+            cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = old
+
+    def test_saved_memory_is_authoritative_and_never_written_separately(self):
+        seen = []
+
+        def generate(system, turns, *args):
+            seen.append(turns)
+            return json.dumps({'line': 'Understood.', 'action': 'none', 'remember': 'Johnny prefers repairs'})
+
+        old = (cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY)
+        cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = False, generate, ''
+        try:
+            # Even an older playthrough under the same identity cannot leak in.
+            self.store.npc_remember('gbeef0001', 'mara', [('note', None, 'OLD GAME SECRET')])
+            original = copy.deepcopy(self.store.memory)
+            body = {'npc_id': 'mara', 'state_version': 1, 'message': 'What do you remember?',
+                    'objective': 'Clear the doorway.', 'flags': {}, 'guest_id': 'beef0001',
+                    'history': [], 'memory_notes': [], 'available_actions': {'none': 'Answer.'}}
+            code, result = self.call('/escape/talk', body)
+            self.assertEqual(code, 200)
+            self.assertEqual(result['memory_note'], 'Johnny prefers repairs')
+            self.assertNotIn('OLD GAME SECRET', str(seen[-1]))
+            self.assertEqual(self.store.memory, original, 'Replies cannot recreate memory independently of a save')
+            body['memory_notes'] = [result['memory_note']]
+            body['history'] = [{'role': 'player', 'text': 'Please repair engineering'}]
+            self.assertEqual(self.call('/escape/talk', body)[0], 200)
+            self.assertIn('Johnny prefers repairs', str(seen[-1]))
+            self.assertIn('Please repair engineering', str(seen[-1]))
+            body['memory_notes'], body['history'] = [], []
+            self.assertEqual(self.call('/escape/talk', body)[0], 200)
+            self.assertNotIn('Johnny prefers repairs', str(seen[-1]), 'A new game has no facts from a previous playthrough')
+            body['memory_notes'] = ['x' * 121]
+            self.assertEqual(self.call('/escape/talk', body)[0], 400)
+            self.assertEqual(self.store.memory, original)
         finally:
             cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = old
 

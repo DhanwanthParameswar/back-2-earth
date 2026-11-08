@@ -152,7 +152,7 @@ func _show_games() -> void:
 func _confirm_new() -> void:
 	screen = "confirm"
 	_clear("START A NEW GAME?")
-	_text("This replaces your current saved mission. Your account and crew memory stay intact.")
+	_text("This replaces your saved mission and resets the crew's memory. Your account is kept.")
 	_button("Keep current save", _show_games)
 	_button("Replace save and start", _replace_and_start)
 
@@ -163,7 +163,7 @@ func _replace_and_start() -> void:
 func _confirm_delete() -> void:
 	screen = "confirm"
 	_clear("DELETE SAVED GAME?")
-	_text("This removes the resumable mission from this device and your account. Your account and crew memory are kept.")
+	_text("This deletes your saved mission and its crew memories from this device and your account. Your account is kept.")
 	_button("Cancel", _show_games)
 	_button("Delete saved mission", _delete)
 
