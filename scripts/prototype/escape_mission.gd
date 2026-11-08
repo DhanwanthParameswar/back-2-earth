@@ -209,8 +209,7 @@ func open_chat(id: String) -> void:
 
 func announce(speaker: String, line: String) -> void:
 	if ui != null: ui.show_caption(speaker, line)
-	var id := "mara" if speaker == "MARA" else "ivo" if speaker == "IVO" else ""
-	if crew.has(id): crew[id].say(line)
+	# No speech bubbles: lines show as text above the HUD bar (and in the chat box).
 
 func use_prop(id: String) -> void:
 	match id:
