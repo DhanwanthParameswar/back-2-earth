@@ -9,6 +9,7 @@ const Prop = preload("res://scripts/prototype/escape_prop.gd")
 const Interface = preload("res://scripts/prototype/escape_ui.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Intro = preload("res://scripts/ui/intro_cutscene.gd")
+const Darkness = preload("res://scripts/prototype/escape_darkness.gd")
 const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
 const TILE := 32
 ## The ship interior: rooms, walls, furniture and the spots the story uses all
@@ -39,6 +40,7 @@ var locker_body: StaticBody2D
 var locker_visual: Sprite2D
 var carried_visual: Sprite2D
 var _intro = null
+var darkness
 var _busy_actors := {}
 
 func _ready() -> void:
@@ -65,6 +67,9 @@ func _ready() -> void:
 	carried_visual.texture = load("res://assets/sprites/crate.png")
 	carried_visual.scale = Vector2(0.65, 0.65)
 	world.add_child(carried_visual)
+	darkness = Darkness.new()  # dark until power is back; F = flashlight
+	darkness.mission = self
+	add_child(darkness)
 	ui = Interface.new()
 	ui.mission = self
 	add_child(ui)
@@ -247,6 +252,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_TAB: ui.show_map()
 			KEY_ESCAPE: ui.show_pause()
 			KEY_M: Settings.toggle_mute()
+			KEY_F: darkness.toggle_flashlight()
 
 func open_chat(id: String) -> void:
 	if not active or ending: return
@@ -366,6 +372,11 @@ func available_actions(id: String) -> Dictionary:
 		if state.has_flag("battery_out") and not state.has_flag("battery_loaded"): actions["load_battery"] = "Help the player lift the lab battery onto the cart. Player must be beside the cart."
 	if id == "ivo" and state.has_flag("assessed") and not state.has_flag("case_requested") and not state.has_flag("battery_out"):
 		actions["fetch_case"] = "Fetch the insulated case from the shuttle and deliver it to the lab freezer."
+	if not state.powered():  # dark ship: the crew can aim their flashlights
+		for dir in ["up", "down", "left", "right"]:
+			actions["light_" + dir] = "Turn on your flashlight and point it " + dir + " (on the screen)."
+		if crew.has(id) and crew[id].light_dir != Vector2.ZERO:
+			actions["light_off"] = "Turn your flashlight off."
 	return actions
 
 func act_on_dialogue(id: String, action: String) -> String:
@@ -373,6 +384,10 @@ func act_on_dialogue(id: String, action: String) -> String:
 	if not available_actions(id).has(action): return "That task is no longer available. " + state.objective()
 	var actor = crew[id]
 	match action:
+		"light_up", "light_down", "light_left", "light_right":
+			actor.light_dir = {"light_up": Vector2.UP, "light_down": Vector2.DOWN, "light_left": Vector2.LEFT, "light_right": Vector2.RIGHT}[action]
+		"light_off":
+			actor.light_dir = Vector2.ZERO
 		"follow":
 			if find_path(actor.position, player.position).is_empty(): return "The cabin doorway is blocked. Clear it with Aaron first."
 			actor.following = true
@@ -417,7 +432,13 @@ func offline_response(id: String, message: String) -> Dictionary:
 	var action := "none"
 	var query := m.begins_with("what") or m.begins_with("why") or m.begins_with("where") or m.begins_with("how")
 	var negative := m.contains("don't") or m.contains("do not") or m.contains("stop") or m.contains("never")
-	if _mentions(m, ["your name", "who are you"]):
+	if not state.powered() and _mentions(m, ["light", "flashlight", "torch", "beam", "shine"]):
+		var dirs := {"up": "light_up", "north": "light_up", "down": "light_down", "south": "light_down", "left": "light_left", "west": "light_left", "right": "light_right", "east": "light_right"}
+		for word in dirs.keys():
+			if _mentions(m, [word]) and available_actions(id).has(dirs[word]): action = dirs[word]
+		if _mentions(m, ["off", "turn it off", "kill"]) and available_actions(id).has("light_off"): action = "light_off"
+		line = "Light off." if action == "light_off" else ("Pointing my light that way." if action != "none" else "Which way should I point my flashlight? Up, down, left or right?")
+	elif _mentions(m, ["your name", "who are you"]):
 		line = "I'm %s. " % crew[id].display_name.split(" · ")[0].capitalize() + state.objective()
 	elif negative:
 		line = "Understood. I won't start another task. " + state.objective()

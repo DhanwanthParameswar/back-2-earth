@@ -13,6 +13,8 @@ var arrived: Callable
 var following := false
 var walking_time := 0.0
 var bubble_left := 0.0
+## Their flashlight direction while the ship is dark (ZERO = off). Set by asking them on the radio.
+var light_dir := Vector2.ZERO
 const BUBBLE_WIDTH := 190.0
 var name_label: Label
 var cargo: Sprite2D

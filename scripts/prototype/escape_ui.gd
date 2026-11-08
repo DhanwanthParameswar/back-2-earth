@@ -47,12 +47,12 @@ func _ready() -> void:
 	objective = _label(bar, "", Vector2(10, 3), 11, Style.TEXT)
 	objective.clip_text = true
 	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	keys = _label(bar, "WASD move   E use / talk   1 Aaron   2 Dhan   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
+	keys = _label(bar, "WASD move   E use / talk   1 Aaron   2 Dhan   F light   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
 	keys.clip_text = true
 	toast = _outlined(root, 10, Style.TEXT)
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint = _outlined(root, 9, Style.MUTED)
-	hint.text = "Aaron and Dhan are on your helmet radio. Ask about the situation, or ask them to help."
+	hint.text = "It's dark: press F for your flashlight.   Aaron and Dhan are on the radio (1 / 2)."
 	hint.visible = false
 	float_prompt = _outlined(root, 10, Style.CYAN_BRIGHT)
 	float_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
