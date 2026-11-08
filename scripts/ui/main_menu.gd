@@ -549,7 +549,8 @@ func _build_credits_panel() -> void:
 		var lines := []
 		for line in section.get("lines", []):
 			lines.append(str(line))
-		var body := UiStyle.label("\n".join(PackedStringArray(lines)), 10)
+		# A section's entries sit side by side (wrapping if they run long).
+		var body := UiStyle.label("  ·  ".join(PackedStringArray(lines)), 10)
 		body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vbox.add_child(body)
