@@ -75,10 +75,10 @@ func _shuffle(list: Array, rng: RandomNumberGenerator) -> void:
 		list[j] = t
 
 func fault_code() -> String: return "E-%d" % int(puzzle.code)
-func right_fuse() -> String: return str(puzzle.fuse_for[str(puzzle.code)])
+func right_fuse() -> String: return str(puzzle.fuse_for.get(str(int(puzzle.code)), ""))
 func fuse_for(code: int) -> String: return str(puzzle.fuse_for.get(str(code), ""))
 func short_branch() -> String: return "AUX-%d" % int(puzzle.aux)
-func right_toggle() -> int: return int(puzzle.toggle_for[str(puzzle.aux)])
+func right_toggle() -> int: return int(puzzle.toggle_for.get(str(int(puzzle.aux)), -1))
 func toggle_for(branch: int) -> int: return int(puzzle.toggle_for.get(str(branch), -1))
 func right_selector() -> String: return SELECTOR[int(puzzle.selector)]
 

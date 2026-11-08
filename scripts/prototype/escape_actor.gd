@@ -130,23 +130,26 @@ func _process(delta: float) -> void:
 func _apply_pose() -> void:
 	match pose:
 		"pinned":
-			sprite.rotation = -PI / 2.0
-			sprite.position = Vector2(4, -10)
+			sprite.rotation = PI / 2.0
+			sprite.position = Vector2(6, -10)
 			sprite.scale = Vector2.ONE
 			sprite.frame = 5
 			sprite.modulate = Color.WHITE
+			name_label.position = Vector2(-15, 6)
 		"dead":
 			sprite.rotation = -PI / 2.0
 			sprite.position = Vector2(0, -8)
 			sprite.scale = Vector2.ONE
 			sprite.frame = 5
 			sprite.modulate = Color(0.55, 0.55, 0.62)
+			name_label.position = Vector2(-48, 5)
 		"sit":
 			sprite.rotation = 0.0
 			sprite.position = Vector2(0, -20)
 			sprite.scale = Vector2(1.0, 0.78)
 			sprite.frame = 5
 			sprite.modulate = Color.WHITE
+			name_label.position = Vector2(-48, 5)
 		"straining":
 			sprite.rotation = 0.06 * sin(Time.get_ticks_msec() / 60.0)
 			sprite.position = Vector2(0, -26)

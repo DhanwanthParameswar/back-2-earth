@@ -1,7 +1,7 @@
 {
  "_note": "Every pre-written line in the escape (docs/Game Design.md sections 8-10). Voice files: assets/voice/escape/<id>.mp3, made by tools/record_escape_lines.py. 'who' is aaron, dhan or marvis.",
  "lines": {
-  "aftershock_dhan": {"who": "dhan", "text": "Agh! Okay. Okay. Leg. Locker. Leg's under the locker."},
+  "aftershock_dhan": {"who": "dhan", "text": "[groans in pain] Agh! Okay... okay... Leg... locker... Leg's under the locker."},
   "aftershock_aaron": {"who": "aaron", "text": "Don't move. Johnny, I'll lift. You pull him out."},
   "lift_ready": {"who": "aaron", "text": "Got it! Pull him out, quick!"},
   "lift_drop": {"who": "aaron", "text": "Can't hold it... sorry. Tell me when you're ready."},

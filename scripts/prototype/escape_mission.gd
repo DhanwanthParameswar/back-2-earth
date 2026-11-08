@@ -386,6 +386,31 @@ func _run_timers() -> void:
 func is_open() -> bool:
 	return seated or scripted
 
+func _input(event: InputEvent) -> void:
+	if not active or ending: return
+	if event is InputEventKey and event.is_pressed() and not event.is_echo():
+		if event.keycode == KEY_ASCIITILDE or (event.shift_pressed and (event.keycode == KEY_QUOTELEFT or event.physical_keycode == KEY_QUOTELEFT)):
+			get_viewport().set_input_as_handled()
+			_secret_trigger_ending()
+
+## Secret developer / demo shortcut (Shift + ~) to jump straight to the launch sequence and ending.
+func _secret_trigger_ending() -> void:
+	if ending: return
+	state.flags["dhan_free"] = true
+	state.flags["locker_clear"] = true
+	state.flags["isolated"] = true
+	state.flags["fuse_installed"] = true
+	state.flags["fault_found"] = true
+	state.flags["aux_off"] = true
+	state.flags["engineering_power"] = true
+	state.flags["samples_saved"] = true
+	state.flags["dhan_treated"] = true
+	state.flags["dhan_aboard"] = true
+	state.flags["aaron_aboard"] = true
+	state.flags["clamps"] = true
+	ui.close()
+	_launch()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or ending or ui.is_open(): return
 	if event.is_echo() or not event.is_pressed(): return
@@ -502,6 +527,7 @@ func ask_marvis(message: String) -> String:
 
 func _aftershock() -> void:
 	scripted = true
+	crew.ivo.facing = Vector2.LEFT
 	after(0.9, func():
 		Sfx.play("hit", -2)
 		Haptics.play("impact")
@@ -511,8 +537,8 @@ func _aftershock() -> void:
 		tw.tween_property(locker_visual, "rotation", 0.0, 0.25)
 		crew.ivo.position = anchor("dhan_pinned")
 		crew.ivo.pose = "pinned"
-		crew.ivo.facing = Vector2.LEFT
-		_dust(anchor("dhan_pinned") + Vector2(-20, -8)))
+		crew.ivo.facing = Vector2.RIGHT
+		_dust(anchor("dhan_pinned") + Vector2(-15, -4)))
 	after(1.6, func():
 		scripted = false
 		say("aftershock_dhan")
@@ -563,6 +589,11 @@ func _free_dhan() -> void:
 	_swing_locker_clear()
 	crew.mara.following = true
 	say("freed_dhan")
+	after(3.0, func():
+		if not _said.has("marvis_summary"):
+			_said["marvis_summary"] = true
+			marvis_say(["greeting", "main_offline", "shuttle_intact", "clamps_engaged_unpowered"])
+			_after_first_report())
 
 func _swing_locker_clear() -> void:
 	var rest := anchor("locker_cleared")
@@ -1219,6 +1250,7 @@ func _check_stuck() -> void:
 func talking_points(id: String) -> Array:
 	var pts: Array = []
 	var step := next_step()
+	pts.append("Ship layout: Storage is aft of Galley and holds spare fuse boxes A, B, and C. Medbay is in the forward corridor and has a medical cabinet with a splint kit. Laboratory is on the starboard side and has the sample freezer, emergency battery, and service cart. Engineering is on the port side with the distribution cabinet and isolator handle. Shuttle Bay is aft where the emergency shuttle, battery socket, and clamp release are.")
 	if id == "mara":
 		pts.append("Kien died in the breach; you and he collected the lab samples together. Bring him up rarely: only when Johnny mentions him or the samples, and not again if you already have in this conversation.")
 		if not state.has_flag("freezer_off"):
@@ -1233,6 +1265,10 @@ func talking_points(id: String) -> Array:
 	else:
 		pts.append("You are pinned or sitting, in pain. You joke to hide it. You can't walk anywhere.")
 		pts.append("You know the ship's systems. You can't see what Johnny sees; ask him to describe it or read you codes.")
+		if state.has_flag("code_read"):
+			pts.append("The cabinet display shows fault code %s. That requires the spare fuse from box %s in Storage." % [state.fault_code(), state.right_fuse()])
+		if state.has_flag("fault_found"):
+			pts.append("The short is on %s. Flipping the %s toggle down cuts it." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()].to_upper()])
 		if step in ["eng_isolate", "choose"] and room == "ENGINEERING":
 			pts.append("Before touching the cabinet, the big isolator handle by the door must be pulled.")
 		if step == "eng_test": pts.append("Once the new fuse is in, press TEST on the cabinet.")
@@ -1242,28 +1278,47 @@ func talking_points(id: String) -> Array:
 ## Everything the model may use about the world, for one crewmate (escape_dialogue.py).
 func snapshot(id: String, message := "") -> Dictionary:
 	var stage: int = state.stage()
+	var step := next_step()
 	var snap := {"npc_id": id, "state_version": state.version, "objective": state.objective(),
 		"route": state.route(), "flags": state.flags.duplicate(), "carrying": state.carrying,
 		"room": room, "crew_room": room_at(crew[id].position), "available_actions": available_actions(id),
 		"recent_events": state.journal.slice(maxi(0, state.journal.size() - 5)),
 		"dhan_condition": ["dead", "stable", "strained", "fading", "critical"][stage],
 		"max_words": 40 if id == "mara" else [8, 30, 22, 14, 8][stage],
-		"talking_points": talking_points(id)}
+		"talking_points": talking_points(id),
+		"next_step": step,
+		"locations": {
+			"fuses": "Storage, aft of Galley",
+			"splint": "Medical cabinet in Medbay",
+			"battery": "Laboratory, starboard side",
+			"freezer": "Laboratory, starboard side",
+			"cabinet": "Engineering, port side",
+			"shuttle": "Shuttle Bay, aft"
+		}}
 	var q := answering(id, message)
 	if q != "": snap["johnny_answering"] = line_text(q)
 	if id == "ivo":
-		# Dhan knows the code book, but only uses what Johnny actually read out.
+		# Dhan knows the code book:
 		var told := {}
 		var code: int = Rules.parse_code(message)
 		if code > 0: told["E-%d" % code] = "spare fuse box " + state.fuse_for(code)
 		var aux: int = Rules.parse_aux(message)
 		if aux > 0: told["AUX-%d" % aux] = "flip the %s toggle down (of the three under the guard cover)" % ["left", "middle", "right"][state.toggle_for(aux)].to_upper()
+		if state.has_flag("code_read"):
+			snap["cabinet_fault_code"] = state.fault_code()
+			snap["cabinet_fuse_box"] = "box " + state.right_fuse()
+			told[state.fault_code()] = "spare fuse box " + state.right_fuse()
+		if state.has_flag("fault_found"):
+			snap["short_branch"] = state.short_branch()
+			snap["short_toggle"] = ["left", "middle", "right"][state.right_toggle()]
+			told[state.short_branch()] = "flip the %s toggle down" % ["left", "middle", "right"][state.right_toggle()].to_upper()
 		snap["codes_johnny_read_out"] = told
 		if state.has_flag("battery_out") or state.carrying == "battery cart":
 			snap["lab_battery_selector"] = "position " + state.right_selector()
 	else:
 		var box: String = Rules.parse_box(message)
 		if box != "": snap["box_johnny_named"] = box
+		elif state.has_flag("code_read"): snap["box_johnny_named"] = state.right_fuse()
 	return snap
 
 ## Guardrail on live replies: Dhan may only name a fuse box, toggle or selector
@@ -1273,10 +1328,10 @@ func check_reply(id: String, line: String, message: String) -> String:
 	if id != "ivo": return line
 	var code: int = Rules.parse_code(message)
 	var aux: int = Rules.parse_aux(message)
-	var box_ok: String = state.fuse_for(code).to_lower() if code > 0 else ""
-	var toggle_ok: String = ["left", "middle", "right"][state.toggle_for(aux)] if aux > 0 else ""
+	var box_ok: String = state.fuse_for(code).to_lower() if code > 0 else (state.right_fuse().to_lower() if state.has_flag("code_read") else "")
+	var toggle_ok: String = ["left", "middle", "right"][state.toggle_for(aux)] if aux > 0 else (["left", "middle", "right"][state.right_toggle()] if state.has_flag("fault_found") else "")
 	var knows_selector: bool = state.has_flag("battery_out") or state.carrying == "battery cart"
-	var re_box := RegEx.create_from_string("\\bbox\\s+([abc])\\b")
+	var re_box := RegEx.create_from_string("\\b(?:box|fuse|bin|crate)\\s*[-:#]?\\s*([abc])\\b|\\b([abc])\\s+(?:box|fuse)\\b")
 	var re_side := RegEx.create_from_string("\\b(left|middle|right)(?:-hand| hand)?\\s+(toggle|switch|one)\\b")
 	# An actual switch instruction: "toggle four up", "flip the second switch down".
 	var re_switch := RegEx.create_from_string("\\b(toggle|switch|flip)\\b.*\\b(up|down|one|two|three|four|five|first|second|third|[0-9])\\b")
@@ -1290,11 +1345,12 @@ func check_reply(id: String, line: String, message: String) -> String:
 		var l := sentence.to_lower()
 		var bad := false
 		for b in re_box.search_all(l):
-			if b.get_string(1) != box_ok: bad = true
+			var found_box: String = b.get_string(1) if b.get_string(1) != "" else b.get_string(2)
+			if box_ok == "" or found_box != box_ok: bad = true
 		for t in re_side.search_all(l):
-			if t.get_string(1) != toggle_ok: bad = true
-		if re_switch.search(l) != null and (toggle_ok == "" or not l.contains(toggle_ok)): bad = true  # switch advice he can't know
-		if toggle_ok == "" and RegEx.create_from_string("\\bflip\\b").search(l) != null: bad = true  # "flip the primary breaker": made up
+			if toggle_ok == "" or t.get_string(1) != toggle_ok: bad = true
+		if re_switch.search(l) != null and (toggle_ok == "" or not l.contains(toggle_ok)): bad = true
+		if toggle_ok == "" and RegEx.create_from_string("\\bflip\\b").search(l) != null: bad = true
 		for q in re_pos.search_all(l):
 			var said: String = {"i": "I", "1": "I", "one": "I", "ii": "II", "2": "II", "two": "II", "iii": "III", "3": "III", "three": "III"}.get(q.get_string(1), "")
 			if not knows_selector or said != state.right_selector(): bad = true
@@ -1302,7 +1358,7 @@ func check_reply(id: String, line: String, message: String) -> String:
 		else: kept.append(sentence)
 	if not dropped: return line
 	if kept.is_empty():
-		return "Read me what the panel says, Captain. I'm not guessing." if code == 0 and aux == 0 else "Say that again? Read it to me exactly."
+		return "Read me what the panel says, Captain. I'm not guessing." if code == 0 and aux == 0 and not state.has_flag("code_read") else "Say that again? Read it to me exactly."
 	return " ".join(kept)
 
 func ask_question(id: String, question: String) -> void:
@@ -1337,6 +1393,7 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 	var negative := m.contains("don't") or m.contains("do not") or m.contains("never")
 	var acts := available_actions(id)
 	var stage: int = state.stage()
+	var step := next_step()
 	if _mentions(m, ["flashlight", "torch", "your light", "a light", "light on", "light off"]) and acts.has("light_on") and not query:
 		action = "light_off" if _mentions(m, ["off", "kill"]) else "light_on"
 		return {"line": "Light's off." if action == "light_off" else "Light's on.", "action": action, "source": "offline"}
@@ -1351,15 +1408,51 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 		elif aux > 0:
 			line = "AUX-%d is the %s toggle. Lift the cover first." % [aux, ["left", "middle", "right"][state.toggle_for(aux)]]
 			if stage >= 3: line = "%s one." % ["Left", "Middle", "Right"][state.toggle_for(aux)].capitalize()
+		elif _mentions(m, ["where", "find", "locate"]):
+			if _mentions(m, ["fuse", "box", "spares"]):
+				line = "Spare fuses are in Storage. Go through the Galley to the back."
+			elif _mentions(m, ["medbay", "medkit", "splint", "medical", "doctor"]):
+				line = "Medbay's down the corridor forward. The cabinet has splints."
+			elif _mentions(m, ["battery", "lab", "freezer"]):
+				line = "Laboratory is on the starboard side, through the central junction."
+			elif _mentions(m, ["cabinet", "engineering", "isolator"]):
+				line = "Engineering is on the port side, through the junction."
+			elif _mentions(m, ["shuttle", "bay", "dock"]):
+				line = "Shuttle bay is straight aft through the junction."
+			else:
+				line = "Galley and Storage are aft, Engineering port, Lab starboard, Shuttle Bay straight back."
+		elif _mentions(m, ["what do", "what should", "what now", "what next", "how do", "help me"]):
+			match step:
+				"free_dhan": line = "Get this locker off my leg! Tell Aaron to lift it, then pull me out."
+				"marvis": line = "Check in with M.A.R.V.I.S. on the junction terminal or your radio."
+				"choose": line = "We need power for the bay clamps. Fix the cabinet in Engineering, or grab the lab battery."
+				"eng_isolate": line = "Pull that big isolator handle by the door before touching the cabinet!"
+				"eng_code": line = "Look at the cabinet screen and read me the fault code."
+				"eng_fuse": line = "We need the fuse from box %s in Storage. Grab it and seat it in the cabinet." % (state.right_fuse() if state.has_flag("code_read") else "the right box")
+				"eng_test": line = "Hit TEST on the cabinet to check the circuits."
+				"eng_toggle": line = "AUX-%d is shorting. Flip the %s toggle down under the guard cover." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()]]
+				"eng_restart": line = "Hit RESTART on the cabinet to power the shuttle bay."
+				"bat_freezer": line = "Shut down the freezer in the Lab before you pull the battery."
+				"bat_latch": line = "Pop the latch on the emergency battery in the Lab."
+				"bat_lift": line = "Battery's heavy. Help Aaron lift it onto the cart."
+				"bat_cart": line = "Roll the cart with the battery down to the Shuttle Bay."
+				"bat_socket": line = "Plug the battery into the bay socket."
+				"carry": line = "Bay has power! Get me onto that shuttle, Captain."
+				"seat": line = "Get in the pilot seat and prep the shuttle."
+				"release": line = "Tell Aaron to release the clamps from the console."
+				_: line = "Get us home, Captain."
 		elif _mentions(m, ["selector", "setting", "position", "socket", "dial", "knob"]):
 			line = "Lab battery on the bay socket? Position %s. Wrong one just pops the breaker." % state.right_selector()
 		elif _mentions(m, ["code", "display", "screen", "fault", "error", "blinking"]):
-			line = "Read me what it says. Every letter."
+			if state.has_flag("code_read"): line = "Cabinet says %s. That's spare box %s in Storage." % [state.fault_code(), state.right_fuse()]
+			else: line = "Read me what it says. Every letter."
 		elif _mentions(m, ["fuse", "box"]):
-			line = "Which fuse depends on the fault code. Read it to me off the cabinet display."
+			if state.has_flag("code_read"): line = "The fault code is %s. You need the fuse from box %s in Storage." % [state.fault_code(), state.right_fuse()]
+			else: line = "Which fuse depends on the fault code. Read it to me off the cabinet display."
 		elif _mentions(m, ["switch", "toggle", "aux", "branch", "short", "tripped"]):
-			line = "It tripped? The display says which AUX branch is shorting. Tell me the number."
-		elif _mentions(m, ["spark", "cabinet", "touch", "engineering", "what do i do", "how do i"]):
+			if state.has_flag("fault_found"): line = "AUX-%d is shorting. The %s toggle under the guard cuts it." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()]]
+			else: line = "It tripped? The display says which AUX branch is shorting. Tell me the number."
+		elif _mentions(m, ["spark", "cabinet", "touch", "engineering"]):
 			line = "Don't touch that cabinet live. Big handle by the door is the isolator. Pull it first." if not state.has_flag("isolated") else "Isolated? Good. Read me the fault code on the display."
 		elif _mentions(m, ["leg", "pain", "hurt", "okay", "ok", "alright", "feel"]):
 			line = ["", "Leg's... not great. I'll live. Probably.", "It's getting worse, Captain. Just keep moving.", "Cold. Keep going.", "...still here."][stage]
@@ -1405,6 +1498,34 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 	elif not query and _mentions(m, ["release", "clamp", "go", "open"]) and acts.has("release_clamps"):
 		action = "release_clamps"
 		line = "Releasing the clamps."
+	elif _mentions(m, ["where", "find", "locate"]):
+		if _mentions(m, ["fuse", "box", "spares"]):
+			line = "Storage is past the Galley. That's where the spare fuse boxes are."
+		elif _mentions(m, ["medbay", "medkit", "splint", "medical", "doctor"]):
+			line = "Medbay is in the forward corridor. There's a medical cabinet with a splint kit."
+		elif _mentions(m, ["battery", "lab", "freezer"]):
+			line = "Laboratory is on the starboard side, through the central junction."
+		elif _mentions(m, ["cabinet", "engineering", "isolator"]):
+			line = "Engineering is on the port side."
+		elif _mentions(m, ["shuttle", "bay", "dock"]):
+			line = "Shuttle bay is straight aft through the junction."
+		else:
+			line = "Galley and Storage are aft, Engineering port, Lab starboard, Shuttle Bay straight back."
+	elif _mentions(m, ["what do", "what should", "what now", "what next", "how do", "help me"]):
+		match step:
+			"free_dhan": line = "We have to get the locker off Dhan's leg! I can lift it while you pull him free."
+			"marvis": line = "Ask M.A.R.V.I.S. what systems are operational."
+			"choose": line = "We need power for the shuttle clamps: either repair Engineering or take the lab battery."
+			"eng_isolate", "eng_code", "eng_fuse", "eng_test", "eng_toggle", "eng_restart": line = "Dhan knows the engineering cabinet best. Radio him for instructions."
+			"bat_freezer": line = "If we take the battery, the freezer goes off. Or I can grab the shuttle sample case first."
+			"bat_latch": line = "Unlatch the battery in the Lab."
+			"bat_lift": line = "The battery's too heavy for one person. Meet me at the cart and we'll lift on three."
+			"bat_cart": line = "Push the cart to the Shuttle Bay socket."
+			"bat_socket": line = "Connect the battery in the Shuttle Bay."
+			"carry": line = "We have power! Let's carry Dhan to the shuttle together."
+			"seat": line = "Take the pilot seat in the cockpit, Johnny."
+			"release": line = "I'm standing by the clamp release console. Just give the word from the helm."
+			_: line = "Let's get everyone home."
 	elif _mentions(m, ["sample", "research", "save", "freezer", "other option", "another way", "alternative"]):
 		if state.has_flag("samples_saved"): line = "The priority rack is in the case. Kien would've liked that."
 		elif state.has_flag("freezer_off"): line = "They're gone. It's okay. It has to be."
@@ -1415,7 +1536,7 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 		line = "He needs that leg immobilised. The medbay cabinet should have a splint kit." if state.dhan_alive() and not state.has_flag("dhan_treated") else ("He's splinted. Let's not waste it." if state.dhan_alive() else "...He's gone, Johnny.")
 	elif _mentions(m, ["kien"]):
 		line = "We collected every one of those samples together. I keep expecting him to walk in."
-	elif _mentions(m, ["power", "plan", "battery", "engineering", "clamp", "what now", "what should"]):
+	elif _mentions(m, ["power", "plan", "battery", "engineering", "clamp"]):
 		line = "Clamps need power. Dhan can talk you through the cabinet in engineering. Or the lab battery. That one costs us the samples." if not state.powered() else "Bay's live. Dhan first, then the clamps."
 	elif _mentions(m, ["scared", "afraid", "okay", "ok", "home", "earth"]):
 		line = "Scared? Yes. But we've got a way home. Let's take it."
@@ -1503,7 +1624,9 @@ func _record_discovery(kind: String, id: String) -> void:
 	if not found.has(id):
 		found.append(id)
 		cfg.set_value("found", kind, found)
-		cfg.save(discoveries_path)
+		var err := cfg.save(discoveries_path)
+		if err != OK:
+			push_warning("Failed to save discoveries to %s: %d" % [discoveries_path, err])
 
 # --- Display ----------------------------------------------------------------------
 
@@ -1590,7 +1713,14 @@ func _restore_progress(data: Dictionary) -> void:
 	state.journal.assign(s.journal)
 	for k in s.get("learned", []): state.learned[str(k)] = true
 	var pz: Dictionary = s.get("puzzle", {})
-	if pz.has("code") and pz.has("fuse_for") and pz.has("toggle_for"): state.puzzle = pz.duplicate(true)
+	if pz.has("code") and pz.has("fuse_for") and pz.has("toggle_for"):
+		state.puzzle = {
+			"code": int(pz.code),
+			"fuse_for": {"3": str(pz.fuse_for.get("3", "A")), "6": str(pz.fuse_for.get("6", "B")), "9": str(pz.fuse_for.get("9", "C"))},
+			"aux": int(pz.get("aux", 1)),
+			"toggle_for": {"1": int(pz.toggle_for.get("1", 0)), "2": int(pz.toggle_for.get("2", 1)), "3": int(pz.toggle_for.get("3", 2))},
+			"selector": int(pz.get("selector", 0))
+		}
 	state.vitality = clampf(float(s.get("vitality", 100.0)), 0.0, 100.0)
 	for f in s.get("fails", []): state.fails[str(f)] = true
 	state.promises = s.get("promises", {}).duplicate()
