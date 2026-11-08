@@ -144,6 +144,7 @@ func _test_ask_from_afar() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	mission.ui.radio.live_enabled = false
+	mission.player.position = mission.anchor("barrier_side")  # step away first: he must wait for you
 	var start: Vector2 = mission.crew.mara.position
 	var was_voice: bool = Settings.voice_chat
 	Settings.voice_chat = true
