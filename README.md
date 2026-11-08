@@ -244,9 +244,9 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 
 - Four suits: **classic**, **hazard**, **nebula**, **mint**, listed in `Settings.SKINS`.
 - **No suit picker.** The player is always Johnny in the **classic** suit (`Settings.PLAYER_SKIN`), because that's what he wears in the opening film. The in-game crewmate (Aaron) takes the first other suit in `SUIT_PREFERENCE` (`crewmate.gd`): hazard, as in the film. If you re-edit the film with a different suit, change `PLAYER_SKIN` to match.
-- **Art pipeline:** the original drawings live in `art_source/` (a 4×6 walk sheet and the concept sheet). `python3 tools/import_astronaut_skins.py` snaps them to a true pixel grid and writes:
-  - `assets/sprites/astronaut_<suit>.png`: 6 walk frames facing right, each 20×26 art px, saved at 2× (40×52 in-game). Frame 5 is idle; left is a flip.
-  - `assets/ui/portrait_<suit>.png`: 16×19 front portrait (from when there was a picker; kept for future UI).
+- **Art pipeline:** the original drawings live in `art_source/` (a 4×6 walk sheet and the concept sheet). `python3 tools/import_astronaut_skins.py` (~40 s) snaps them to a true pixel grid and writes:
+  - `assets/sprites/astronaut_<suit>.png`: 6 walk frames facing right, each 16×27 art px, saved at 2× (32×54 in-game). Frame 5 is idle; left is a flip. The tool uses the sheet's transparency (its outlines are black, like its background), finds each frame's real pixel grid, and lines every frame up with the front of the helmet at the same x and the feet on the bottom row, so the walk cycle doesn't slide and every suit stands on its shadow.
+  - `assets/ui/portrait_<suit>.png`: 16×19 front portrait (from when there was a picker; kept for future UI; re-made only with `--portraits`).
 - **Adding a suit:** add a row to both source sheets (or drop in the two PNGs), add an entry to `Settings.SKINS`, then re-run the tool.
 
 ## Main menu
