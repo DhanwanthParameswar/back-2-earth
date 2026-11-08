@@ -139,9 +139,12 @@ func _test_ask_from_afar() -> void:
 	check(not mission.state.has_flag("locker_ready"), "She waits for the player before holding it")
 	await get_tree().create_timer(1.7).timeout
 	check(not mission.ui.is_open(), "Chat closes by itself once she starts a task")
-	mission.player.position = Vector2(320, 450)
-	await get_tree().create_timer(0.6).timeout
+	mission.player.position = Vector2(290, 455)  # coming from the left: Mara is between you and the locker
+	await get_tree().create_timer(1.6).timeout  # she takes hold, then you push together
 	check(mission.state.has_flag("locker_ready"), "Walking up to the locker starts it")
+	check(mission.state.has_flag("locker_clear"), "With Mara holding her side, you push together: the locker clears")
+	check(mission.locker_visual.position.distance_to(Vector2(368, 444)) > 20, "The locker visibly slides out of the doorway")
+	check(not mission.find_path(mission.player.position, Vector2(570, 470)).is_empty(), "You can walk right into the junction")
 	mission.queue_free()
 	await get_tree().process_frame
 

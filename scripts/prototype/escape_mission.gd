@@ -353,6 +353,11 @@ func _start_when_player_near(id: String, action: String, player_target: Vector2)
 	if player.position.distance_to(player_target) <= 115:
 		_busy_actors.erase(id)
 		perform(action)
+		if action == "help_locker" and state.has_flag("locker_ready"):
+			# Mara holds her side, you're at yours: push together. (Pressing E here
+			# used to open Mara's chat, because she stands between you and the locker.)
+			get_tree().create_timer(0.6).timeout.connect(func():
+				if is_instance_valid(self) and not state.has_flag("locker_clear"): perform("push_locker"))
 		return
 	if not crew[id].has_meta("waiting_for_player"):
 		crew[id].set_meta("waiting_for_player", true)
