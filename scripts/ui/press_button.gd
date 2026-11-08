@@ -10,6 +10,13 @@ const SHADOW := Color("5b3fa8")
 const FONT_SIZE := 12
 
 var label_text := ""
+## Highlighted by controller / arrow-key navigation (main_menu.gd).
+var selected := false
+
+
+func set_selected(on: bool) -> void:
+	selected = on
+	queue_redraw()
 
 
 func _ready() -> void:
@@ -41,6 +48,10 @@ func _draw() -> void:
 		draw_rect(Rect2(0, size.y - DEPTH - 2.0, size.x, DEPTH + 2.0), SHADOW)
 	draw_rect(face, UiStyle.NAVY.darkened(0.15) if held else UiStyle.NAVY)
 	draw_rect(face.grow(-1.0), Color(UiStyle.CYAN, 0.8 if held else 1.0), false, 2.0)
+	if selected:  # controller cursor: a bright frame and a marker
+		draw_rect(face.grow(1.0), UiStyle.TEXT, false, 2.0)
+		var mid := face.position.y + face.size.y / 2.0
+		draw_colored_polygon(PackedVector2Array([Vector2(6, mid - 4), Vector2(11, mid), Vector2(6, mid + 4)]), UiStyle.CYAN_BRIGHT)
 
 	var font := get_theme_default_font()
 	var text_size := font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE)

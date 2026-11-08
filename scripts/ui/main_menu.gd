@@ -11,6 +11,9 @@ extends Control
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const PressButton = preload("res://scripts/ui/press_button.gd")
+const Haptics = preload("res://scripts/core/haptics.gd")
+## Order the d-pad / arrow keys walk through the painted buttons.
+const NAV_ORDER := ["start", "how", "settings", "credits", "sound"]
 const MenuBackdrop = preload("res://scripts/ui/menu_backdrop.gd")
 const GAME_SCENE := "res://scenes/escape_prototype.tscn"
 const CREDITS_PATH := "res://data/credits.json"
@@ -38,6 +41,12 @@ var _settings_buttons := {}  # setting key -> PressButton
 var _hotspots := {}          # id -> Control (click area over a painted button)
 var _panel_boxes := {}       # id -> PanelContainer (re-centered on resize)
 var _leaving := false
+var _panel_buttons := {}     # panel id -> [PressButton] (for controller navigation)
+var _building_panel := ""
+var _nav := false            # true once the d-pad / arrows have moved the selection
+var _sel := 0                # selected painted button (NAV_ORDER index)
+var _panel_sel := 0          # selected button in the open panel
+var _controller_line: Label
 
 
 func _ready() -> void:
@@ -60,6 +69,7 @@ func _ready() -> void:
 	_build_settings_panel()
 	_build_credits_panel()
 	Settings.changed.connect(_refresh_settings_labels)
+	Input.joy_connection_changed.connect(func(_device, _connected): _refresh_controller_line())
 	_refresh_settings_labels()
 
 	_fade = ColorRect.new()
@@ -138,12 +148,16 @@ func _open(id: String) -> void:
 	open_panel = id
 	_panels[id].visible = true
 	Sfx.play("door", -10.0)
+	_panel_sel = 0
+	_show_panel_selection()
 
 
 func _close_panel(play_sound := true) -> void:
 	if open_panel == "":
 		return
 	_panels[open_panel].visible = false
+	for b in _panel_buttons.get(open_panel, []):
+		b.set_selected(false)
 	open_panel = ""
 	if play_sound:
 		Sfx.play("boots", -10.0)
@@ -189,20 +203,87 @@ func _release_key_press(id: String) -> void:
 # --- Input ------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _leaving or not (event is InputEventKey) or not event.is_pressed() or event.is_echo():
+	# Keys and controller buttons alike (ui_* actions include the d-pad, left
+	# stick and A/B; the game's own actions are in scripts/core/input_setup.gd).
+	if _leaving or not event.is_pressed() or event.is_echo():
+		return
+	if event is InputEventMouseButton:
 		return
 	if open_panel != "":
-		if _any(event, ["pause", "ui_cancel"]):
+		if _any(event, ["back", "ui_cancel"]) or (event.is_action_pressed("pause") and not event is InputEventKey):
 			_close_panel()
-			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("pause"):
+			_close_panel()
+		elif _any(event, ["ui_up", "ui_down"]):
+			_step_panel(-1 if event.is_action_pressed("ui_up") else 1)
+		elif _any(event, ["ui_accept", "confirm"]) and _nav:
+			_press_panel_button()
+		else:
+			return
+		get_viewport().set_input_as_handled()
 		return
-	if _any(event, ["confirm", "ui_accept"]):
-		_press_by_key("start")
+	if _any(event, ["ui_up", "ui_down", "ui_left", "ui_right"]):
+		_step_menu(event)
+	elif _any(event, ["confirm", "ui_accept"]):
+		_press_by_key(NAV_ORDER[_sel] if _nav else "start")
 	elif event.is_action_pressed("toggle_mute"):
 		_press_by_key("sound")
 	else:
 		return
 	get_viewport().set_input_as_handled()
+
+
+## Mouse movement hands the selection back to the mouse.
+func _input(event: InputEvent) -> void:
+	if _nav and event is InputEventMouseMotion and event.relative.length() > 2.0:
+		_nav = false
+		_show_menu_selection()
+		_show_panel_selection()
+
+
+func _step_menu(event: InputEvent) -> void:
+	if not _nav:
+		_nav = true  # first press just shows where you are
+	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_right"):
+		_sel = (_sel + 1) % NAV_ORDER.size()
+	else:
+		_sel = (_sel - 1 + NAV_ORDER.size()) % NAV_ORDER.size()
+	Sfx.play("boots", -16.0)
+	Haptics.play("tick")
+	_show_menu_selection()
+
+
+func _show_menu_selection() -> void:
+	if _backdrop == null:
+		return
+	for i in NAV_ORDER.size():
+		_backdrop.set_hover(NAV_ORDER[i], _nav and i == _sel)
+
+
+func _step_panel(dir: int) -> void:
+	var buttons: Array = _panel_buttons.get(open_panel, [])
+	if buttons.is_empty():
+		return
+	if not _nav:
+		_nav = true
+	else:
+		_panel_sel = (_panel_sel + dir + buttons.size()) % buttons.size()
+	Sfx.play("boots", -16.0)
+	Haptics.play("tick")
+	_show_panel_selection()
+
+
+func _show_panel_selection() -> void:
+	var buttons: Array = _panel_buttons.get(open_panel, [])
+	for i in buttons.size():
+		buttons[i].set_selected(_nav and i == _panel_sel)
+
+
+func _press_panel_button() -> void:
+	var buttons: Array = _panel_buttons.get(open_panel, [])
+	if _panel_sel < buttons.size():
+		Sfx.play("boots", -12.0)
+		buttons[_panel_sel].pressed.emit()
 
 
 static func _any(event: InputEvent, actions: Array) -> bool:
@@ -313,6 +394,8 @@ func _make_panel(id: String, title_text: String, panel_size: Vector2) -> VBoxCon
 
 	_panels[id] = root
 	_panel_boxes[id] = panel
+	_panel_buttons[id] = []
+	_building_panel = id
 	return vbox
 
 
@@ -323,6 +406,8 @@ func _add_button(vbox: VBoxContainer, label_text: String, on_press: Callable) ->
 	b.pressed.connect(on_press)
 	b.button_down.connect(_on_panel_button_down)
 	vbox.add_child(b)
+	if _panel_buttons.has(_building_panel):
+		_panel_buttons[_building_panel].append(b)
 	return b
 
 
@@ -338,7 +423,7 @@ func _add_back_button(vbox: VBoxContainer) -> void:
 
 
 func _build_how_panel() -> void:
-	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(530, 326))
+	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(560, 342))
 	var body := UiStyle.label(
 		"BRANCHING ESCAPE · DESIGN PROTOTYPE\n\n"
 		+ "Work with Aaron and Dhan to get the shuttle home.\n"
@@ -354,22 +439,38 @@ func _build_how_panel() -> void:
 		11)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(body)
-	var keys := UiStyle.label("WASD move   E use   1 / 2 radio   Tab map   Esc pause", 10, UiStyle.AMBER)
+	var keys := UiStyle.label("WASD move   E use   1 / 2 radio   F light   Tab map   Esc pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
+	var pad := UiStyle.label("CONTROLLER: stick move   A use   LB / RB radio   Y light   X talk   Back map   Start pause", 9, UiStyle.AMBER)
+	pad.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(pad)
 	_add_back_button(vbox)
 
 
 func _build_settings_panel() -> void:
-	var vbox := _make_panel("settings", "SETTINGS", Vector2(380, 300))
+	var vbox := _make_panel("settings", "SETTINGS", Vector2(400, 340))
 	_settings_buttons["sound"] = _add_button(vbox, "", Settings.toggle_mute)
 	_settings_buttons["shake"] = _add_button(vbox, "", Settings.toggle_reduced_shake)
 	_settings_buttons["echo"] = _add_button(vbox, "", Settings.toggle_companion)
 	_settings_buttons["chat"] = _add_button(vbox, "", Settings.toggle_voice_chat)
+	_settings_buttons["vibration"] = _add_button(vbox, "", func():
+		Settings.toggle_vibration()
+		Haptics.play("click"))  # a taste of it when turned on
+	_controller_line = UiStyle.label("", 9, UiStyle.MUTED)
+	_controller_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_controller_line)
 	if not OS.has_feature("web"):
 		_settings_buttons["fullscreen"] = _add_button(vbox, "", Settings.toggle_fullscreen)
 		_add_button(vbox, "QUIT GAME", _quit)
 	_add_back_button(vbox)
+
+
+func _refresh_controller_line() -> void:
+	if _controller_line == null:
+		return
+	var pad := Settings.controller_name()
+	_controller_line.text = ("CONTROLLER: " + pad.to_upper()) if pad != "" else "NO CONTROLLER CONNECTED (keyboard works too)"
 
 
 func _quit() -> void:
@@ -383,6 +484,8 @@ func _refresh_settings_labels() -> void:
 	_settings_buttons["shake"].set_label("REDUCED SHAKE & FLASH: %s" % ("ON" if Settings.reduced_shake else "OFF"))
 	_settings_buttons["echo"].set_label("ECHO LIVE REPLIES: %s" % ("ON" if Settings.companion_enabled else "OFF"))
 	_settings_buttons["chat"].set_label("CREW CHAT: %s" % ("VOICE" if Settings.voice_chat else "TEXT"))
+	_settings_buttons["vibration"].set_label("CONTROLLER VIBRATION: %s" % ("ON" if Settings.vibration else "OFF"))
+	_refresh_controller_line()
 	if _settings_buttons.has("fullscreen"):
 		_settings_buttons["fullscreen"].set_label("FULLSCREEN: %s" % ("ON" if Settings.fullscreen else "OFF"))
 	if _mute_slash != null:

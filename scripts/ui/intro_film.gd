@@ -16,6 +16,7 @@ extends Control
 const ART := "res://assets/intro/"
 const DATA_PATH := "res://data/intro_film.json"
 const EDIT_PATH := "res://data/intro_edit_map.json"
+const Haptics = preload("res://scripts/core/haptics.gd")
 const W := 320
 const H := 180
 const FPS := 30
@@ -165,8 +166,19 @@ func set_time(seconds: float) -> void:
 	if f == _frame:
 		return
 	_frame = f
+	var before := float(_base) / FPS
 	_base = int(_edit[f])
 	_canvas.queue_redraw()
+	_rumble(before, float(_base) / FPS)
+
+
+## Controller rumble on the film's big hits, as the picture reaches them.
+func _rumble(before: float, now: float) -> void:
+	if now <= before or now - before > 1.0:  # no rumble when jumping around
+		return
+	for hit in [[T_IMPACT, "impact"], [T_HIT2, "breach"], [21.45 + SEAL_OFF, "slam"]]:
+		if before < float(hit[0]) and float(hit[0]) <= now:
+			Haptics.play(hit[1])
 
 
 # --- Loading ----------------------------------------------------------------------

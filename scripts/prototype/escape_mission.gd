@@ -11,6 +11,13 @@ const PlayerScene = preload("res://scenes/player/player.tscn")
 const Intro = preload("res://scripts/ui/intro_cutscene.gd")
 const Darkness = preload("res://scripts/prototype/escape_darkness.gd")
 const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
+const Haptics = preload("res://scripts/core/haptics.gd")
+## Rumble for each story action that succeeds (see scripts/core/haptics.gd).
+const ACTION_HAPTICS := {
+	"push_locker": "shove", "assess": "tick", "isolate": "click", "take_fuse": "tick", "aux": "click",
+	"disconnect_battery": "power_down", "load_battery": "heavy", "take_cart": "tick", "pack_samples": "tick",
+	"connect_battery": "power_up", "release": "clamps", "launch": "launch",
+}
 const TILE := 32
 ## The ship interior: rooms, walls, furniture and the spots the story uses all
 ## come from data/escape_map.json (tools/make_escape_map.py). escape_ship.gd draws it.
@@ -245,14 +252,18 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or ending or ui.is_open(): return
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.physical_keycode:
-			KEY_1: open_chat("mara")
-			KEY_2: open_chat("ivo")
-			KEY_TAB: ui.show_map()
-			KEY_ESCAPE: ui.show_pause()
-			KEY_M: Settings.toggle_mute()
-			KEY_F: darkness.toggle_flashlight()
+	# Keyboard and controller share actions (scripts/core/input_setup.gd).
+	if event.is_echo() or not event.is_pressed(): return
+	if event.is_action_pressed("radio_1"): open_chat("mara")
+	elif event.is_action_pressed("radio_2"): open_chat("ivo")
+	elif event.is_action_pressed("deck_map"): ui.show_map()
+	elif event.is_action_pressed("pause"): ui.show_pause()
+	elif event.is_action_pressed("toggle_mute"): Settings.toggle_mute()
+	elif event.is_action_pressed("flashlight"):
+		darkness.toggle_flashlight()
+		Haptics.play("tick")
+	else: return
+	get_viewport().set_input_as_handled()
 
 func open_chat(id: String) -> void:
 	if not active or ending: return
@@ -306,6 +317,12 @@ func perform(action: String) -> Dictionary:
 		return refused
 	var result: Dictionary = state.apply(action)
 	announce("SHIP", result.line)
+	if not result.ok:
+		Haptics.play("deny")
+	elif action == "cabinet":  # the breaker trips on the first test, then the bay powers up
+		Haptics.play("power_up" if state.powered() else "jolt")
+	elif ACTION_HAPTICS.has(action):
+		Haptics.play(ACTION_HAPTICS[action])
 	if result.ok:
 		Sfx.play("door" if action in ["push_locker", "release"] else "objective", -8)
 		match action:
@@ -347,6 +364,7 @@ func _swing_locker_clear() -> void:
 	tw.tween_callback(func():
 		_dust(rest + Vector2(-50, 0))
 		Sfx.play("hit", -10)
+		Haptics.play("thud")
 		_block_cleared_locker())
 	_dust(locker_visual.position + Vector2(0, -40))
 
