@@ -613,8 +613,10 @@ func _dust(at: Vector2) -> void:
 
 # --- Hold E (heavy or careful actions) ------------------------------------------------
 
-func begin_hold(target, seconds: float, label: String, done: Callable) -> void:
-	_hold = {"target": target, "total": seconds, "t": 0.0, "done": done, "label": label}
+## `also`: a second thing E can be on for the same hold (the locker and Dhan stand so
+## close that E can land on either), so the hold carries on if your target switches.
+func begin_hold(target, seconds: float, label: String, done: Callable, also = null) -> void:
+	_hold = {"target": target, "total": seconds, "t": 0.0, "done": done, "label": label, "also": also}
 
 func hold_progress() -> float:
 	return clampf(_hold.t / _hold.total, 0.0, 1.0) if not _hold.is_empty() else 0.0
@@ -624,7 +626,11 @@ func hold_target():
 
 func _update_hold(delta: float) -> void:
 	if _hold.is_empty(): return
-	if not Input.is_action_pressed("interact") or player.current_target != _hold.target or ui.is_open():
+	var aimed = player.current_target
+	if aimed != null and aimed == _hold.get("also") and aimed != _hold.target:
+		_hold["also"] = _hold.target   # E moved to the other one: the progress bar follows
+		_hold["target"] = aimed
+	if not Input.is_action_pressed("interact") or aimed != _hold.target or ui.is_open():
 		_hold.clear()
 		return
 	_hold.t += delta
@@ -636,6 +642,8 @@ func _update_hold(delta: float) -> void:
 ## Prompt under the target ("[E] hold: PULL ISOLATOR"). Empty = its plain name.
 func prompt_for(id: String) -> String:
 	match id:
+		"locker":
+			if not state.has_flag("dhan_free") and lifting(): return "hold: PULL DHAN FREE"
 		"isolate": return "hold: PULL ISOLATOR" if not state.has_flag("isolated") else "ISOLATOR (pulled)"
 		"battery": return "hold: OPEN LATCH" if not state.has_flag("battery_out") else "BATTERY (unlatched)"
 		"cart":
@@ -662,7 +670,7 @@ func actor_interactable(id: String) -> bool:
 func interact_actor(id: String) -> void:
 	if id == "ivo" and state.dhan_alive():
 		if not state.has_flag("dhan_free") and lifting():
-			begin_hold(crew.ivo, 2.0, "PULL", _free_dhan)
+			begin_hold(crew.ivo, 2.0, "PULL", _free_dhan, props.locker)
 			return
 		if state.has_flag("dhan_free") and state.carrying == "splint" and not state.has_flag("dhan_treated"):
 			begin_hold(crew.ivo, 2.0, "SPLINT", func():
@@ -677,7 +685,11 @@ func use_prop(id: String) -> void:
 	match id:
 		"locker":
 			if not state.has_flag("dhan_free"):
-				announce("JOHNNY", "Too heavy to shift alone. Aaron could lift it." if not lifting() else "Aaron's got it. Pull Dhan out!")
+				if lifting():
+					# Dhan is pinned right under it: holding E on the locker pulls him out too.
+					begin_hold(props.locker, 2.0, "PULL", _free_dhan, crew.ivo)
+				else:
+					announce("JOHNNY", "Too heavy to shift alone. Aaron could lift it.")
 		"terminal":
 			ui.open_chat("marvis")
 			if not _said.has("marvis_summary"):
