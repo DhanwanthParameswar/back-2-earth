@@ -94,6 +94,8 @@ func _fallback() -> void:
 func _deliver(data: Dictionary) -> void:
 	var correction: String = mission.act_on_dialogue(pending_id, str(data.get("action", "none")))
 	if correction != "": data["line"] = correction
+	# True when the crewmate actually started doing something (the chat then closes so you can watch).
+	data["started"] = str(data.get("action", "none")) != "none" and correction == ""
 	histories[pending_id].append({"role": "player", "text": pending_message})
 	histories[pending_id].append({"role": "npc", "text": data.line})
 	while histories[pending_id].size() > 6: histories[pending_id].pop_front()

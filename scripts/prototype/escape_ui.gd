@@ -148,12 +148,8 @@ func _update_float_prompt() -> void:
 	float_prompt.position = Vector2(round(at.x - float_prompt.size.x / 2.0), round(at.y + 22.0))
 	float_prompt.visible = true
 
-## Crew lines show as speech bubbles over the crewmate (escape_actor.gd). This
-## line above the bar is for the ship, or for a crewmate who is off-screen.
+## Crew and ship lines, as text just above the bar (there are no speech bubbles).
 func show_caption(speaker: String, line: String) -> void:
-	var id := "mara" if speaker == "MARA" else "ivo" if speaker == "IVO" else ""
-	if id != "" and mission.crew.has(id) and _on_screen(mission.crew[id]):
-		return
 	toast.text = speaker + ": " + line
 	toast_time = 4.0 + minf(line.length() * 0.05, 8.0)
 
@@ -237,6 +233,8 @@ func open_chat(id: String) -> void:
 	chat_input.text_submitted.connect(_send)
 	content.add_child(chat_input)
 	content.add_child(Style.label("[Enter] send      [Esc] close", 9, Style.MUTED))
+	if mission.crew.has(id):
+		mission.crew[id].bubble_left = 0.0  # hide any bubble; the box shows the conversation
 	modal.show()
 	_place_modal()
 	chat_input.grab_focus()
@@ -256,8 +254,13 @@ func _send(message: String) -> void:
 
 func _answer(data: Dictionary) -> void:
 	if mode != "chat" or data.npc_id != chat_id: return
-	chat_reply.text = data.line
-	mission.announce("MARA" if chat_id == "mara" else "IVO", data.line)
+	chat_reply.text = data.line  # the reply lives in the chat box only (no speech bubble)
+	if data.get("started", false):
+		# They're on their way: close the chat shortly so you can see them move.
+		show_caption("MARA" if chat_id == "mara" else "IVO", data.line)
+		var asked := chat_id
+		get_tree().create_timer(1.5).timeout.connect(func():
+			if mode == "chat" and chat_id == asked: close())
 
 func show_routes() -> void:
 	_panel("SHUTTLE / LAUNCH DIAGNOSTICS", "routes")
