@@ -80,6 +80,8 @@ func _ready() -> void:
 
 func _begin() -> void:
 	_intro = null
+	_set_wide(true)
+	ui._layout.call_deferred()  # re-fit the HUD to the now-wider screen
 	active = true
 	GameState.begin_play()
 	Sfx.start_ambient()
@@ -298,6 +300,14 @@ func refresh() -> void:
 
 func _exit_tree() -> void:
 	Sfx.stop_ambient()
+	_set_wide(false)
+
+## Gameplay fills the whole window (a wide browser just shows more of the ship);
+## the menu and the opening film stay 16:9 because they are 16:9 videos.
+func _set_wide(on: bool) -> void:
+	var win := get_window()
+	if win != null:
+		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND if on else Window.CONTENT_SCALE_ASPECT_KEEP
 
 func prop_done(id: String) -> bool:
 	var mapping := {"locker": "locker_clear", "terminal": "assessed", "isolate": "isolated", "fuse": "fuse_taken", "cabinet": "engineering_power", "aux": "aux_off", "freezer": "samples_saved", "battery": "battery_out", "cart": "battery_loaded", "case": "samples_saved", "socket": "battery_connected", "release": "clamps"}

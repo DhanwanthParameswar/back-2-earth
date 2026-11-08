@@ -5,6 +5,8 @@ const Radio = preload("res://scripts/prototype/escape_radio.gd")
 const Map = preload("res://scripts/prototype/escape_map.gd")
 var mission
 var root: Control
+var top: Panel
+var lower: Panel
 var heading: Label
 var objective: Label
 var prompt: Label
@@ -28,7 +30,7 @@ func _ready() -> void:
 	root = Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-	var top := Panel.new()
+	top = Panel.new()
 	top.position = Vector2(8, 7)
 	top.size = Vector2(624, 54)
 	top.add_theme_stylebox_override("panel", Style.box(Color("0b1526"), Color("34506a"), 1))
@@ -37,7 +39,7 @@ func _ready() -> void:
 	objective = _label(top, "", Vector2(10, 23), 12, Style.TEXT)
 	objective.size = Vector2(602, 26)
 	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var lower := Panel.new()
+	lower = Panel.new()
 	lower.position = Vector2(8, 273)
 	lower.size = Vector2(624, 80)
 	lower.add_theme_stylebox_override("panel", Style.box(Color("0b1526"), Color("34506a"), 1))
@@ -58,6 +60,8 @@ func _ready() -> void:
 	radio.mission = mission
 	add_child(radio)
 	radio.answered.connect(_answer)
+	get_viewport().size_changed.connect(_layout)
+	_layout()
 	# Status messages ("Contacting Gemini...", source labels) are no longer shown.
 	radio.transcribed.connect(func(text):
 		if mode == "chat" and is_instance_valid(chat_input):
@@ -72,6 +76,29 @@ func _label(parent: Node, text: String, point: Vector2, font_size: int, color: C
 
 func is_open() -> bool:
 	return modal.visible
+
+## Fit the HUD to the visible screen, which is wider than 640 on wide windows
+## (gameplay uses the "expand" aspect): bars span the width, the bottom bar
+## sits at the bottom, popups stay centered.
+func _layout() -> void:
+	if not is_inside_tree():
+		return  # the mission is closing
+	var s := get_viewport().get_visible_rect().size
+	top.size.x = s.x - 16
+	objective.size.x = s.x - 38
+	lower.position = Vector2(8, s.y - 87)
+	lower.size.x = s.x - 16
+	caption.size.x = s.x - 40
+	_place_modal()
+
+func _place_modal() -> void:
+	if not is_inside_tree():
+		return
+	var s := get_viewport().get_visible_rect().size
+	if mode == "chat":
+		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - 168.0)
+	elif mode != "":
+		modal.position.x = round((s.x - modal.custom_minimum_size.x) / 2.0)
 
 func update_hud() -> void:
 	if heading == null: return
@@ -105,6 +132,7 @@ func _panel(title: String, new_mode: String) -> void:
 	modal.size = Vector2(content_width + 28, 0)
 	modal.position = Vector2(345, 65) if new_mode == "chat" else Vector2(55, 67)
 	modal.show()
+	_place_modal()
 
 func _text(text: String, size := 11, color := Style.TEXT) -> Label:
 	var label := Style.label(text, size, color)
@@ -166,6 +194,7 @@ func open_chat(id: String) -> void:
 	content.add_child(chat_input)
 	content.add_child(Style.label("[Enter] send      [Esc] close", 9, Style.MUTED))
 	modal.show()
+	_place_modal()
 	chat_input.grab_focus()
 
 func _greeting(id: String) -> String:
