@@ -1,5 +1,5 @@
 extends Control
-## The opening story (~38 s). Owner: D.
+## The opening story (38 s). Owner: D.
 ##
 ## Plays when a run is started from the main menu, right after the suit picker,
 ## then hands over to gameplay ("RESTORE EMERGENCY POWER"). The film is
@@ -8,8 +8,8 @@ extends Control
 ## the in-game crewmate's suit), plus one shared soundtrack played alongside.
 ##
 ## Voice-over: drop recordings into assets/audio/intro_vo/ named after the line
-## ids in data/intro_timing.json (crew_1, system_1, crew_2; .ogg, .wav or .mp3)
-## and each plays when its caption appears. A single full-length track named
+## ids in data/intro_timing.json (crew_1, system_1, crew_2, and optionally
+## kien_1; .ogg, .wav or .mp3) and each plays when its caption appears. A single full-length track named
 ## full.ogg (or .wav/.mp3) plays from the first frame instead, if you'd rather
 ## edit the voices against the video yourself. The soundtrack leaves the spoken
 ## lines clear, so voices sit on top of it.
@@ -29,7 +29,7 @@ const FULL_VO_ID := "full"
 ## Film length in seconds, used if data/intro_timing.json is missing. If the
 ## video never reports that it finished, the cutscene ends a moment after the
 ## length anyway.
-const LENGTH := 38.2
+const LENGTH := 38.0
 const SAFETY_MARGIN := 1.5
 const SKIP_GRACE := 0.5
 const HINT_DELAY := 1.0
@@ -86,10 +86,10 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	# Sits in the film's bottom letterbox bar, clear of its captions.
+	# Sits in the film's top letterbox bar; the captions use the bottom one.
 	_hint = Label.new()
 	_hint.text = "E / click  skip"
-	_hint.position = Vector2(440, 336)
+	_hint.position = Vector2(440, 8)
 	_hint.size = Vector2(190, 16)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_hint.add_theme_font_size_override("font_size", 10)

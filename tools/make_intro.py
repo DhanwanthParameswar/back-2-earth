@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render Back2Earth's opening story (~38 s). Owner: D.
+"""Render Back2Earth's opening story (38 s). Owner: D.
 
     pip install pillow numpy scipy     # and ffmpeg with libtheora + libvorbis on PATH
     python3 tools/make_intro.py                    # all four suits + soundtrack + timing
@@ -14,28 +14,29 @@ Writes
 
 Voice-over: nothing in the soundtrack plays under the spoken lines (effects are left
 out and the rest is turned down), so recorded voices sit on top cleanly. Put the
-recordings in assets/audio/intro_vo/ as crew_1, system_1 and crew_2 (.ogg/.wav/.mp3);
-Godot plays each one when its caption appears.
+recordings in assets/audio/intro_vo/ named after the caption ids below
+(.ogg/.wav/.mp3); Godot plays each one when its caption appears.
 
-Four astronauts, one per suit: the player wears the suit they picked; the one who
-survives wears the in-game crewmate's suit (SUIT_PREFERENCE in
-scripts/interactables/crewmate.gd), the next one is pulled out into space, and the
-last one reaches the pod hatch first and is locked in when the breach hits.
+Four astronauts, one per suit: Johnny (the player) wears the suit they picked; Aaron,
+who pulls him to safety, wears the in-game crewmate's suit (SUIT_PREFERENCE in
+scripts/interactables/crewmate.gd); Kien is pulled out into space; Dhan reaches the
+East Section door first and is locked in when the breach hits.
 
 Beats (script by the team):
   0-3.2     THE YEAR 2126, slowly dissolving into space
   2-5.2     the ship cruises past stars and small, far-off planets
   5.2-9     cabin: four crew asleep; monitor: MARS SPACE STATION / REPAIRS MISSION: SUCCESS /
             RETURNING HOME
-  9-11.4    dashboard: nav map, DISTANCE TO EARTH 67,670 MI
-  11.4-19.3 one wakes ("Real food. Finally."), impact, lights fail, red alarm,
+  9-11.4    dashboard: nav map, DISTANCE TO EARTH 676,767 MI
+  11.4-19.3 Kien wakes ("Real food. Finally."), impact, lights fail, red alarm,
             "Collision detected. Evacuate now.", crew unbuckle and hurry aft
-  19.3-24.2 corridor: the 4th crewmate ducks into the pod hatch; second impact locks it,
-            tears the hull open; one crewmate is pulled out, the player reaches and misses
-  24.2-27.2 outside: the same ship, breached; a tiny astronaut tumbles away. Silence.
-  27.2-36.2 pulled through the bulkhead, door slams, breathing, MAIN POWER OFFLINE,
-            "Power first. Then we find them."
-  36.2-38.2 black, logo
+  19.3-24.2 corridor: Dhan ducks through the East Section door; the second impact locks
+            it and tears the hull open; Kien is pulled out (*Sucked out of the ship*),
+            Johnny reaches and misses
+  24.2-27.2 outside: the same ship, breached; Kien tumbles away. Silence.
+  27.2-38   Aaron pulls Johnny through the bulkhead, door slams, breathing, MAIN POWER
+            OFFLINE; Johnny turns to Aaron: "That was a close one! We need to fix power
+            first. Then find Dhan." Fade to black.
 """
 from __future__ import annotations
 
@@ -56,7 +57,8 @@ from scipy import signal as sps
 ROOT = Path(__file__).resolve().parent.parent
 W, H = 320, 180          # art pixels; the video is 2x (640x360)
 FPS = 30
-LB = 16                  # letterbox bar height
+LB = 16                  # top letterbox bar height
+LB_BOTTOM = 20           # bottom bar (captions, up to two lines)
 FEET = 131               # floor line for standing crew (cabin + corridor)
 SUITS = ["classic", "hazard", "nebula", "mint"]
 SUIT_PREFERENCE = ["hazard", "mint", "nebula", "classic"]   # keep in sync with crewmate.gd
@@ -77,22 +79,26 @@ T_CORR = 19.3            # corridor
 T_HIT2 = 21.4            # second impact, breach
 T_OUT = 24.2             # outside, silence
 T_SEAL = 27.2            # pulled through the bulkhead
-T_LOGO = 36.2
-LENGTH = 38.2
-SEAL_OFF = T_SEAL - 19.0  # the seal shot and logo keep their original 19.0-30.0 timings + this
+LENGTH = 38.0
+T_FADE_OUT = LENGTH - 0.4  # last caption done; fade to black, then gameplay
+SEAL_OFF = T_SEAL - 19.0  # the seal shot keeps its original 19.0-30.0 clock + this
 
-CAPTIONS = [  # start, end, speaker, line, style, voice-over id (assets/audio/intro_vo/<id>.ogg)
-    (12.2, 14.5, "CREWMATE:", "REAL FOOD. FINALLY.", "crew", "crew_1"),
+# start, end, speaker, line, style, voice-over id (assets/audio/intro_vo/<id>.ogg).
+# Style "action" is a stage direction: shown, but the soundtrack isn't cleared for it.
+CAPTIONS = [
+    (12.2, 14.5, "KIEN:", "REAL FOOD. FINALLY.", "crew", "crew_1"),
     (15.9, 19.4, "SYSTEM:", "COLLISION DETECTED. EVACUATE NOW.", "system", "system_1"),
-    (25.4 + SEAL_OFF, 28.0 + SEAL_OFF, "CREWMATE:", "POWER FIRST. THEN WE FIND THEM.", "crew", "crew_2"),
+    (21.7, 24.2, "KIEN:", "*SUCKED OUT OF THE SHIP*", "action", "kien_1"),
+    (33.6, T_FADE_OUT, "JOHNNY:", "THAT WAS A CLOSE ONE! WE NEED TO FIX POWER FIRST. THEN FIND DHAN.", "crew", "crew_2"),
 ]
+JOHNNY_TURNS = 33.6      # Johnny turns to face Aaron as he starts talking
 CPS = 30.0               # caption typing speed (chars per second)
 MONITOR_LINES = [(5.6, "MARS SPACE STATION"), (6.45, "REPAIRS MISSION:"), (7.9, "RETURNING HOME")]
 SUCCESS_AT = 7.2         # "SUCCESS" lights up, glowing green, after line 2
 MONITOR_CPS = 26.0
-DISTANCE_MI = 67670      # nav dashboard readout
+DISTANCE_MI = 676767     # nav dashboard readout
 FLICKER = [(24.0, 24.08), (24.16, 24.22), (24.35, 24.7), (24.76, 24.8),
-           (24.9, 26.4), (26.47, 26.52), (26.6, 28.0)]   # terminal on-times (seal-shot clock)
+           (24.9, 26.4), (26.47, 26.52), (26.6, 30.0)]   # terminal on-times (seal-shot clock)
 
 # --- Palette (PICO-8 based, like the game) -------------------------------------------
 SPACE = (5, 6, 20)
@@ -138,6 +144,7 @@ FONT = {
     "?": "01110 10001 00001 00010 00100 00000 00100", "-": "00000 00000 00000 11111 00000 00000 00000",
     "'": "00100 00100 01000 00000 00000 00000 00000", " ": "00000 00000 00000 00000 00000 00000 00000",
     "_": "00000 00000 00000 00000 00000 00000 11111", "/": "00001 00010 00010 00100 01000 01000 10000",
+    "*": "00000 00100 10101 01110 10101 00100 00000",
 }
 GLYPHS = {k: np.array([[c == "1" for c in row] for row in v.split()]) for k, v in FONT.items()}
 
@@ -695,7 +702,7 @@ def draw_console(img, sx, t, m=None):
 
 CORR_DOOR = (144, 164)              # bulkhead frame x range
 CORR_PANEL = (128, 113, 140, 125)   # emergency control
-CORR_TERM = (36, 50, 112, 82)       # MAIN POWER OFFLINE terminal
+CORR_TERM = (50, 50, 118, 82)       # MAIN POWER OFFLINE terminal
 BREACH = [(292, 41), (284, 52), (288, 64), (276, 78), (284, 92), (276, 106), (286, 120),
           (298, 131), (320, 131), (320, 41)]
 
@@ -718,9 +725,10 @@ def build_corridor():
     rect(img, 0, 132, W, 133, STEEL_L)
     for x in range(0, W, 8):
         rect(img, x, 137, x + 1, H, (48, 46, 60))
-    # Pod hatch (left); the leaf is drawn per frame (draw_hatch).
+    # East Section door (left); the leaf is drawn per frame (draw_hatch).
     rect(img, 4, 72, 32, 132, STEEL_L)
-    draw_text(img, 6, 62, "PODS", AMBER)
+    draw_text(img, 4, 53, "EAST", AMBER)
+    draw_text(img, 4, 62, "SECTION", AMBER)
     # Terminal frame (screen drawn per frame).
     tx0, ty0, tx1, ty1 = CORR_TERM
     rect(img, tx0, ty0, tx1, ty1, STEEL)
@@ -744,7 +752,7 @@ def build_corridor():
 
 
 HATCH = (7, 75, 29, 132)
-HATCH_OPEN = (T_CORR + 1.15, T_CORR + 1.35)   # slides up for the crewmate in front
+HATCH_OPEN = (T_CORR + 1.15, T_CORR + 1.35)   # slides up for Dhan, out in front
 HATCH_SHUT = (T_HIT2 - 0.05, T_HIT2 + 0.05)   # slams with the second impact and locks
 
 
@@ -1011,8 +1019,7 @@ def build_nav():
     # Dashboard strip under the screen.
     rect(img, 0, sy1 + 6, W, H, (22, 24, 36))
     rect(img, 0, sy1 + 6, W, sy1 + 7, STEEL)
-    draw_text(img, 24, sy1 + 12, "HULL OK", GREEN)
-    draw_text(img, 24, sy1 + 22, "O2   OK", GREEN)
+    draw_text(img, 24, sy1 + 12, "HULL OK  O2 OK", GREEN)
     draw_text(img, W - 24 - text_w("COURSE EARTH"), sy1 + 12, "COURSE EARTH", CYAN)
     return img
 
@@ -1114,7 +1121,7 @@ def shot_breach(t, cast):
     if hit:
         draw_breach(img, t, room)
     lc = t - T_CORR
-    # The one in front: sprints for the pod hatch and gets through just before it locks.
+    # Dhan, out in front: sprints for the East Section door and gets through just before it locks.
     D = cast["ahead"]
     dx_ = AHEAD_X0 - AHEAD_V * lc
     if dx_ > -10:
@@ -1227,7 +1234,7 @@ def shot_seal(tf, cast):
     draw_slab(img, t)
     draw_hatch(img, tf)
     img = mul(img, room)
-    draw_hatch_light(img, tf)  # the pod hatch stays locked: no power
+    draw_hatch_light(img, tf)  # the East Section door stays locked: no power
     slammed = t >= 21.45
     if slammed:  # the breach side goes dark behind the door
         dark = min(0.6, (t - 21.5) / 1.5 * 0.6) if t > 21.5 else 0.0
@@ -1259,8 +1266,8 @@ def shot_seal(tf, cast):
         P.arm(img, pxx, p_top, 10, left=True, tint=crew)
     else:  # safe side: hit the control, breathe, look at the terminal, face the door
         ax, pxx = 90, 118
-        a_left = 24.3 <= t < 25.3
-        p_left = 24.3 <= t < 24.9
+        a_left = 24.3 <= t < 25.3                                         # Aaron reads the terminal
+        p_left = 24.3 <= t < 24.9 or t >= JOHNNY_TURNS - SEAL_OFF         # ...then they face each other
         p_walk = 24.9 <= t < 25.3
         if t >= 24.9:
             pxx = lerp(118, 124, min(1.0, (t - 24.9) / 0.4))
@@ -1301,16 +1308,43 @@ def VIGNETTE(strength):  # noqa: N802 (reads like a constant-ish helper)
 
 # --- Captions and frame assembly -----------------------------------------------------------
 
+def caption_lines(who, line):
+    """Speaker + line as one or two rows that fit the frame; prefers breaking after
+    a sentence. Returns [(speaker_or_empty, text), ...]."""
+    max_w = W - 12
+    if text_w(f"{who} {line}") <= max_w:
+        return [(who, line)]
+    words = line.split(" ")
+    best = None
+    for i in range(1, len(words)):
+        a, b = " ".join(words[:i]), " ".join(words[i:])
+        wa, wb = text_w(f"{who} {a}"), text_w(b)
+        if max(wa, wb) > max_w:
+            continue
+        score = max(wa, wb) - (1000 if a[-1] in ".!?" else 0)
+        if best is None or score < best[0]:
+            best = (score, a, b)
+    if best is None:
+        return [(who, line)]
+    return [(who, best[1]), ("", best[2])]
+
+
 def draw_captions(frame, t):
     for t0, t1, who, line, style, _vo in CAPTIONS:
         if not t0 <= t < t1:
             continue
         n = int((t - t0) * CPS)
-        full = f"{who} {line}"
-        x = W // 2 - text_w(full) // 2
-        y = H - LB + (LB - 7) // 2
-        draw_text(frame, x, y, who, CYAN if style == "crew" else RED)
-        draw_text(frame, x + 6 * (len(who) + 1), y, line[:n], WHITE)
+        rows = caption_lines(who, line)
+        top = H - LB_BOTTOM + (LB_BOTTOM - (9 * len(rows) - 2)) // 2
+        for k, (spk, text) in enumerate(rows):
+            full = f"{spk} {text}" if spk else text
+            x = W // 2 - text_w(full) // 2
+            y = top + 9 * k
+            if spk:
+                draw_text(frame, x, y, spk, CYAN if style != "system" else RED)
+                x += 6 * (len(spk) + 1)
+            draw_text(frame, x, y, text[:max(0, n)], WHITE if style != "action" else GRAY)
+            n -= len(text) + 1
 
 
 def scene_frame(t, cast):
@@ -1331,65 +1365,16 @@ def scene_frame(t, cast):
     if t < T_EXT_FULL:
         img = year_card(img, t)
     img[:LB] = 0
-    img[H - LB:] = 0
+    img[H - LB_BOTTOM:] = 0
     draw_captions(img, t)
+    if t >= T_FADE_OUT:  # out to black, then the game takes over
+        img = (img.astype(np.float32) * max(0.0, 1 - (t - T_FADE_OUT) / (LENGTH - T_FADE_OUT - 0.05))).astype(np.uint8)
     return img
 
 
 def frame_at(t, cast):
-    if t >= T_LOGO:
-        return logo_frame(t - SEAL_OFF)
     f = scene_frame(t, cast)
     return np.repeat(np.repeat(f, 2, 0), 2, 1)
-
-
-def logo_frame(t):
-    out = np.zeros((360, 640, 3), np.uint8)
-    lh, lw = LOGO.shape[:2]
-    x0, y0 = 320 - lw // 2, 176 - lh // 2
-    p = (t - 28.3) / 0.6
-    if p > 0:
-        th = np.repeat(np.repeat(bayer((lh + 1) // 2, (lw + 1) // 2), 2, 0), 2, 1)[:lh, :lw]
-        show = th < p
-        region = out[y0:y0 + lh, x0:x0 + lw]
-        region[show] = LOGO[show]
-    if 29.0 <= t < 29.9:  # two sparkles
-        for k, (sx, sy) in enumerate(((x0 + 30, y0 + 22), (x0 + lw - 26, y0 + lh - 30))):
-            ph = math.sin((t - 29.0) * 7 + k * 2)
-            if ph > 0:
-                r = 2 + int(ph * 3)
-                rect(out, sx - r, sy, sx + r + 1, sy + 1, WHITE)
-                rect(out, sx, sy - r, sx + 1, sy + r + 1, WHITE)
-    return out
-
-
-def load_logo():
-    with tempfile.TemporaryDirectory() as tmp:
-        fpath = Path(tmp) / "menu0.png"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(ROOT / "art_source/menu_loop_1080p.ogv"),
-                        "-vf", "select=eq(n\\,0)", "-vsync", "0", str(fpath)], check=True)
-        a = np.asarray(Image.open(fpath).convert("RGB")).astype(np.int32)
-    r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    cyan = (b > 200) & (g > 190) & (r < 140)
-    cyan[:, :640] = False
-    cyan[:, 1300:] = False
-    cyan[480:] = False
-    ys, xs = np.where(cyan)
-    gcx, gcy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
-    gr = (xs.max() - xs.min()) / 2 + 2
-    x0, y0, x1, y1 = 400, int(max(0, gcy - gr - 10)), 1480, int(gcy + gr + 10)
-    crop = a[y0:y1, x0:x1].copy()
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    globe = (xx - gcx) ** 2 + (yy - gcy) ** 2 <= gr ** 2
-    lum = crop.mean(2)
-    text_box = (yy > gcy - 110) & (yy < gcy + 110)
-    letters = ndimage.binary_dilation((lum > 120) & text_box & ~globe, iterations=9)
-    keep = globe | letters
-    crop[~keep] = 0
-    crop[~globe & (lum < 55)] = 0
-    im = Image.fromarray(crop.astype(np.uint8))
-    im = im.resize((im.width // 3, im.height // 3), Image.LANCZOS)
-    return np.asarray(im)
 
 
 # --- Soundtrack -------------------------------------------------------------------------------
@@ -1400,7 +1385,8 @@ def soundtrack():
     n = int(SR * LENGTH)
     out = np.zeros(n)
     rng = np.random.default_rng(5)
-    lines = [(c[0], c[1]) for c in CAPTIONS]
+    lines = [(c[0], c[1]) for c in CAPTIONS if c[4] != "action"]
+    last_line = CAPTIONS[-1][0]
 
     def tt(d):
         return np.arange(int(SR * d)) / SR
@@ -1502,7 +1488,7 @@ def soundtrack():
     alarm(T_IMPACT + 0.8, T_HIT2, 0.09)
     fx(T_STAND - 0.2, fade(filt(noise(0.008), "high", 3000), 0.0005, 0.004), 0.4)  # restraints
     steps(T_WALK, T_CORR, 0.2, 0.5)
-    # Corridor: running feet, the pod hatch opening for the one in front.
+    # Corridor: running feet, the East Section door opening for Dhan.
     steps(T_CORR, T_HIT2, 0.17, 0.55)
     fx(HATCH_OPEN[0], fade(filt(noise(0.25), "band", [400, 2500]) * decay(0.25, 6), 0.01, 0.05), 0.25)
     # Second impact: boom, tearing metal, the hatch slamming shut, rushing air.
@@ -1522,7 +1508,7 @@ def soundtrack():
     add(21.46 + o, sum(np.sin(2 * np.pi * f * tt(0.9)) * decay(0.9, 4 + i) for i, f in enumerate((180, 287, 410))), 0.08)
     # Helmet breathing (only breathing), stopping before the last line.
     t = 21.8 + o
-    while t + 2.7 < CAPTIONS[-1][0]:
+    while t + 2.7 < last_line:
         inhale = filt(noise(1.1), "band", [500, 2400]) * np.sin(np.pi * tt(1.1) / 1.1) ** 2
         exhale = filt(noise(1.4), "band", [240, 1200]) * np.sin(np.pi * tt(1.4) / 1.4) ** 2
         add(t, inhale, 0.55)
@@ -1541,14 +1527,10 @@ def soundtrack():
         env[max(0, i0 - ramp):i0] = np.minimum(env[max(0, i0 - ramp):i0], np.linspace(1, 0.2, i0 - max(0, i0 - ramp)))
         env[i1:min(n, i1 + ramp)] = np.minimum(env[i1:min(n, i1 + ramp)], np.linspace(0.2, 1, min(n, i1 + ramp) - i1))
     out *= env
-    # Hard silences from the script.
+    # Hard silence from the script; fade out with the picture.
     out[int(T_OUT * SR):int(T_SEAL * SR)] = 0
-    out[int(T_LOGO * SR):] = 0
-    # Logo chime.
-    for k, f in enumerate((523.25, 659.25, 783.99, 1046.5)):
-        note = fade(sq(f, 0.6) * decay(0.6, 5), 0.003, 0.05)
-        add(T_LOGO + 0.4 + 0.12 * k, note, 0.12)
-        add(T_LOGO + 0.4 + 0.12 * k + 0.18, note, 0.05)
+    i0 = int(T_FADE_OUT * SR)
+    out[i0:] *= np.linspace(1, 0, n - i0)
     out = out / max(1e-6, np.abs(out).max()) * 0.89
     return out
 
@@ -1558,7 +1540,7 @@ def soundtrack():
 def build_globals():
     global CABIN_BG, CORR_BG, NAV_BG, SHIP2, SHIP4, FAR_PLANETS, EXT_STARS_FAR, EXT_STARS_NEAR
     global NAV_MARS, NAV_EARTH, NAV_MOON
-    global BREACH_STARS, BREACH_MASK, BREACH_EDGE, BREACH_SKY_BASE, LOGO
+    global BREACH_STARS, BREACH_MASK, BREACH_EDGE, BREACH_SKY_BASE
     SHIP2 = make_ship(2)
     SHIP4 = make_ship(OUT_SCALE)
     # Small and far away: a ringed gas giant, a red dot (Mars, behind them), an icy speck.
@@ -1580,7 +1562,6 @@ def build_globals():
     CABIN_BG = build_cabin()
     CORR_BG = build_corridor()
     NAV_BG = build_nav()
-    LOGO = load_logo()
 
 
 def cast_for(player):
@@ -1594,8 +1575,9 @@ def write_timing(path):
         "_note": "Generated by tools/make_intro.py; edit the timings there and re-run. "
                  "Voice-over files go in assets/audio/intro_vo/<id>.ogg (or .wav/.mp3).",
         "length": round(LENGTH, 2),
-        "lines": [{"id": vo, "at": round(a, 2), "end": round(b, 2), "speaker": who.rstrip(":"), "text": line}
-                  for a, b, who, line, _style, vo in CAPTIONS],
+        "lines": [{"id": vo, "at": round(a, 2), "end": round(b, 2), "speaker": who.rstrip(":"), "text": line,
+                   "clear_soundtrack": style != "action"}
+                  for a, b, who, line, style, vo in sorted(CAPTIONS)],
     }
     path.write_text(json.dumps(data, indent=2) + "\n")
 
@@ -1638,7 +1620,7 @@ def main():
         cast = cast_for("classic")
         for t in (0.6, 1.5, 2.6, 3.4, 4.6, 6.3, 7.6, 8.8, 9.5, 10.6, 12.6, 14.73, 15.2, 16.4, 17.5, 18.4, 19.1,
                   19.6, 20.5, 20.9, 21.3, 21.45, 22.1, 23.4, 24.6, 25.6, 26.8, 27.7, 28.5, 29.7, 31.0, 33.2, 34.4,
-                  36.9, 37.7):
+                  35.9, 37.0, 37.8):
             Image.fromarray(frame_at(t, cast)).save(out / f"t{t:05.2f}.png")
         return
     video_dir = ROOT / "assets/video"

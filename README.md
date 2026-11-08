@@ -259,28 +259,30 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 
 ## Opening story
 
-A ~38-second cutscene plays after the suit picker when a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Launch key doesn't skip it too).
+A 38-second cutscene plays after the suit picker when a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Launch key doesn't skip it too).
+
+The crew: **Johnny** (the player), **Aaron** (pulls Johnny to safety), **Kien** (pulled out into space), **Dhan** (gets ahead, locked in the East Section).
 
 | Time | Beat |
 |---|---|
 | 0:00–0:03 | THE YEAR 2126, slowly dissolving into space |
 | 0:02–0:05 | The ship cruises past stars and small, far-off planets |
 | 0:05–0:09 | Cabin: four crew asleep. Monitor: MARS SPACE STATION / REPAIRS MISSION: **SUCCESS** (glowing green) / RETURNING HOME |
-| 0:09–0:11 | Dashboard: nav map from Mars, DISTANCE TO EARTH 67,670 MI |
-| 0:11–0:19 | One wakes: "Real food. Finally." Impact, lights fail, emergency red. "SYSTEM: Collision detected. Evacuate now." Crew unbuckle and hurry aft through the corridor door |
-| 0:19–0:24 | Corridor: the fourth crewmate ducks into the pod hatch first. The second impact slams it shut and locks it, and tears the hull open. One crewmate is pulled out; the player reaches and misses |
-| 0:24–0:27 | Outside: the same ship, breached; a tiny astronaut tumbles away, in silence |
-| 0:27–0:36 | The crewmate pulls the player through the bulkhead, the door slams, breathing. Terminal: MAIN POWER OFFLINE. "CREWMATE: Power first. Then we find them." |
-| 0:36–0:38 | Black, pixel logo |
+| 0:09–0:11 | Dashboard: nav map from Mars, DISTANCE TO EARTH 676,767 MI |
+| 0:11–0:19 | Kien wakes: "Real food. Finally." Impact, lights fail, emergency red. "SYSTEM: Collision detected. Evacuate now." Crew unbuckle and hurry aft through the corridor door |
+| 0:19–0:24 | Corridor: Dhan ducks through the EAST SECTION door first. The second impact slams it shut and locks it, and tears the hull open. "KIEN: \*Sucked out of the ship\*"; Johnny reaches and misses |
+| 0:24–0:27 | Outside: the same ship, breached; Kien tumbles away, in silence |
+| 0:27–0:38 | Aaron pulls Johnny through the bulkhead, the door slams, breathing. Terminal: MAIN POWER OFFLINE. Johnny turns to Aaron: "That was a close one! We need to fix power first. Then find Dhan." Fade to black |
 
-- **Four astronauts, one per suit.** The player wears the suit they picked. The crewmate who survives wears the same suit as the in-game crewmate NPC (first of `SUIT_PREFERENCE` in `crewmate.gd` that isn't yours); the next one is pulled out into space; the last one is locked in the pod bay. There's one video per suit (`assets/video/intro_<suit>.ogv`) plus one shared soundtrack (`assets/audio/intro.ogg`) that `scripts/ui/intro_cutscene.gd` plays alongside.
-- **Voice-over.** The soundtrack has no voices, and nothing loud plays under the three spoken lines (effects are left out and the rest is turned down), so recordings sit on top. Drop them into `assets/audio/intro_vo/` and they play when their captions appear:
+- **Four astronauts, one per suit.** Johnny wears the suit the player picked. Aaron wears the same suit as the in-game crewmate NPC (first of `SUIT_PREFERENCE` in `crewmate.gd` that isn't yours); Kien and Dhan wear the next two. There's one video per suit (`assets/video/intro_<suit>.ogv`) plus one shared soundtrack (`assets/audio/intro.ogg`) that `scripts/ui/intro_cutscene.gd` plays alongside.
+- **Voice-over.** The soundtrack has no voices, and nothing loud plays under the spoken lines (effects are left out and the rest is turned down), so recordings sit on top. Drop them into `assets/audio/intro_vo/` and they play when their captions appear:
 
   | File (`.ogg`, `.wav` or `.mp3`) | Line | Starts | Caption ends |
   |---|---|---|---|
-  | `crew_1` | CREWMATE: "Real food. Finally." | 12.2 s | 14.5 s |
+  | `crew_1` | KIEN: "Real food. Finally." | 12.2 s | 14.5 s |
   | `system_1` | SYSTEM: "Collision detected. Evacuate now." | 15.9 s | 19.4 s |
-  | `crew_2` | CREWMATE: "Power first. Then we find them." | 33.6 s | 36.2 s |
+  | `kien_1` (optional) | KIEN: \*Sucked out of the ship\* (effects keep playing under it) | 21.7 s | 24.2 s |
+  | `crew_2` | JOHNNY (gasping): "That was a close one! We need to fix power first. Then find Dhan." | 33.6 s | 37.6 s |
 
   Or export one full-length voice track as `assets/audio/intro_vo/full.ogg` (aligned to the video from 0:00) and it plays instead. The times come from `data/intro_timing.json`, which the renderer writes.
 - **Re-render** after changing the script, timing, or art:
@@ -289,7 +291,7 @@ A ~38-second cutscene plays after the suit picker when a run starts from the mai
   python3 tools/make_intro.py                      # all suits + soundtrack + timing (~1.5 min)
   python3 tools/make_intro.py --preview /tmp/intro # key frames as PNGs, classic suit
   ```
-  The timeline, captions, monitor lines, and the 67,670 mile figure are constants at the top of `tools/make_intro.py`. If `SUIT_PREFERENCE` in `crewmate.gd` changes, change it there too. The logo is cut from the menu video, so redraw the menu and the intro picks it up.
+  The timeline, captions, monitor lines, and the distance figure are constants at the top of `tools/make_intro.py`. If `SUIT_PREFERENCE` in `crewmate.gd` changes, change it there too.
 - **Missing files:** if a suit's video is missing, the classic one plays. If there's no intro video at all, the run starts straight away. Missing voice files are simply skipped.
 
 ## Video

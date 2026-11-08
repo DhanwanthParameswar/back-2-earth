@@ -351,7 +351,7 @@ func _test_intro() -> void:
 	var ids := []
 	for line in timing.get("lines", []):
 		ids.append(line["id"])
-	_check(ids == ["crew_1", "system_1", "crew_2"], "intro timing lists the three voice-over lines")
+	_check(ids == ["crew_1", "system_1", "kien_1", "crew_2"], "intro timing lists the voice-over lines in order")
 	_check(float(timing.get("length", 0.0)) > 30.0, "intro timing has the film length")
 	_check(IntroCutscene.vo_path_for("no_such_line") == "", "missing voice-over files are skipped")
 
