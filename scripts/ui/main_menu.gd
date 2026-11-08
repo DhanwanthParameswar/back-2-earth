@@ -11,9 +11,10 @@ extends Control
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const PressButton = preload("res://scripts/ui/press_button.gd")
+const AccountPanel = preload("res://scripts/ui/account_panel.gd")
 const Haptics = preload("res://scripts/core/haptics.gd")
 ## Order the d-pad / arrow keys walk through the painted buttons.
-const NAV_ORDER := ["start", "how", "settings", "credits", "sound"]
+const NAV_ORDER := ["start", "how", "settings", "account", "credits", "sound"]
 const MenuBackdrop = preload("res://scripts/ui/menu_backdrop.gd")
 const GAME_SCENE := "res://scenes/escape_prototype.tscn"
 const CREDITS_PATH := "res://data/credits.json"
@@ -47,6 +48,8 @@ var _nav := false            # true once the d-pad / arrows have moved the selec
 var _sel := 0                # selected painted button (NAV_ORDER index)
 var _panel_sel := 0          # selected button in the open panel
 var _controller_line: Label
+var _account_panel
+var _account_button: Button
 
 
 func _ready() -> void:
@@ -85,6 +88,22 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_relayout)
 	_relayout()
 	Sfx.start_ambient()
+	_account_button = Button.new()
+	_account_button.add_theme_font_size_override("font_size", 10)
+	_account_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_account_button.offset_left = -210
+	_account_button.offset_right = -10
+	_account_button.offset_top = 10
+	_account_button.offset_bottom = 36
+	_account_button.pressed.connect(_open_account)
+	add_child(_account_button)
+	_account_panel = AccountPanel.new()
+	add_child(_account_panel)
+	_account_panel.start_requested.connect(_launch_game)
+	Settings.changed.connect(_refresh_account_button)
+	_refresh_account_button()
+	move_child(_fade, get_child_count() - 1)
+	if not Settings.is_logged_in() and not SaveGame.has_progress(): _account_panel.open.call_deferred()
 
 
 func _notify_web_ready() -> void:
@@ -124,6 +143,8 @@ func activate(id: String) -> void:
 	if _leaving:
 		return
 	match id:
+		"account":
+			_open_account()
 		"start":
 			_start_game()
 		"how", "settings", "credits":
@@ -135,8 +156,27 @@ func activate(id: String) -> void:
 
 
 func _start_game() -> void:
+	if _account_panel == null: return
+	if not Settings.is_logged_in() and SaveGame.has_progress():
+		_account_panel.show()
+		_account_panel._show_games()
+	else: _account_panel.open()
+
+
+func _open_account() -> void:
+	if _account_panel != null: _account_panel.open()
+
+
+func _refresh_account_button() -> void:
+	if _account_button != null:
+		_account_button.text = Settings.account_name.to_upper() + " · SAVED GAME" if Settings.is_logged_in() else "SIGN IN / CREATE ACCOUNT"
+
+
+func _launch_game(resume: bool) -> void:
+	SaveGame.resume_pending = false
+	if resume: SaveGame.request_resume()
 	_leaving = true
-	Settings.intro_pending = true  # opening story -> gameplay
+	Settings.intro_pending = not resume  # resumes return directly to the saved mission
 	Sfx.play("launch", -6.0)
 	var tw := create_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.35)
@@ -203,6 +243,7 @@ func _release_key_press(id: String) -> void:
 # --- Input ------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _account_panel != null and _account_panel.visible: return
 	# Keys and controller buttons alike (ui_* actions include the d-pad, left
 	# stick and A/B; the game's own actions are in scripts/core/input_setup.gd).
 	if _leaving or not event.is_pressed() or event.is_echo():
@@ -256,6 +297,7 @@ func _step_menu(event: InputEvent) -> void:
 func _show_menu_selection() -> void:
 	if _backdrop == null:
 		return
+	if _account_button != null: _account_button.modulate = UiStyle.CYAN if _nav and NAV_ORDER[_sel] == "account" else Color.WHITE
 	for i in NAV_ORDER.size():
 		_backdrop.set_hover(NAV_ORDER[i], _nav and i == _sel)
 

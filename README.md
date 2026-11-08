@@ -333,3 +333,59 @@ Display settings: 640×360 base, `canvas_items` stretch, integer scaling, neares
 - Suits only have side-view walk frames; walking up or down keeps the last left/right facing. Front/back frames would be the next art addition.
 - Wall faces are drawn on the floor layer, so a wall *below* the player never covers their feet. That's fine for this layout.
 - HUD uses Godot's default font until D adds a pixel font.
+
+### Accounts and resumable missions
+
+Start Game opens account access for new players. Sign in or create an account,
+or continue as a guest. The saved-game panel offers Resume, New Game, and Delete
+Saved Game, with confirmation before replacing or deleting progress. Guest saves
+stay on the current device; account saves also sync to the database. An existing
+guest checkpoint can be imported into an empty account slot.
+
+Signed-in players can choose Delete Account and confirm with their password.
+Deletion permanently removes the account, all sessions, cloud checkpoint and crew
+memories, owned runs and their events, and leaderboard results in one transaction.
+The current device's account checkpoint is removed after server confirmation;
+guest saves are kept. Offline or failed deletion keeps the account and save intact.
+
+The escape mission saves after progress changes, every five seconds while playing,
+on pause, and on leaving the mission or losing focus. Checkpoints include the
+route, inventory, player/crew positions, flashlights, recent radio conversation, remembered crew facts,
+and pending crew tasks. Resume skips the intro and restores cleared-locker
+collision and interrupted case deliveries. Completing an escape removes its
+resume slot. Crew conversations and remembered facts belong to that checkpoint:
+Resume restores them, and New Game, Restart, Delete Save, or completing the mission
+clears them with its progress. Accounts and leaderboard results are kept. Current
+clients send their saved notes with each chat and never use the older account-wide
+memory table, so an old or late reply cannot repopulate a new game's memory.
+
+`SaveGame` keeps a separate atomic local file per account (or guest device).
+Offline account changes stay queued and retry every 15 seconds. Cloud revisions
+prevent stale uploads from overwriting a newer save or resurrecting a deletion.
+If two devices diverge, the menu offers an explicit cloud/local choice. Passwords
+are sent only to the existing authentication endpoint and are never checkpointed.
+
+Backend release: apply `server/migrations/001_game_saves.sql` to the existing
+database (or `server/schema.sql` for a fresh database), then deploy
+`server/save_games.py` together with the updated `game_db.py` and
+`companion_server.py`. The web deployment workflow alone does **not** deploy the
+backend or apply this migration. Until then, local saves work and cloud saves are
+shown as unavailable. The account API remains `/auth/register`, `/auth/login`,
+`/auth/logout`, `/auth/me`; saves use authenticated `GET /save`, `POST /save`, and
+`POST /save/delete`. Writes include the last known `revision` and return HTTP 409
+if another device changed it.
+
+Local integration checks (use separate temporary settings/save paths so test
+accounts cannot replace your own):
+
+```sh
+python3 -m unittest server/test_game_db.py server/test_escape_dialogue.py
+B2E_SAVE_DIR=/tmp/b2e-save-check B2E_SAVE_NETWORK=0 \
+  B2E_SETTINGS_PATH=/tmp/b2e-save-settings.cfg \
+  godot --headless --path . --script res://tests/save_runner.gd
+# Separate terminal: an isolated, in-memory account/save backend.
+python3 server/dev_save_server.py
+B2E_BACKEND=http://127.0.0.1:8788 B2E_SAVE_DIR=/tmp/b2e-cloud-check \
+  B2E_SETTINGS_PATH=/tmp/b2e-cloud-settings.cfg \
+  godot --headless --path . --script res://tests/save_cloud_runner.gd
+```

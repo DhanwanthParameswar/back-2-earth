@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "map": "escape-v1",
+  "state": {
+    "flags": {
+      "locker_ready": true,
+      "locker_clear": true,
+      "assessed": true
+    },
+    "route": "engineering",
+    "carrying": "fuse",
+    "version": 5,
+    "journal": [
+      "Fuse collected"
+    ]
+  },
+  "player": {
+    "position": [
+      320,
+      450
+    ]
+  },
+  "crew": {
+    "mara": {
+      "position": [
+        300,
+        450
+      ],
+      "facing": [
+        0,
+        -1
+      ],
+      "following": false,
+      "light_on": true,
+      "cargo": false,
+      "path": [],
+      "task": ""
+    },
+    "ivo": {
+      "position": [
+        300,
+        450
+      ],
+      "facing": [
+        0,
+        -1
+      ],
+      "following": false,
+      "light_on": true,
+      "cargo": false,
+      "path": [],
+      "task": ""
+    }
+  },
+  "elapsed": 123.0,
+  "flashlight": true,
+  "history": {
+    "mara": [],
+    "ivo": []
+  }
+}
