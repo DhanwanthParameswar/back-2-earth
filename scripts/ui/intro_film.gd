@@ -94,9 +94,10 @@ const CORR_TERM := [50, 50, 118, 82]
 const T_LOCKER_LOOK := 37.9   # the crew turns to the locker blocking the hallway aft
 const AHEAD_WAIT_X := 58.0    # Dhan stops here: the locker blocks the way
 # role: [x from, x to, delay, walk time] as they step up to the locker
-# Johnny walks up to the locker past the others; Dhan steps back toward the barrier.
+# Johnny stays where he is (the game starts him beside Aaron) and turns to the locker;
+# Dhan steps back toward the barrier.
 const LOCKER_LOOK := {"ahead": [58.0, 110.0, 0.0, 1.1], "survivor": [90.0, 96.0, 0.35, 0.4],
-	"player": [124.0, 54.0, 0.15, 1.5]}
+	"player": [124.0, 124.0, 0.15, 1.5]}
 const CORR_RUN := {"survivor": [330.0, 170.0], "player": [362.0, 206.5], "lost": [400.0, 246.5]}
 const AHEAD_X0 := 150.0
 const AHEAD_V := 82.0
@@ -1039,7 +1040,7 @@ func _draw_locker_look(film_time: float, crew, bob: int) -> void:
 	for role in ["ahead", "survivor", "player"]:
 		var e: Array = LOCKER_LOOK[role]
 		var start := T_LOCKER_LOOK + float(e[2])
-		var walking := start <= film_time and film_time < start + float(e[3])
+		var walking := start <= film_time and film_time < start + float(e[3]) and float(e[0]) != float(e[1])
 		var left := (float(e[1]) < float(e[0])) if walking else true
 		_astro(role, _locker_look_x(role, film_time), FEET, film_time * 1.4, walking, left, -1, 0,
 			0 if walking else bob, [], crew)

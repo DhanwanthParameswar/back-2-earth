@@ -691,6 +691,21 @@ func _test_speech_and_voices() -> void:
 	cu._gui_input(click)
 	check(fired[0] == "go", "A click reaches a button under a screen")
 	cu.queue_free()
+	# Shift+~ demo shortcut: everyone walks to the shuttle and climbs in, then it launches.
+	var md = await _new_mission()
+	await _advance(md, 3.0)
+	md._secret_trigger_ending()
+	check(not md.ending and md.crew.mara.visible and not md.crew.mara.path.is_empty(), "Shortcut: the crew start walking to the shuttle")
+	for i in 600:
+		md.elapsed += 0.05
+		md._run_timers()
+		for actor in md.crew.values(): actor._process(0.05)
+		md._walk_player(0.05)
+		if md.ending: break
+	check(md.ending and not md.crew.mara.visible and not md.crew.ivo.visible and not md.player.visible, "...everyone boards, then the launch starts")
+	check(md.player.position.distance_to(md.anchor("board_aaron")) < 120.0, "...Johnny walked there himself")
+	await get_tree().create_timer(0.2).timeout
+	await _free(md)
 	# Medbay vials: only Aaron knows which is the painkiller, and only once he's read the labels.
 	var mv = await _new_mission()
 	var sv = mv.state

@@ -765,9 +765,9 @@ def build_corridor():
 T_LOCKER_LOOK = 37.9   # after Johnny's line, the crew turns to the locker blocking the hallway
 AHEAD_WAIT_X = 58.0    # Dhan stops here: the locker blocks the way aft
 # role: (x from, x to, delay, walk time) as they step up to the locker
-# Johnny walks up to the locker past the others; Dhan steps back toward the barrier.
+# Johnny stays where he is and turns to the locker; Dhan steps back toward the barrier.
 LOCKER_LOOK = {"ahead": (58.0, 110.0, 0.0, 1.1), "survivor": (90.0, 96.0, 0.35, 0.4),
-               "player": (124.0, 54.0, 0.15, 1.5)}
+               "player": (124.0, 124.0, 0.15, 1.5)}
 LOCKER = [(6, 132), (21, 132), (47, 60), (34, 52)]   # the wedged locker (side view)
 
 
@@ -1292,7 +1292,7 @@ def draw_locker_look(img, film_time, cast, crew, bob):
     for role in ("ahead", "survivor", "player"):
         x0, x1, delay, duration = LOCKER_LOOK[role]
         start = T_LOCKER_LOOK + delay
-        walking = start <= film_time < start + duration
+        walking = start <= film_time < start + duration and x0 != x1
         cast[role].draw(img, locker_look_x(role, film_time), FEET, t_anim=film_time * 1.4, walking=walking,
                         left=(x1 < x0) if walking else True, lift=0 if walking else bob, tint=crew)
 

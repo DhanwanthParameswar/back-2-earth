@@ -100,6 +100,8 @@ var seated := false             # Johnny in the pilot seat
 var scripted := false           # a short scripted moment: no player control
 var _player_path := PackedVector2Array()
 var _player_path_done: Callable
+var _player_walk_speed := CARRY_SPEED   # scripted walks: carrying Dhan is slow; the demo boarding isn't
+var _secret_boarding := false
 var _hold := {}                 # {target, total, t, done, label}
 var _lift_until := -1.0         # Aaron holding the locker up until this time
 var _count := {}                # Aaron's count of three: {t}
@@ -428,31 +430,62 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			_secret_trigger_ending()
 
-## Secret developer / demo shortcut (Shift + ~) to jump straight to the launch sequence and ending.
+## Secret developer / demo shortcut (Shift + ~): everyone walks to the shuttle from wherever
+## they are, climbs aboard, and the launch sequence and ending play.
 func _secret_trigger_ending() -> void:
-	if ending: return
-	state.flags["dhan_free"] = true
-	state.flags["locker_clear"] = true
-	state.flags["isolated"] = true
-	state.flags["fuse_installed"] = true
-	state.flags["fault_found"] = true
-	state.flags["aux_off"] = true
-	state.flags["engineering_power"] = true
-	state.flags["samples_saved"] = true
-	state.flags["dhan_treated"] = true
-	state.flags["dhan_aboard"] = true
-	state.flags["aaron_aboard"] = true
-	state.flags["clamps"] = true
-	# Everyone is aboard: nobody is left standing in the bay as the shuttle drops.
-	for actor in crew.values():
-		actor.following = false
-		actor.path.clear()
-		actor.light_on = false
-		actor.visible = false
-	player.visible = false
-	carried_visual.visible = false
+	if ending or _secret_boarding: return
+	_secret_boarding = true
+	for f in ["dhan_free", "locker_clear", "isolated", "fuse_installed", "fault_found", "aux_off",
+			"engineering_power", "samples_saved", "dhan_treated"]:
+		state.flags[f] = true
+	state.carrying = ""
 	ui.close()
-	_launch()
+	ui.set_banner("", -1.0)
+	scripted = true
+	_count.clear()
+	_end_lift()
+	_breaker_until = -1.0
+	_thrust_until = -1.0
+	_busy.clear()
+	_queue.clear()
+	# The locker no longer blocks the hallway.
+	locker_body.process_mode = Node.PROCESS_MODE_DISABLED
+	locker_body.get_child(0).set_deferred("disabled", true)
+	_set_locker_nav(false)
+	locker_visual.position = anchor("locker_cleared")
+	locker_visual.rotation = -PI / 2.0
+	var boarded := {}
+	var aboard := func(who: String) -> void:
+		boarded[who] = true
+		if who in crew: crew[who].visible = false
+		else: player.visible = false
+	for id in crew:
+		var actor = crew[id]
+		actor.pose = "stand"
+		actor.light_on = false
+		actor.speed = Actor.WALK_SPEED
+		actor.visible = true
+		actor.go_to(anchor("board_dhan" if id == "ivo" else "board_aaron"), aboard.bind(id))
+	if seated: aboard.call("player")
+	else:
+		_player_walk_speed = Actor.WALK_SPEED
+		_player_path = find_path(_free_spot(player.position), anchor("board_aaron") + Vector2(-24, 0))
+	_secret_wait(boarded, aboard, elapsed + 14.0)
+
+## Launch once everyone is aboard (or after a while, for anyone who couldn't find the way).
+func _secret_wait(boarded: Dictionary, aboard: Callable, give_up: float) -> void:
+	if not boarded.has("player") and _player_path.is_empty(): aboard.call("player")
+	for id in crew:
+		if not boarded.has(id) and (crew[id].path.is_empty() and not crew[id].arrived.is_valid() or elapsed > give_up):
+			aboard.call(id)
+	if elapsed > give_up and not boarded.has("player"): aboard.call("player")
+	if boarded.size() < 3:
+		after(0.2, func(): _secret_wait(boarded, aboard, give_up))
+		return
+	for f in ["dhan_aboard", "aaron_aboard", "clamps"]: state.flags[f] = true
+	carried_visual.visible = false
+	_player_walk_speed = CARRY_SPEED
+	after(0.6, _launch)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or ending or ui.is_open(): return
@@ -1380,7 +1413,7 @@ func _free_spot(at: Vector2) -> Vector2:
 
 func _walk_player(delta: float) -> void:
 	if _player_path.is_empty(): return
-	player.position = player.position.move_toward(_player_path[0], delta * CARRY_SPEED)
+	player.position = player.position.move_toward(_player_path[0], delta * _player_walk_speed)
 	if player.position.distance_to(_player_path[0]) < 1.0:
 		_player_path.remove_at(0)
 

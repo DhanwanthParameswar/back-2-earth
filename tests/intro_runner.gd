@@ -42,10 +42,9 @@ func _run() -> void:
 	check(film.length() > 39.8, "Intro leaves time for the crew to face the locker in the hallway")
 	check(Film.AHEAD_WAIT_X < Film.CORR_DOOR[0], "Dhan waits on the safe side of the barrier, at the locker")
 	var end := Film.LENGTH - 0.5
-	check(film._locker_look_x("player", 39.5) < film._locker_look_x("player", Film.T_LOCKER_LOOK), "Johnny walks up to the locker after his line")
-	check(film._locker_look_x("player", end) < film._locker_look_x("survivor", end) and film._locker_look_x("player", end) < film._locker_look_x("ahead", end), "Johnny ends nearest the locker, like the game's start")
-	for role in ["ahead", "survivor"]:
-		check(film._locker_look_x(role, end) > film._locker_look_x("player", end) + 30, "%s ends back toward the barrier" % role)
+	check(film._locker_look_x("player", end) == film._locker_look_x("player", Film.T_LOCKER_LOOK), "Johnny stays where he is after his line (the game starts him beside Aaron)")
+	check(film._locker_look_x("ahead", end) > film._locker_look_x("ahead", Film.T_LOCKER_LOOK) + 30, "Dhan steps back from the locker toward the barrier")
+	check(absf(film._locker_look_x("survivor", end) - film._locker_look_x("player", end)) < 40, "Johnny ends beside Aaron, like the game's start")
 	check(film._edit.size() > 1100 and film._edit[1099] == 1139 and film._edit[1100] == 1140, "New ending follows the original voice-timed cut without a jump")
 	film.queue_free()
 	await process_frame
