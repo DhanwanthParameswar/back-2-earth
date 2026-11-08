@@ -323,6 +323,8 @@ The crew: **Johnny** (the player, classic suit), **Aaron** (pulls Johnny to safe
 
 **One pixel size everywhere:** art is drawn at 16 px per tile and saved at 2×, so one art pixel = 2×2 screen pixels for tiles, props, and suits alike. Map tiles come from `tools/make_ship_tiles.py`, using the opening film's palette (navy cabin walls with the light stripe and green lights, steel decking, bulkhead doors with amber dashes, light-gray hull plating on top of walls, and the red-striped hull side where the ship meets space). Other placeholders come from `tools/gen_placeholder_assets.py` (PICO-8 palette). To replace one, draw a new file **at the same size** with the same name; collisions never depend on art. See `CREDITS.md`.
 
+**Footsteps:** Johnny and the crew make a footstep each time a foot lands in the walk cycle (frames 0 and 3), only while really moving. The sound follows the room's floor: metal deck plating, the engineering grating, or carpet and mats (observation, hydroponics), six variations each with random pitch and level so walking never loops. The crew's steps come from where they are, fading with distance. `scripts/core/footsteps.gd`; sounds from `python3 tools/make_footstep_sounds.py` (`assets/audio/steps/`).
+
 Display settings: 640×360 base, `canvas_items` stretch, integer scaling, nearest filtering, 2D pixel snap. Don't rotate sprites (use flip). For a pixel font, add a theme with antialiasing off and log its license in `CREDITS.md`.
 
 ---

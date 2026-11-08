@@ -1,6 +1,8 @@
 extends Node2D
 ## Existing astronaut art, with visible walking along the ship's floor grid.
 
+const Footsteps = preload("res://scripts/core/footsteps.gd")
+
 var mission
 var actor_id := "mara"
 var display_name := "AARON · RESEARCHER"
@@ -12,6 +14,7 @@ var path := PackedVector2Array()
 var arrived: Callable
 var following := false
 var walking_time := 0.0
+var footsteps  # their steps, heard from where they walk
 var bubble_left := 0.0
 ## Flashlight (dark ship only): on/off by asking on the radio. It points where they walk;
 ## standing still, it keeps the last direction (or the one you asked for).
@@ -66,6 +69,10 @@ func _ready() -> void:
 	cargo.position = Vector2(15, -15)
 	cargo.visible = false
 	add_child(cargo)
+	footsteps = Footsteps.new()
+	footsteps.positional = true
+	footsteps.volume_db = -14.0
+	add_child(footsteps)
 
 func set_cargo(carrying: bool) -> void:
 	cargo.visible = carrying
@@ -114,8 +121,11 @@ func _process(delta: float) -> void:
 		if direction.length() > 0.1:
 			facing = Vector2.RIGHT if absf(direction.x) >= absf(direction.y) and direction.x >= 0.0 else Vector2.LEFT if absf(direction.x) >= absf(direction.y) else Vector2.DOWN if direction.y >= 0.0 else Vector2.UP
 		position = position.move_toward(path[0], delta * 125.0)
+		var before := int(walking_time)
 		walking_time += delta * 9.0
 		sprite.frame = int(walking_time) % 6
+		if int(walking_time) != before and Footsteps.is_step_frame(sprite.frame):
+			footsteps.step()
 		if absf(direction.x) > 0.1: sprite.flip_h = direction.x < 0
 		if position.distance_to(path[0]) < 1:
 			path.remove_at(0)

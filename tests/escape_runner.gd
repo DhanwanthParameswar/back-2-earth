@@ -33,6 +33,7 @@ func _run() -> void:
 	_test_endings()
 	_test_marvis_words()
 	await _test_darkness()
+	await _test_footsteps()
 	await _test_opening()
 	await _test_engineering()
 	await _test_battery(true)
@@ -734,6 +735,26 @@ func _test_darkness() -> void:
 	await get_tree().create_timer(1.8).timeout
 	check(not dark.is_dark(), "Power restored: the lights come back")
 	check(not mission.available_actions("ivo").has("light_on"), "No flashlight actions once the lights are on")
+	await _free(mission)
+
+## Footsteps: the floor underfoot picks the sound (metal, grate, soft).
+func _test_footsteps() -> void:
+	var mission = await _new_mission()
+	var steps = mission.player._footsteps
+	check(steps != null and mission.crew.mara.footsteps != null, "Johnny and the crew have footsteps")
+	var all_there := true
+	for surface in ["metal", "grate", "soft"]:
+		for k in range(1, 7):
+			all_there = all_there and ResourceLoader.exists("res://assets/audio/steps/%s_%d.wav" % [surface, k])
+	check(all_there, "Every footstep sound exists (6 per floor)")
+	for room in mission.map_data.rooms:
+		var r: Array = room.rect
+		var centre := (Vector2(r[0], r[1]) + Vector2(r[2], r[3]) / 2.0) * 32.0
+		if mission.room_at(centre) != room.name:
+			continue
+		var want: String = {"grate": "grate", "carpet": "soft", "hydro": "soft"}.get(room.style, "metal")
+		check(steps.surface_at(centre) == want, "Footsteps in %s sound like %s" % [room.name, want])
+	check(mission.floor_style_at(Vector2(-100, -100)) == "deck", "Off the map, steps sound like deck plating")
 	await _free(mission)
 
 func _capture(label: String) -> void:

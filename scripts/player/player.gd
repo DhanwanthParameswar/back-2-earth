@@ -6,8 +6,11 @@ extends CharacterBody2D
 ## is only the feet, so the head can overlap the wall behind; the ship y-sorts
 ## the player against props by this point. The camera smoothly follows the body.
 
+const Footsteps = preload("res://scripts/core/footsteps.gd")
+
 const SPEED := 150.0
 const INTERACT_RADIUS := 44.0
+const FOOTSTEP_DB := -12.0
 
 ## Skin sheets are 6 walk frames side by side (tools/import_astronaut_skins.py).
 const WALK_FRAMES := 6
@@ -29,6 +32,8 @@ var _walk_timer := 0.0
 var _shake_left := 0.0
 var _hit_flash_left := 0.0
 var _ship = null
+var _footsteps
+var _was_walking := false
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var camera: Camera2D = $Camera2D
@@ -44,6 +49,9 @@ func _ready() -> void:
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = CAMERA_SMOOTHING_SPEED
 	sprite.frame = IDLE_FRAME
+	_footsteps = Footsteps.new()
+	_footsteps.volume_db = FOOTSTEP_DB
+	add_child(_footsteps)
 
 
 ## Loads the player's suit (Settings.skin). Called again if it changes.
@@ -78,6 +86,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector2.ZERO
 		current_target = null
 		sprite.frame = IDLE_FRAME
+		_was_walking = false
 		queue_redraw()
 		return
 
@@ -140,13 +149,21 @@ func _update_visuals(input: Vector2, delta: float) -> void:
 	# 6-frame walk cycle facing right; flip for left. Up/down keep the last
 	# facing. No rotation (keeps pixels on the grid).
 	if input.length() > 0.1:
+		var before := int(_walk_timer)
 		_walk_timer += delta * WALK_FPS
 		sprite.frame = int(_walk_timer) % WALK_FRAMES
 		if absf(input.x) > 0.1:
 			sprite.flip_h = input.x < 0.0
+		# Footsteps as each foot lands, only while really moving (not pressing
+		# into a wall). The first one sounds as you set off.
+		var moving := get_real_velocity().length() > 30.0
+		if moving and (not _was_walking or (int(_walk_timer) != before and Footsteps.is_step_frame(sprite.frame))):
+			_footsteps.step()
+		_was_walking = moving
 	else:
 		sprite.frame = IDLE_FRAME
 		_walk_timer = 0.0
+		_was_walking = false
 
 	# Hit flash.
 	if _hit_flash_left > 0.0:

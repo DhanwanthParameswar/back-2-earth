@@ -261,6 +261,13 @@ func room_at(point: Vector2) -> String:
 	var key := _room_grid[c.y][c.x]
 	return _room_by_key[key].name if _room_by_key.has(key) else "PASSAGE"
 
+## The floor's style under a point ("deck", "grate", "carpet"...): footsteps sound like it.
+func floor_style_at(point: Vector2) -> String:
+	var c := Vector2i(floori(point.x / TILE), floori(point.y / TILE))
+	if c.x < 0 or c.y < 0 or c.y >= _room_grid.size() or c.x >= _room_grid[c.y].length(): return "deck"
+	var key := _room_grid[c.y][c.x]
+	return str(_room_by_key[key].get("style", "deck")) if _room_by_key.has(key) else "deck"
+
 # --- Props and crew --------------------------------------------------------------
 
 const PROP_INFO := {
