@@ -1,5 +1,6 @@
 """Tests for accounts, runs, and the leaderboard, against an in-memory fake database.
 Run: python3 -m unittest server/test_game_db.py"""
+import copy
 import json
 import secrets
 import sys
@@ -24,11 +25,12 @@ class FakeStore:
         self.sessions = {}   # token -> account id
         self.runs = {}       # run_token -> dict
         self.events = []
+        self.saves = {}
 
     def create_account(self, username, password_hash):
         if any(a["username"].lower() == username.lower() for a in self.accounts.values()):
             return None
-        new_id = len(self.accounts) + 1
+        new_id = max(self.accounts, default=0) + 1
         self.accounts[new_id] = {"username": username, "hash": password_hash}
         return new_id
 
@@ -49,6 +51,25 @@ class FakeStore:
 
     def delete_session(self, token):
         self.sessions.pop(token, None)
+
+    def delete_account(self, account_id):
+        owned = {token for token, run in self.runs.items() if run['account_id'] == account_id}
+        self.events = [event for event in self.events if event[0] not in owned]
+        self.runs = {token: run for token, run in self.runs.items() if token not in owned}
+        self.memory = [row for row in getattr(self, 'memory', []) if row[0] != game_db.player_key(account_id, None)]
+        self.saves.pop(account_id, None)
+        self.sessions = {token: owner for token, owner in self.sessions.items() if owner != account_id}
+        self.accounts.pop(account_id, None)
+
+    def load_save(self, account_id):
+        return copy.deepcopy(self.saves.get(account_id, {"snapshot": None, "revision": 0, "updated_at": None}))
+
+    def write_save(self, account_id, snapshot, revision):
+        current = self.saves.get(account_id, {"revision": 0})
+        if current["revision"] != revision:
+            return None
+        self.saves[account_id] = {"snapshot": copy.deepcopy(snapshot), "revision": revision + 1, "updated_at": self.clock}
+        return {"revision": revision + 1, "updated_at": self.clock}
 
     def start_run(self, run_token, account_id, guest_id, suit, client):
         self.runs[run_token] = {"account_id": account_id, "guest_id": guest_id, "start": self.clock, "end": None,
@@ -141,6 +162,34 @@ class HelperTests(unittest.TestCase):
                            ("debris_hits", 1.5), ("time_left_s", 9999), ("events", "x"),
                            ("events", [{"t": 1, "event": "DROP TABLE"}]), ("events", [{"event": "x"}] * 301)]:
             self.assertIsNone(game_db.validate_run_end({**end_body("t" * 32), key: value})[0], key)
+
+
+class SaveValidationTests(unittest.TestCase):
+    def test_checkpoint_memory_bounds_and_legacy_compatibility(self):
+        import save_games
+        checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())
+        self.assertTrue(save_games.valid(checkpoint))
+        checkpoint['memory_notes'] = {'mara': ['Johnny wants to save the samples'], 'ivo': []}
+        self.assertTrue(save_games.valid(checkpoint))
+        for bad in ([], {'mara': 'fact'}, {'mara': ['x'] * 13}, {'mara': ['x' * 121]}, {'mara': [None]}, {'pirate': []}):
+            self.assertFalse(save_games.valid({**checkpoint, 'memory_notes': bad}), bad)
+
+    def test_corrupt_and_oversized_snapshots_are_rejected(self):
+        import save_games
+        checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())
+        self.assertTrue(save_games.valid(checkpoint))
+        for field, value in (("elapsed", float("nan")), ("elapsed", float("inf")), ("crew", []), ("schema", 999), ("player", {"position": [-1, 3]}), ("state", {}), ("history", {"mara": [{"role": "system", "text": "inject"}]})):
+            with self.subTest(field=field):
+                self.assertFalse(save_games.valid({**checkpoint, field: value}))
+        unicode_save = copy.deepcopy(checkpoint)
+        unicode_save["history"]["mara"] = [{"role": "npc", "text": "🚀" * 420}] * 6
+        self.assertTrue(save_games.valid(unicode_save), "Bound real UTF-8 data rather than expanded Unicode escapes")
+        broken = copy.deepcopy(checkpoint)
+        broken["crew"]["mara"]["path"] = [[1, 2]] * 301
+        self.assertFalse(save_games.valid(broken))
+        broken = copy.deepcopy(checkpoint)
+        broken["state"]["flags"]["departed"] = True
+        self.assertFalse(save_games.valid(broken))
 
 
 class ServiceTests(unittest.TestCase):
@@ -296,6 +345,63 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("/auth/logout", {}, acct["token"])[0], 200)
         self.assertEqual(self.call("/auth/me", token=acct["token"])[0], 401)
 
+    def test_delete_account_requires_password_and_removes_only_owned_data(self):
+        checkpoint = json.loads((Path(__file__).parent / 'fixtures/checkpoint.json').read_text())
+        alice = self.call('/auth/register', {'username': 'DeleteAlice', 'password': 'password123'})[1]['token']
+        bob = self.call('/auth/register', {'username': 'KeepBob', 'password': 'password123'})[1]['token']
+        second_session = self.store.create_session(1)
+        for token in (alice, bob):
+            self.assertEqual(self.call('/save', {'snapshot': checkpoint, 'revision': 0}, token)[0], 200)
+            run = cs.GAME.start_run({}, token)[1]['run_token']
+            self.store.clock += 90
+            self.assertEqual(cs.GAME.end_run(end_body(run))[0], 200)
+        self.store.npc_remember('a1', 'mara', [('note', None, 'Alice memory')])
+        self.store.npc_remember('a2', 'mara', [('note', None, 'Bob memory')])
+        self.store.npc_remember('g0123abcd', 'ivo', [('note', None, 'Guest memory')])
+        body = {'password': 'password123', 'confirm': True, 'account_id': 2}
+        self.assertEqual(self.call('/auth/delete', body)[0], 401)
+        self.assertEqual(self.call('/auth/delete', {'password': 'password123'}, alice)[0], 400)
+        self.assertEqual(self.call('/auth/delete', {**body, 'password': 'incorrect'}, alice)[0], 401)
+        self.assertEqual(self.call('/save', token=alice)[1]['snapshot'], checkpoint)
+        self.assertEqual(self.call('/auth/delete', body, alice), (200, {'ok': True}))
+        self.assertEqual(self.call('/save', token=second_session)[0], 401)
+        self.assertEqual(self.call('/save', {'snapshot': checkpoint, 'revision': 0}, alice)[0], 401)
+        self.assertEqual(cs.GAME.login({'username': 'DeleteAlice', 'password': 'password123'})[0], 401)
+        self.assertNotIn(1, self.store.saves)
+        self.assertNotIn(1, self.store.accounts)
+        self.assertTrue(all(r['account_id'] != 1 for r in self.store.runs.values()))
+        self.assertTrue(all(event[0] in self.store.runs for event in self.store.events))
+        self.assertEqual(self.call('/save', token=bob)[1]['snapshot'], checkpoint)
+        self.assertEqual([entry['player'] for entry in self.store.leaderboard(10)], ['KeepBob'])
+        self.assertEqual({row[0] for row in self.store.memory}, {'a2', 'g0123abcd'})
+
+    def test_delete_password_failures_are_rate_limited(self):
+        token = cs.GAME.register({'username': 'DeleteLock', 'password': 'password123'})[1]['token']
+        for _ in range(game_db.LOGIN_MAX_FAILS):
+            self.assertEqual(cs.GAME.delete_account({'password': 'incorrect', 'confirm': True}, token)[0], 401)
+        self.assertEqual(cs.GAME.delete_account({'password': 'password123', 'confirm': True}, token)[0], 429)
+        self.assertEqual(cs.GAME.me(token)[0], 200)
+
+    def test_checkpoint_auth_isolation_conflicts_and_deletion(self):
+        with open(Path(__file__).parent / "fixtures/checkpoint.json") as file:
+            checkpoint = json.load(file)
+        alice = self.call("/auth/register", {"username": "SaveAlice", "password": "password123"})[1]["token"]
+        bob = self.call("/auth/register", {"username": "SaveBob", "password": "password123"})[1]["token"]
+        self.assertEqual(self.call("/save")[0], 401)
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0})[0], 401)
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0}, alice)[0], 200)
+        saved = self.call("/save", token=alice)[1]
+        self.assertEqual(saved["snapshot"], checkpoint)
+        self.assertEqual(saved["revision"], 1)
+        self.assertIsNone(self.call("/save", token=bob)[1]["snapshot"])
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0}, alice)[0], 409)
+        self.assertEqual(self.call("/save/delete", {"revision": 0}, alice)[0], 409)
+        self.assertEqual(self.call("/save/delete", {"revision": 1}, alice)[0], 200)
+        self.assertIsNone(self.call("/save", token=alice)[1]["snapshot"])
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 1}, alice)[0], 409, "stale offline device cannot resurrect a deleted save")
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 2}, alice)[0], 200)
+        self.assertEqual(self.call("/auth/me", token=alice)[0], 200, "deleting progress keeps the account")
+
     def test_full_size_run_report(self):
         """The website bug: a real run's report (hundreds of events) was over the old 8 KB limit."""
         code, run = self.call("/runs/start", {"suit": "mint", "client": "web", "guest_id": "0123abcd"})
@@ -344,6 +450,41 @@ class HttpTests(unittest.TestCase):
             self.assertNotIn("samples", ivo_ctx, "Dhan doesn't know Aaron's notes")
             talk("mara", "hello", guest="cafe0002")
             self.assertNotIn("samples", " ".join(t[1] for t in seen[4]), "another player starts with a fresh memory")
+        finally:
+            cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = old
+
+    def test_saved_memory_is_authoritative_and_never_written_separately(self):
+        seen = []
+
+        def generate(system, turns, *args):
+            seen.append(turns)
+            return json.dumps({'line': 'Understood.', 'action': 'none', 'remember': 'Johnny prefers repairs'})
+
+        old = (cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY)
+        cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = False, generate, ''
+        try:
+            # Even an older playthrough under the same identity cannot leak in.
+            self.store.npc_remember('gbeef0001', 'mara', [('note', None, 'OLD GAME SECRET')])
+            original = copy.deepcopy(self.store.memory)
+            body = {'npc_id': 'mara', 'state_version': 1, 'message': 'What do you remember?',
+                    'objective': 'Clear the doorway.', 'flags': {}, 'guest_id': 'beef0001',
+                    'history': [], 'memory_notes': [], 'available_actions': {'none': 'Answer.'}}
+            code, result = self.call('/escape/talk', body)
+            self.assertEqual(code, 200)
+            self.assertEqual(result['memory_note'], 'Johnny prefers repairs')
+            self.assertNotIn('OLD GAME SECRET', str(seen[-1]))
+            self.assertEqual(self.store.memory, original, 'Replies cannot recreate memory independently of a save')
+            body['memory_notes'] = [result['memory_note']]
+            body['history'] = [{'role': 'player', 'text': 'Please repair engineering'}]
+            self.assertEqual(self.call('/escape/talk', body)[0], 200)
+            self.assertIn('Johnny prefers repairs', str(seen[-1]))
+            self.assertIn('Please repair engineering', str(seen[-1]))
+            body['memory_notes'], body['history'] = [], []
+            self.assertEqual(self.call('/escape/talk', body)[0], 200)
+            self.assertNotIn('Johnny prefers repairs', str(seen[-1]), 'A new game has no facts from a previous playthrough')
+            body['memory_notes'] = ['x' * 121]
+            self.assertEqual(self.call('/escape/talk', body)[0], 400)
+            self.assertEqual(self.store.memory, original)
         finally:
             cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = old
 

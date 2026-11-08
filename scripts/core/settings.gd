@@ -9,6 +9,7 @@ signal input_device_changed
 
 const InputSetup = preload("res://scripts/core/input_setup.gd")
 const SAVE_PATH := "user://settings.cfg"
+var save_path := SAVE_PATH
 
 var muted := false
 var reduced_shake := false
@@ -62,6 +63,7 @@ var guest_id := ""
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	InputSetup.ensure_actions()
+	if OS.get_environment("B2E_SETTINGS_PATH") != "": save_path = OS.get_environment("B2E_SETTINGS_PATH")
 	_load()
 	if guest_id.length() < 8:
 		guest_id = Crypto.new().generate_random_bytes(6).hex_encode()  # 12 lowercase hex chars
@@ -201,7 +203,7 @@ func _apply_audio() -> void:
 
 func _load() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(SAVE_PATH) != OK:
+	if cfg.load(save_path) != OK:
 		return
 	muted = bool(cfg.get_value("audio", "muted", muted))
 	reduced_shake = bool(cfg.get_value("video", "reduced_shake", reduced_shake))
@@ -229,4 +231,4 @@ func _save() -> void:
 	cfg.set_value("account", "name", account_name)
 	cfg.set_value("account", "token", account_token)
 	cfg.set_value("player", "guest_id", guest_id)
-	cfg.save(SAVE_PATH)
+	cfg.save(save_path)

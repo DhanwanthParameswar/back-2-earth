@@ -49,6 +49,11 @@ var carried_visual: Sprite2D
 var _intro = null
 var darkness
 var _busy_actors := {}
+var _save_ready := false
+var _autosave_clock := 0.0
+var _resumed := false
+var _resume_tasks := {}
+var _resume_cover: ColorRect
 
 func _ready() -> void:
 	GameState.new_run()
@@ -80,6 +85,10 @@ func _ready() -> void:
 	ui = Interface.new()
 	ui.mission = self
 	add_child(ui)
+	var saved := SaveGame.take_resume()
+	if not saved.is_empty():
+		_restore_progress(saved)
+		Settings.intro_pending = false
 	if Settings.intro_pending:
 		Settings.intro_pending = false
 		Sfx.stop_ambient()
@@ -101,8 +110,12 @@ func _begin() -> void:
 	active = true
 	GameState.begin_play()
 	Sfx.start_ambient()
-	announce("AARON", "You're okay. Good. That locker is caught at the top; I can hold it while you push.")
+	announce("SHIP", "Welcome back. " + state.objective()) if _resumed else announce("AARON", "You're okay. Good. That locker is caught at the top; I can hold it while you push.")
 	refresh()
+	_resume_assigned_tasks()
+	_save_ready = true
+	save_progress()
+	if _resume_cover != null: _reveal_resume()
 
 func _load_map() -> void:
 	map_data = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH))
@@ -245,6 +258,10 @@ func room_at(point: Vector2) -> String:
 func _process(delta: float) -> void:
 	if not active or ending: return
 	elapsed += delta
+	_autosave_clock += delta
+	if _autosave_clock >= 5.0:
+		_autosave_clock = 0.0
+		save_progress()
 	room = room_at(player.position)
 	carried_visual.visible = state.carrying != ""
 	carried_visual.position = player.position + Vector2(25, 4)
@@ -334,19 +351,13 @@ func perform(action: String) -> Dictionary:
 				crew.mara.following = true
 			"assess":
 				crew.ivo.go_to(anchor("bay_watch"))
-			"fetch_case":
-				_busy_actors["ivo"] = true
-				crew.ivo.go_to(anchor("shuttle_side"), func():
-					crew.ivo.set_cargo(true)
-					crew.ivo.go_to(anchor("case_drop"), func():
-						crew.ivo.set_cargo(false)
-						_busy_actors.erase("ivo")
-						if not ending: perform("case_arrived")))
+			"fetch_case": _fetch_case()
 			"release":
 				crew.mara.go_to(anchor("board_aaron"))
 				crew.ivo.go_to(anchor("board_dhan"))
 			"launch": _launch()
 		refresh()
+		save_progress()
 	return result
 
 ## The push: the locker jolts, then swings round on its far end and scrapes to
@@ -419,6 +430,7 @@ func refresh() -> void:
 	if ship != null: ship.queue_redraw()
 
 func _exit_tree() -> void:
+	save_progress()
 	Sfx.stop_ambient()
 	_set_wide(false)
 
@@ -474,9 +486,10 @@ func act_on_dialogue(id: String, action: String) -> String:
 			var player_target: Vector2 = anchor("locker_push") if action == "help_locker" else props["cart"].position
 			# He always walks over; if the player isn't there yet he waits, and
 			# the task starts as soon as the player arrives.
-			_busy_actors[id] = true
+			_busy_actors[id] = action
 			actor.go_to(target, func(): _start_when_player_near(id, action, player_target))
 		"fetch_case": perform("fetch_case")
+	save_progress()
 	return ""
 
 ## Crew task that needs the player beside it: start now if they're close,
@@ -562,8 +575,118 @@ func _mentions(message: String, words: Array) -> bool:
 	return false
 
 func _launch() -> void:
+	_save_ready = false
+	SaveGame.delete_progress()
 	ending = true
 	active = false
 	Sfx.stop_ambient()
 	Sfx.play("launch", -4)
 	ui.show_ending()
+
+
+func save_progress() -> void:
+	if not _save_ready or ending or not SaveGame.enabled: return
+	SaveGame.store(progress_snapshot())
+
+func progress_snapshot() -> Dictionary:
+	var actors := {}
+	for id in crew:
+		var actor = crew[id]
+		var points: Array = []
+		for point in actor.path: points.append([point.x, point.y])
+		actors[id] = {"position": [actor.position.x, actor.position.y], "facing": [actor.facing.x, actor.facing.y],
+			"following": actor.following, "light_on": actor.light_on, "cargo": actor.cargo.visible,
+			"path": points, "task": str(_busy_actors.get(id, ""))}
+	return {"schema": 1, "map": "escape-v1", "state": {"flags": state.flags.duplicate(), "route": state.route,
+		"carrying": state.carrying, "version": state.version, "journal": state.journal.slice(maxi(0, state.journal.size() - 40))},
+		"player": {"position": [player.position.x, player.position.y]}, "crew": actors, "elapsed": elapsed,
+		"flashlight": darkness.flashlight, "history": ui.radio.histories.duplicate(true),
+		"memory_notes": ui.radio.memory_notes.duplicate(true)}
+
+func _safe_saved_point(point: Array, fallback: Vector2) -> Vector2:
+	var target := Vector2(float(point[0]), float(point[1]))
+	var cell := Vector2i(floori(target.x / TILE), floori(target.y / TILE))
+	return target if nav.is_in_boundsv(cell) and not nav.is_point_solid(cell) else fallback
+
+func _restore_progress(data: Dictionary) -> void:
+	state.flags = data.state.flags.duplicate()
+	state.route = str(data.state.route)
+	state.carrying = str(data.state.carrying)
+	state.version = int(data.state.version)
+	state.journal.assign(data.state.journal)
+	elapsed = float(data.elapsed)
+	if state.has_flag("locker_clear"):
+		locker_body.process_mode = Node.PROCESS_MODE_DISABLED
+		locker_body.get_child(0).set_deferred("disabled", true)
+		_set_locker_nav(false)
+		locker_visual.position = anchor("locker_cleared")
+		locker_visual.rotation = -PI / 2.0
+		_block_cleared_locker()
+	player.position = _safe_saved_point(data.player.position, anchor("player_start"))
+	player.snap_camera()
+	for id in crew:
+		var actor = crew[id]
+		var saved: Dictionary = data.crew[id]
+		actor.position = _safe_saved_point(saved.position, actor.position)
+		actor.facing = Vector2(float(saved.facing[0]), float(saved.facing[1]))
+		actor.following = bool(saved.following)
+		actor.light_on = bool(saved.light_on)
+		actor.set_cargo(bool(saved.cargo))
+		if not saved.path.is_empty():
+			var target: Array = saved.path[-1]
+			actor.path = find_path(actor.position, Vector2(float(target[0]), float(target[1])))
+		if saved.task != "": _resume_tasks[id] = saved.task
+	darkness.flashlight = bool(data.flashlight)
+	ui.radio.histories = {"mara": data.get("history", {}).get("mara", []).duplicate(true), "ivo": data.get("history", {}).get("ivo", []).duplicate(true)}
+	ui.radio.memory_notes = {"mara": data.get("memory_notes", {}).get("mara", []).duplicate(true), "ivo": data.get("memory_notes", {}).get("ivo", []).duplicate(true)}
+	_resumed = true
+	var cover_layer := CanvasLayer.new()
+	cover_layer.layer = 150
+	add_child(cover_layer)
+	_resume_cover = ColorRect.new()
+	_resume_cover.color = Color.BLACK
+	_resume_cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover_layer.add_child(_resume_cover)
+	_resume_cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	refresh()
+
+func _resume_assigned_tasks() -> void:
+	if not _resumed: return
+	if state.has_flag("clamps"):
+		crew.mara.go_to(anchor("board_aaron"))
+		crew.ivo.go_to(anchor("board_dhan"))
+	elif state.has_flag("case_requested") and not state.has_flag("case_arrived"):
+		_fetch_case()
+	for id in _resume_tasks:
+		if _resume_tasks[id] in ["help_locker", "load_battery"]:
+			act_on_dialogue(id, _resume_tasks[id])
+	_resume_tasks.clear()
+
+func _fetch_case() -> void:
+	_busy_actors["ivo"] = "fetch_case"
+	var deliver := func():
+		crew.ivo.set_cargo(true)
+		crew.ivo.go_to(anchor("case_drop"), func():
+			crew.ivo.set_cargo(false)
+			_busy_actors.erase("ivo")
+			if not ending: perform("case_arrived"))
+	if crew.ivo.cargo.visible: deliver.call()
+	else: crew.ivo.go_to(anchor("shuttle_side"), deliver)
+
+func restart_run() -> void:
+	_save_ready = false
+	SaveGame.delete_progress()
+	Settings.intro_pending = false
+	get_tree().reload_current_scene()
+
+func _notification(what: int) -> void:
+	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_CLOSE_REQUEST]:
+		save_progress()
+
+
+func _reveal_resume() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var fade := create_tween()
+	fade.tween_property(_resume_cover, "color:a", 0.0, 0.42).set_trans(Tween.TRANS_SINE)
+	fade.tween_callback(_resume_cover.get_parent().queue_free)

@@ -432,6 +432,7 @@ func show_map() -> void:
 	modal.position.y = 15
 
 func show_pause() -> void:
+	mission.save_progress()
 	_panel("MISSION PAUSED", "pause")
 	pause_was_active = mission.active
 	mission.active = false
@@ -441,7 +442,8 @@ func show_pause() -> void:
 	var history: Array[String] = mission.state.journal
 	_text("RECENT EVENTS\n" + "\n".join(history.slice(maxi(0, history.size() - 3))), 10, Style.MUTED)
 	_button("Resume", close)
-	_button("Restart prototype (skip intro)", func(): get_tree().reload_current_scene())
+	_text(SaveGame.status, 9, Style.MUTED)
+	_button("Restart game", _confirm_restart)
 	_button("Main menu", func(): get_tree().change_scene_to_file("res://scenes/menu.tscn"))
 
 func show_ending() -> void:
@@ -459,7 +461,7 @@ func show_ending() -> void:
 	_text('AARON: "Next expedition, we pack a bigger case."' if mission.state.has_flag("samples_saved") else 'DHAN: "Three seats occupied. That was the important part."', 10, Style.MUTED)
 	var row := HBoxContainer.new()
 	content.add_child(row)
-	_button("Try another route", func(): get_tree().reload_current_scene(), row)
+	_button("Try another route", mission.restart_run, row)
 	_button("Main menu", func(): get_tree().change_scene_to_file("res://scenes/menu.tscn"), row)
 
 func _input(event: InputEvent) -> void:
@@ -474,3 +476,12 @@ func _input(event: InputEvent) -> void:
 			or (event.is_action_pressed("deck_map") and mode == "map"):
 		if mode != "ending": close()
 		get_viewport().set_input_as_handled()
+
+
+func _confirm_restart() -> void:
+	_panel("START OVER?", "pause")
+	pause_was_active = mission.active
+	mission.active = false
+	_text("Your saved progress and the crew's memories will be reset for a new game.")
+	_button("Cancel", show_pause)
+	_button("Start new game", mission.restart_run)
