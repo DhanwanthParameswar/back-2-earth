@@ -11,7 +11,7 @@ const SOUNDS := {
 	"door": "res://assets/audio/door.wav",
 	"launch": "res://assets/audio/launch.wav",
 }
-const AMBIENT := "res://assets/audio/ambient_hum.wav"
+const BACKGROUND_MUSIC := "res://assets/audio/game_music_loop.ogg"
 const POOL_SIZE := 4
 
 var _streams := {}
@@ -29,7 +29,6 @@ func _ready() -> void:
 	_ambient = AudioStreamPlayer.new()
 	_ambient.volume_db = -14.0
 	add_child(_ambient)
-	_ambient.finished.connect(_on_ambient_finished)
 
 
 func play(sound_name: String, volume_db := 0.0) -> void:
@@ -46,18 +45,14 @@ func play(sound_name: String, volume_db := 0.0) -> void:
 func start_ambient() -> void:
 	if _ambient.playing:
 		return
-	if ResourceLoader.exists(AMBIENT):
-		_ambient.stream = load(AMBIENT)
+	if ResourceLoader.exists(BACKGROUND_MUSIC):
+		# The Ogg resource loops in the audio mixer, keeping the join gapless.
+		_ambient.stream = load(BACKGROUND_MUSIC)
 		_ambient.play()
 
 
 func stop_ambient() -> void:
 	_ambient.stop()
-
-
-func _on_ambient_finished() -> void:
-	# Manual loop so the WAV needs no special import settings.
-	_ambient.play()
 
 
 func _get_stream(sound_name: String) -> AudioStream:
