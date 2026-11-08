@@ -1,9 +1,10 @@
 extends Node2D
-## Rotating red emergency beacons on the corridor wall (the wall_face_alarm lamps).
+## Rotating red emergency beacons on the rooms' back walls (the wall_face_alarm
+## lamps; escape_ship.gd alarm_cells() spreads them around the ship).
 ##
 ## Each one works like a real rotating warning light: a bulb that stays on, and
 ## a reflector spinning around it. So:
-##   - a narrow beam sweeps round the corridor: across the floor, along the
+##   - a wide cone of light sweeps round the room: across the floor, along the
 ##     walls (stretching out as it grazes them), stopping at walls, the barrier
 ##     and the jammed locker;
 ##   - when it points at the wall behind the lamp, a hot spot slides along it;
@@ -12,16 +13,18 @@ extends Node2D
 ##   - each time the beam faces you (the camera) it FLASHES: glare, a horizontal
 ##     lens streak and a red spill on the floor and wall.
 ## Drawn additively above the dark overlay (escape_darkness.gd): a beacon is a
-## light source, so you see it, and its sweeping red light, in the dark.
+## light source, so you see it, and its sweeping red light, in the dark. While the
+## ship is dark, a beacon shows only if you can see where it hangs (the same line
+## of sight as the darkness: never through walls or past a doorway); it fades in.
 ## The unlit dome and its mount are tile art (tools/make_ship_art.py, "alarm").
 
 const TILE := 32.0
 ## Real rotating beacons turn at about 60-90 RPM: one flash per turn.
 const RPM := 72.0
-const BEAM_HALF_ANGLE := deg_to_rad(20.0)
+const BEAM_HALF_ANGLE := deg_to_rad(34.0)   # a 68-degree cone
 const BEAM_RANGE := 6.5 * TILE
-const RAYS := 14
-const CENTRE_RAY := 7
+const RAYS := 24
+const CENTRE_RAY := 12
 const STEP := 4.0                     # ray-march step (px)
 ## The lamp sits this far out from the wall (px), for where its beam hits the wall.
 const MOUNT_DEPTH := 18.0
@@ -33,11 +36,14 @@ const ART_PX := 2.0
 const DOME_ROWS := {1: Vector2i(6, 9), 2: Vector2i(5, 10), 3: Vector2i(5, 10), 4: Vector2i(5, 10)}
 ## Beams look fainter once the ship's own lights are back on.
 const LIT_STRENGTH := 0.45
+## How fast a beacon fades in or out as it comes into or leaves your view (per s).
+const VIS_FADE := 4.0
 
 var mission
-## {cell: Vector2i (the wall tile), tile: Vector2 (its top-left px), dome: Vector2
-##  (dome centre px), origin: Vector2 (floor point under the lamp), phase, speed,
-##  wall_min, wall_max (px: where the wall face behind it ends)}
+## {cell: Vector2i (the wall tile), floor: Vector2i (the floor tile below it),
+##  tile: Vector2 (its top-left px), dome: Vector2 (dome centre px), origin: Vector2
+##  (floor point under the lamp), phase, speed, wall_min, wall_max (px: where the
+##  wall face behind it ends), vis (0-1: how visible to you right now)}
 var beacons: Array[Dictionary] = []
 var _t := 0.0
 var _glow: GradientTexture2D
@@ -66,32 +72,50 @@ func _ready() -> void:
 
 func _find_beacons() -> void:
 	beacons.clear()
-	var size: Vector2i = mission.map_size
-	for y in size.y:
-		for x in size.x:
-			if not mission.ship.is_alarm_cell(x, y):
-				continue
-			var tile := Vector2(x * TILE, y * TILE)
-			var wall_min: int = x
-			while mission.ship.is_wall_face(wall_min - 1, y): wall_min -= 1
-			var wall_max: int = x
-			while mission.ship.is_wall_face(wall_max + 1, y): wall_max += 1
-			beacons.append({
-				"cell": Vector2i(x, y),
-				"tile": tile,
-				"dome": tile + Vector2(16, 6),
-				"origin": Vector2(tile.x + 16, tile.y + TILE + 3),
-				# Independent motors: each lamp starts somewhere else and runs a touch faster or slower.
-				"phase": fmod(x * 2.39996, TAU),
-				"speed": 1.0 + 0.035 * float((x * 7) % 5 - 2),
-				"wall_min": wall_min * TILE,
-				"wall_max": (wall_max + 1) * TILE,
-			})
+	for key in mission.ship.alarm_cells().keys():
+		var cell: Vector2i = key
+		var x: int = cell.x
+		var y: int = cell.y
+		var tile := Vector2(x * TILE, y * TILE)
+		var wall_min: int = x
+		while mission.ship.is_wall_face(wall_min - 1, y): wall_min -= 1
+		var wall_max: int = x
+		while mission.ship.is_wall_face(wall_max + 1, y): wall_max += 1
+		beacons.append({
+			"cell": cell,
+			"floor": Vector2i(x, y + 1),
+			"tile": tile,
+			"dome": tile + Vector2(16, 6),
+			"origin": Vector2(tile.x + 16, tile.y + TILE + 3),
+			# Independent motors: each lamp starts somewhere else and runs a touch faster or slower.
+			"phase": fmod(x * 2.39996 + y * 1.618, TAU),
+			"speed": 1.0 + 0.035 * float((x * 7 + y * 3) % 5 - 2),
+			"wall_min": wall_min * TILE,
+			"wall_max": (wall_max + 1) * TILE,
+			"vis": 0.0,
+		})
 
 
 func _process(delta: float) -> void:
 	_t += delta
+	_update_visibility(delta)
 	queue_redraw()
+
+
+## In the dark you only see the beacons where you can see (escape_darkness.gd's
+## line of sight: not through walls, not past doorways). With the power back on,
+## they all show.
+func _update_visibility(delta: float) -> void:
+	var dark = mission.darkness
+	var in_dark: bool = dark != null and dark.is_dark() and mission.player != null
+	var me := Vector2i.ZERO
+	if in_dark:
+		me = dark._cell(mission.player.position + Vector2(0, -8))
+	for b in beacons:
+		var target := 1.0
+		if in_dark:
+			target = 1.0 if dark.line_of_sight(me, b.floor) else 0.0
+		b["vis"] = move_toward(float(b["vis"]), target, delta * VIS_FADE)
 
 
 ## Beam direction on screen right now (0 = right, PI/2 = down, toward the camera).
@@ -131,17 +155,19 @@ func _draw() -> void:
 	var view := _view_rect().grow(BEAM_RANGE + 64.0)
 	var k := _strength()
 	for b in beacons:
-		if not view.has_point(b.dome):
+		var vis: float = b.vis
+		if vis < 0.01 or not view.has_point(b.dome):
 			continue
 		var angle := angle_of(b)
 		var flash := flash_of(angle)
 		var front := smoothstep(-0.2, 1.0, sin(angle))      # dome brightness as it turns toward you
-		var seen := _not_blocked(b.dome)                      # someone standing in front of the lamp
-		_draw_spill(b, flash, front, k)
-		_draw_floor_beam(b, angle, k)
-		_draw_wall_beam(b, angle, k)
+		var seen := _not_blocked(b.dome) * vis                # someone standing in front of the lamp
+		var bk := k * vis
+		_draw_spill(b, flash, front, bk)
+		_draw_floor_beam(b, angle, bk)
+		_draw_wall_beam(b, angle, bk)
 		_draw_dome(b, angle, front, flash, seen)
-		_draw_glare(b, flash, seen, k)
+		_draw_glare(b, flash, seen, bk)
 
 
 ## Soft red light the bulb throws on the wall and the floor just under it.
@@ -160,7 +186,7 @@ func _draw_floor_beam(b: Dictionary, angle: float, k: float) -> void:
 	for i in RAYS + 1:
 		var f := float(i) / RAYS
 		var a := angle + lerpf(-BEAM_HALF_ANGLE, BEAM_HALF_ANGLE, f)
-		var profile := pow(sin(f * PI), 1.5)                 # bright core, soft edges
+		var profile := pow(sin(f * PI), 0.6)                 # evenly bright, soft only at the very edges
 		if sin(a) <= 0.0:
 			ends.append(origin)                              # into the wall behind: drawn on the wall
 			alphas.append(0.0)
@@ -170,7 +196,7 @@ func _draw_floor_beam(b: Dictionary, angle: float, k: float) -> void:
 		ends.append(origin + dir * reach.x)
 		# Fade along the beam, and a little in from the floor's edge (rays skimming the wall).
 		var fade := pow(1.0 - reach.x / BEAM_RANGE, 1.2) * smoothstep(0.0, 0.18, sin(a))
-		alphas.append(0.7 * profile * fade * k)
+		alphas.append(0.6 * profile * fade * k)
 		if i == CENTRE_RAY and reach.y > 0.5:
 			centre_hit = origin + dir * reach.x
 	for i in RAYS:
@@ -202,10 +228,14 @@ func _draw_wall_beam(b: Dictionary, angle: float, k: float) -> void:
 			xs.append(NAN)
 			alphas.append(0.0)
 			continue
-		var x: float = clampf(b.origin.x + cos(a) * MOUNT_DEPTH / -s, b.wall_min, b.wall_max)
-		var spread := absf(x - b.origin.x)
-		xs.append(x)
-		alphas.append(0.6 * pow(sin(f * PI), 1.5) / (1.0 + spread / 60.0) * k)
+		var raw: float = b.origin.x + cos(a) * MOUNT_DEPTH / -s
+		var spread := absf(raw - b.origin.x)
+		# Past the end of this wall (a doorway, a corner) the light isn't on it:
+		# zero there, so the wash fades out softly instead of stopping in a hard edge.
+		var on_wall := 1.0 if raw >= b.wall_min and raw <= b.wall_max else 0.0
+		xs.append(clampf(raw, b.wall_min, b.wall_max))
+		alphas.append(0.6 * pow(sin(f * PI), 1.5) / (1.0 + spread / 60.0)
+			* (1.0 - smoothstep(2.0 * TILE, 5.0 * TILE, spread)) * on_wall * k)
 	for i in RAYS:
 		if is_nan(xs[i]) or is_nan(xs[i + 1]) or absf(xs[i + 1] - xs[i]) < 0.5:
 			continue
@@ -217,7 +247,7 @@ func _draw_wall_beam(b: Dictionary, angle: float, k: float) -> void:
 		draw_primitive(PackedVector2Array([Vector2(xs[i], top), Vector2(xs[i + 1], top), Vector2(xs[i + 1], mid), Vector2(xs[i], mid)]),
 			PackedColorArray([e0, e0, c1, c0]), PackedVector2Array())
 		draw_primitive(PackedVector2Array([Vector2(xs[i], mid), Vector2(xs[i + 1], mid), Vector2(xs[i + 1], bottom), Vector2(xs[i], bottom)]),
-			PackedColorArray([c0, c1, Color(RED, alphas[i + 1] * 0.35), Color(RED, alphas[i] * 0.35)]), PackedVector2Array())
+			PackedColorArray([c0, c1, Color(RED, alphas[i + 1] * 0.15), Color(RED, alphas[i] * 0.15)]), PackedVector2Array())
 	# The bright spot where the beam's centre lands on the wall (soft, so a beam
 	# aimed straight at the wall isn't just a thin line).
 	var hit_x := _wall_hit_x(b, angle)
