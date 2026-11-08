@@ -3,6 +3,9 @@
 # tools/deploy_web.sh: export with the pinned Godot, gzip the wasm, upload over
 # SSH, swap the new build in so visitors never see half of one.
 #
+# The build runs in barichello/godot-ci (Godot + export templates preinstalled);
+# keep its tag equal to the project's Godot version.
+#
 # Repository secrets (Settings > Secrets and variables > Actions):
 #   DEPLOY_SSH_KEY       private key for the server (the OCI .key file)
 #   DEPLOY_HOST          server address
@@ -19,7 +22,7 @@ on:
       - "art_source/**"
   workflow_dispatch:
 
-# One deploy at a time; a newer push replaces a queued one.
+# One deploy at a time; a newer push replaces a queued or running one.
 concurrency:
   group: deploy-web
   cancel-in-progress: true
@@ -31,61 +34,50 @@ env:
   GODOT_VERSION: "4.7.2"
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    container:
+      image: barichello/godot-ci:4.7.2
     steps:
       - uses: actions/checkout@v4
 
-      # Godot + only the web template we need (the full template pack is 1.3 GB),
-      # downloaded once and cached.
-      - name: Cache Godot
-        id: godot-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/godot
-            ~/.local/share/godot/export_templates
-          key: godot-${{ env.GODOT_VERSION }}-web-nothreads
-
-      - name: Install Godot (first run only)
-        if: steps.godot-cache.outputs.cache-hit != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # The image keeps its templates under /root; Actions runs with a different HOME.
+      - name: Set up export templates
         run: |
-          # GitHub's direct release links time out (504) from Actions, so fetch from
-          # Godot's own download mirror, falling back to the GitHub API.
-          fetch() {  # fetch <file name> <mirror slug> <mirror platform> <out>
-            local mirror="https://downloads.godotengine.org/?version=${GODOT_VERSION}&flavor=stable&slug=$2&platform=$3"
-            curl -fsSL --retry 3 --retry-delay 10 --retry-all-errors -o "$4" "$mirror" && return 0
-            local asset
-            asset=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/godotengine/godot-builds/releases/tags/${GODOT_VERSION}-stable" \
-              | jq -r --arg n "$1" '.assets[] | select(.name == $n) | .url')
-            curl -fsSL --retry 3 --retry-delay 10 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/octet-stream" -o "$4" "$asset"
-          }
-          mkdir -p ~/godot
-          fetch "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" linux.x86_64.zip linux.64 /tmp/godot.zip
-          unzip -q /tmp/godot.zip -d ~/godot
-          mv ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot/godot
-          tdir=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-          mkdir -p "$tdir"
-          fetch "Godot_v${GODOT_VERSION}-stable_export_templates.tpz" export_templates.tpz templates /tmp/templates.tpz
-          unzip -q -j /tmp/templates.tpz templates/web_nothreads_release.zip templates/version.txt -d "$tdir"
-          rm -f /tmp/templates.tpz /tmp/godot.zip
-          ls -l "$tdir"
+          mkdir -p ~/.local/share/godot/export_templates
+          if [ ! -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable ]; then
+            ln -s /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable \
+              ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          fi
+          ls ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable | grep web
 
       - name: Export web build
         run: |
-          ~/godot/godot --headless --path . --import
+          godot --headless --path . --import
           mkdir -p build/web
-          ~/godot/godot --headless --path . --export-release "Web" build/web/index.html
+          godot --headless --path . --export-release "Web" build/web/index.html
           test -s build/web/index.pck && test -s build/web/index.wasm
           cp web/favicon.ico build/web/favicon.ico
           # The ~40 MB wasm shrinks to ~10 MB; Caddy serves the .gz to browsers that accept it.
           gzip -9 -k -f build/web/index.wasm
           ls -l build/web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: build/web
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: build/web
 
       - name: Upload and swap in
         env:
