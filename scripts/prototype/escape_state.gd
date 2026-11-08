@@ -296,7 +296,7 @@ const _DIGITS := {"one": 1, "won": 1, "two": 2, "to": 2, "too": 2, "three": 3, "
 static func parse_code(message: String) -> int:
 	var m := message.to_lower()
 	var re := RegEx.new()
-	re.compile("\\b(?:e|ee|eat|easy|error|code|fault)\\s*[-:#]?\\s*(3|6|9|three|tree|free|six|sicks|nine|nein)\\b")
+	re.compile("\\b(?:e|ee|eat|easy|echo|error|code|fault)\\s*[-:#]?\\s*(3|6|9|three|tree|free|six|sicks|nine|nein)\\b")
 	var hit := re.search(m)
 	if hit == null:
 		re.compile("\\b(?:e|ee)(3|6|9)\\b")
@@ -317,7 +317,7 @@ static func parse_code(message: String) -> int:
 static func parse_aux(message: String) -> int:
 	var m := message.to_lower()
 	var re := RegEx.new()
-	re.compile("\\b(?:aux|ox|awks|auks|auxiliary|branch)\\s*[-:#]?\\s*(1|2|3|one|won|two|to|too|three|tree)\\b")
+	re.compile("\\b(?:aux|ox|awks|auks|ax|axe|oaks|ops|auxiliary|branch)\\s*[-:#]?\\s*(1|2|3|one|won|two|to|too|three|tree|free)\\b")
 	var hit := re.search(m)
 	if hit == null:
 		re.compile("\\baux(1|2|3)\\b")
@@ -329,12 +329,13 @@ static func parse_aux(message: String) -> int:
 ## "box B", "fuse bee", "the C box", "letter a" -> "B"/"C"/"A". "" when none found.
 static func parse_box(message: String) -> String:
 	var m := message.to_lower()
-	var letters := {"a": "A", "ay": "A", "eh": "A", "b": "B", "bee": "B", "be": "B", "c": "C", "see": "C", "sea": "C", "cee": "C"}
+	var letters := {"a": "A", "ay": "A", "eh": "A", "alpha": "A", "alfa": "A", "b": "B", "bee": "B", "be": "B", "bravo": "B",
+		"c": "C", "see": "C", "sea": "C", "cee": "C", "charlie": "C"}
 	var re := RegEx.new()
-	re.compile("\\b(?:box|fuse|letter|crate|bin)\\s*[-:#]?\\s*(a|ay|eh|b|bee|be|c|see|sea|cee)\\b")
+	re.compile("\\b(?:box|boxes|fuse|letter|crate|bin)\\s*[-:#]?\\s*(a|ay|eh|alpha|alfa|b|bee|be|bravo|c|see|sea|cee|charlie)\\b")
 	var hit := re.search(m)
 	if hit == null:
-		re.compile("\\b(b|c|bee|cee)\\s+(?:box|fuse)\\b")  # not "a": "a fuse" is just English
+		re.compile("\\b(b|c|bee|cee|alpha|bravo|charlie)\\s+(?:box|fuse)\\b")  # not "a": "a fuse" is just English
 		hit = re.search(m)
 	if hit == null: return ""
 	return str(letters.get(hit.get_string(1), ""))

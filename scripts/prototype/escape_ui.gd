@@ -61,7 +61,9 @@ var _alarm: ColorRect           # red siren wash during the launch
 var _alarm_t := -1.0
 var _black: ColorRect           # fade to black before the ending film; backdrop of the stats card
 
-const BAR_HEIGHT := 36.0
+## The HUD is one small tag in the corner (TAB: tablet, what you carry, pilot controls);
+## everything else (task, crew, ship, notes, map) is on the crew tablet (show_map).
+const BAR_HEIGHT := 18.0
 
 func _ready() -> void:
 	layer = 10
@@ -71,13 +73,13 @@ func _ready() -> void:
 	add_child(root)
 	bar = Panel.new()
 	bar.size = Vector2(624, BAR_HEIGHT)
-	bar.add_theme_stylebox_override("panel", Style.box(Color("0b1526", 0.92), Color("34506a"), 1))
+	bar.add_theme_stylebox_override("panel", Style.box(Color("0b1526", 0.55), Color("34506a", 0.6), 1))
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(bar)
-	objective = _label(bar, "", Vector2(10, 3), 11, Style.TEXT)
-	objective.clip_text = true
-	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	keys = _label(bar, "", Vector2(10, 19), 9, Style.MUTED)
-	keys.clip_text = true
+	objective = _label(bar, "", Vector2(7, 2), 9, Style.TEXT)
+	objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	keys = _label(bar, "", Vector2(7, 2), 9, Style.MUTED)
+	keys.visible = false
 	toast = _outlined(root, 10, Style.TEXT)
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint = _outlined(root, 9, Style.CYAN_BRIGHT)
@@ -149,10 +151,7 @@ func fail_open() -> bool:
 func _layout() -> void:
 	if not is_inside_tree(): return
 	var s := get_viewport().get_visible_rect().size
-	bar.position = Vector2(8, s.y - BAR_HEIGHT - 6)
-	bar.size.x = s.x - 16
-	objective.size = Vector2(bar.size.x - 20, 16)
-	keys.size = Vector2(bar.size.x - 20, 14)
+	_fit_tag()
 	toast.position = Vector2(14, bar.position.y - 34)
 	toast.size = Vector2(s.x - 28, 30)
 	toast.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -174,11 +173,27 @@ func _place_modal() -> void:
 
 func update_hud() -> void:
 	if objective == null or mission == null: return
-	var text: String = mission.room + "   ·   " + mission.state.objective()
+	var parts: Array[String] = []
 	var c: String = mission.state.carrying
-	if c != "": text += "   [" + ("FUSE · BOX " + c.substr(5) if c.begins_with("fuse_") else c.to_upper()) + "]"
-	if mission.seated and not is_open() and not mission.ending: text += "   ·   [%s] pilot controls" % Settings.button_label("interact")
-	objective.text = text
+	if c != "": parts.append("CARRYING " + _carrying(c))
+	if mission.seated and not is_open() and not mission.ending: parts.append("%s pilot controls" % Settings.button_label("interact"))
+	parts.append("%s tablet" % Settings.button_label("deck_map"))
+	var text := "   ·   ".join(parts)
+	if objective.text != text:
+		objective.text = text
+		_fit_tag()
+
+func _carrying(c: String) -> String:
+	return "FUSE · BOX " + c.substr(5) if c.begins_with("fuse_") else c.to_upper()
+
+## The corner tag sizes itself to its text, bottom right.
+func _fit_tag() -> void:
+	if not is_inside_tree() or objective == null: return
+	var s := get_viewport().get_visible_rect().size
+	var w := objective.get_minimum_size().x + 14
+	bar.size = Vector2(w, BAR_HEIGHT)
+	bar.position = Vector2(s.x - w - 8, s.y - BAR_HEIGHT - 6)
+	objective.size = Vector2(w - 14, 14)
 
 func _refresh_hints() -> void:
 	var b := Settings.button_label
@@ -270,6 +285,7 @@ func _panel(title: String, new_mode: String, width := 490.0) -> void:
 	close()
 	mode = new_mode
 	content_width = width
+	modal.add_theme_stylebox_override("panel", Style.panel())
 	modal.custom_minimum_size = Vector2(content_width + 28, 0)
 	content = VBoxContainer.new()
 	content.add_theme_constant_override("separation", 7)
@@ -597,17 +613,83 @@ func _facts(count: int) -> String:
 	if j.is_empty(): return "Nothing yet. Ask the crew, or the ship."
 	return "\n".join(j.slice(maxi(0, j.size() - count)))
 
+## The crew tablet (TAB): a see-through slate with the deck plan, your task, the crew,
+## the ship's systems and your notes. The game keeps running behind it.
 func show_map() -> void:
-	_panel("WAYFARER · DECK PLAN", "map")
+	var secs := int(mission.elapsed)
+	_panel("CREW TABLET  ·  WAYFARER  ·  %d:%02d" % [secs / 60, secs % 60], "map", 588.0)
+	var glass := Style.box(Color(Style.NAVY, 0.78), Color(Style.CYAN, 0.8), 2)
+	glass.set_content_margin_all(10)
+	modal.add_theme_stylebox_override("panel", glass)
+	content.add_theme_constant_override("separation", 4)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	content.add_child(row)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 2)
+	row.add_child(left)
 	var map := Map.new()
 	map.mission = mission
-	map.custom_minimum_size = Vector2(490, 190)
-	content.add_child(map)
-	_text("White: you    Amber: Aaron    Purple: Dhan", 9, Style.MUTED)
-	_text("WHAT YOU KNOW", 10, Style.CYAN)
-	_text(_facts(6), 9, Style.TEXT)
-	_button("Close [%s / %s]" % [Settings.button_label("deck_map"), Settings.button_label("back")], close)
-	modal.position.y = 8
+	map.custom_minimum_size = Vector2(300, 196)
+	left.add_child(map)
+	_slate(left, "White: you    Amber: Aaron    Purple: Dhan", 8, Style.MUTED, 300)
+	var side := VBoxContainer.new()
+	side.add_theme_constant_override("separation", 3)
+	row.add_child(side)
+	var s = mission.state
+	var w := 276.0
+	_slate(side, "TASK", 9, Style.CYAN, w)
+	_slate(side, s.objective(), 11, Style.TEXT, w)
+	_slate(side, "You're in: %s%s" % [mission.room.capitalize(), ("   ·   Carrying: " + _carrying(s.carrying)) if s.carrying != "" else ""], 9, Style.MUTED, w)
+	_slate(side, "CREW", 9, Style.CYAN, w)
+	_slate(side, "Aaron: " + _aaron_status(), 9, Style.TEXT, w)
+	_slate(side, "Dhan: " + _dhan_status(), 9, Style.TEXT if s.stage() < 3 else Style.AMBER, w)
+	_slate(side, "SHIP", 9, Style.CYAN, w)
+	for line in _ship_status(): _slate(side, line, 9, Style.TEXT, w)
+	_text("NOTES", 9, Style.CYAN)
+	_text(_facts(4), 9, Style.TEXT)
+	var b := Settings.button_label
+	_text("%s move   %s use / talk   %s Aaron   %s Dhan   %s M.A.R.V.I.S.   %s light   %s pause" % [
+		b.call("move"), b.call("interact"), b.call("radio_1"), b.call("radio_2"), b.call("radio_3"), b.call("flashlight"), b.call("pause")], 8, Style.MUTED)
+	_button("Close [%s / %s]" % [b.call("deck_map"), b.call("back")], close)
+	modal.position.y = 6
+
+func _slate(parent: Node, text: String, size: int, color: Color, width: float) -> Label:
+	var label := Style.label(text, size, color)
+	label.custom_minimum_size = Vector2(width, 0)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(label)
+	return label
+
+func _aaron_status() -> String:
+	var aaron = mission.crew.mara
+	if mission.state.has_flag("aaron_aboard"): return "on the shuttle"
+	var task := str(mission._busy.get("mara", "")).trim_suffix("_walk")
+	var doing: String = {"lift_locker": "at the locker", "lift_battery": "at the cart", "carry_dhan": "helping Dhan",
+		"fetch_fuse": "fetching a fuse", "fetch_case": "fetching the sample case", "release_clamps": "releasing the clamps",
+		"stay_with_dhan": "staying with Dhan"}.get(task, "")
+	var where: String = "with you" if aaron.following else mission.room_at(aaron.position).capitalize()
+	return where + (" · " + doing if doing != "" else "")
+
+func _dhan_status() -> String:
+	var s = mission.state
+	if not s.dhan_alive(): return "no vital signs"
+	var how: String = ["", "stable", "in pain, getting worse", "fading, needs help soon", "critical"][s.stage()]
+	if not s.has_flag("dhan_free"): return "pinned under the locker"
+	var where: String = "on the shuttle" if s.has_flag("dhan_aboard") else str(mission.room_at(mission.crew.ivo.position)).capitalize()
+	return "%s · %s%s" % [where, how, " · leg splinted" if s.has_flag("dhan_treated") else ""]
+
+func _ship_status() -> Array[String]:
+	var s = mission.state
+	var out: Array[String] = []
+	var power := "offline"
+	if s.has_flag("engineering_power"): power = "restored from engineering"
+	elif s.has_flag("battery_connected"): power = "lab battery in the shuttle bay"
+	out.append("Main power: " + power)
+	out.append("Shuttle: intact")
+	out.append("Docking clamps: " + ("released" if s.has_flag("clamps") else ("powered, ready to release" if s.powered() else "locked, no power")))
+	out.append("Lab freezer: " + ("off" if s.has_flag("freezer_off") else "on, samples cold"))
+	return out
 
 func show_pause() -> void:
 	mission.save_progress()
@@ -672,6 +754,8 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if mode == "closeup":
+		# Clicks go to the close-up's own parts (_gui_input runs after this): don't eat them here.
+		if event is InputEventMouseButton or event is InputEventScreenTouch: return
 		if event.is_action_pressed("back") or (event.is_action_pressed("pause") and not event is InputEventKey):
 			close()
 		elif closeup_panel == "pilot" and (event.is_action_pressed("radio_1") or event.is_action_pressed("radio_2") or event.is_action_pressed("radio_3")):

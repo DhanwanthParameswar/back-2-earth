@@ -443,7 +443,7 @@ class HttpTests(unittest.TestCase):
 
         def fake_generate(system, turns, max_tokens, timeout):
             seen.append(turns)
-            said = json.loads(turns[-1][1])["message"]
+            said = json.loads(turns[-1][1].rsplit("Johnny says: ", 1)[1])
             note = "Johnny wants to save the samples" if "samples" in said else None
             return json.dumps({"line": "Copy that: " + said, "action": "none", **({"remember": note} if note else {})})
 

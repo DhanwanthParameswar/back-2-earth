@@ -45,6 +45,7 @@ func _run() -> void:
 	await _test_nudges_and_lines()
 	await _test_intro_handoff()
 	await _test_outro_film()
+	await _test_speech_and_voices()
 	Sfx.stop_ambient()
 	await get_tree().process_frame
 	print("ESCAPE: %d checks, %d failures" % [checks, failures])
@@ -279,8 +280,8 @@ func _test_engineering() -> void:
 	check(mission.ui.mode == "chat" and mission.ui.chat_id == "marvis", "Terminal opens M.A.R.V.I.S.")
 	check(s.learned.has("m_clamps"), "M.A.R.V.I.S. tells you the clamps need power")
 	mission.ui.close()
-	await _advance(mission, 30.0)
-	check(mission._said.has("beat2_dhan") and mission._said.has("beat2_aaron"), "Dhan and Aaron bring up the two routes unprompted")
+	await _advance(mission, 50.0)
+	check(mission._said.has("beat2_problem_dhan") and mission._said.has("beat2_dhan") and mission._said.has("beat2_aaron"), "Dhan and Aaron bring up the two routes unprompted")
 	check(s.learned.has("a_battery") and s.learned.has("d_fuse"), "Both routes land in the log")
 	# F1: touching the live cabinet.
 	mission.player.position = mission.props.cabinet.position + Vector2(0, 30)
@@ -442,7 +443,7 @@ func _test_battery(with_case: bool) -> void:
 	mission.ui.show_closeup("socket")
 	await _capture("socket")
 	var dl: String = mission.offline_response("ivo", "What setting for the socket?").line
-	check(dl.contains("Position " + s.right_selector()), "Dhan knows the battery's setting")
+	check(dl.contains("selector to " + s.right_selector()), "Dhan knows the battery's setting")
 	while s.selector == int(s.puzzle.selector): mission.closeup_press("socket", "knob")
 	mission.closeup_press("socket", "connect")
 	check(not s.powered(), "Wrong setting pops the breaker")
@@ -520,7 +521,8 @@ func _test_guardrail_and_live() -> void:
 	var mission = await _open_and_free()
 	var s = mission.state
 	var wrong: String = ["A", "B", "C"].filter(func(b): return b != s.right_fuse())[0]
-	check(mission.check_reply("ivo", "Grab box %s." % wrong, "which fuse?").contains("not guessing"), "Dhan can't name a box he wasn't asked about")
+	var no_code: String = mission.check_reply("ivo", "Grab box %s." % wrong, "which fuse?")
+	check(not no_code.contains("box " + wrong) and no_code.to_lower().contains("code"), "Dhan can't name a box he wasn't asked about; he answers by asking for the code (got: %s)" % no_code)
 	check(mission.check_reply("ivo", "Box %s, Captain." % s.right_fuse(), "it says " + s.fault_code()) == "Box %s, Captain." % s.right_fuse(), "...but can once the code is read")
 	check(not mission.check_reply("ivo", "Position %s." % s.right_selector(), "what setting").contains("Position"), "No selector answer before the battery is out")
 	var mixed: String = mission.check_reply("ivo", "Ah, spare fuse box %s. Try toggle four up, Captain." % s.right_fuse(), "the screen says " + s.fault_code())
@@ -530,7 +532,8 @@ func _test_guardrail_and_live() -> void:
 	var extra: String = mission.check_reply("ivo", "Ah, spare fuse box %s. Captain, flip the primary breaker on that panel." % s.right_fuse(), "it says " + s.fault_code())
 	check(extra == "Ah, spare fuse box %s." % s.right_fuse(), "A made-up extra step is cut (got: %s)" % extra)
 	var wrong_side: String = ["left", "middle", "right"][(s.right_toggle() + 1) % 3]
-	check(mission.check_reply("ivo", "Flip the %s-hand toggle." % wrong_side, "it says " + s.short_branch()).contains("Say that again"), "A wrong toggle is never shown")
+	var bad_toggle: String = mission.check_reply("ivo", "Flip the %s-hand toggle." % wrong_side, "it says " + s.short_branch())
+	check(not bad_toggle.contains(wrong_side), "A wrong toggle is never shown (got: %s)" % bad_toggle)
 	# A live reply goes through the same check, and the voice is dropped.
 	var radio = mission.ui.radio
 	radio.pending_id = "ivo"
@@ -538,7 +541,7 @@ func _test_guardrail_and_live() -> void:
 	radio.pending_version = s.version
 	radio._on_reply(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify({"npc_id": "ivo", "state_version": s.version,
 		"line": "Box %s." % wrong, "action": "none", "source": "live", "audio_url": "/npc/audio/x.mp3"}).to_utf8_buffer())
-	check(radio.histories.ivo[-1].text.contains("not guessing"), "Live guesses are corrected")
+	check(not radio.histories.ivo[-1].text.contains("Box %s" % wrong), "Live guesses are corrected")
 	radio.pending_id = "mara"
 	radio.pending_version = s.version
 	radio._on_reply(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify({"npc_id": "mara", "state_version": s.version,
@@ -630,6 +633,52 @@ func _test_intro_handoff() -> void:
 	await _free(intro_mission)
 
 ## The ending film on its own: lines per ending, shot timing, and a frame of every shot.
+func _test_speech_and_voices() -> void:
+	const Radio = preload("res://scripts/prototype/escape_radio.gd")
+	const S = preload("res://scripts/prototype/escape_state.gd")
+	check(Radio.fix_names("hey dawn can you hear me") == "hey Dhan can you hear me", "Misheard 'dawn' becomes Dhan")
+	check(Radio.fix_names("erin lift the locker") == "Aaron lift the locker", "Misheard 'Erin' becomes Aaron")
+	check(Radio.fix_names("I don't know") == "I don't know", "'don't' is left alone")
+	check(Radio.fix_names("ask jarvis") == "ask MARVIS", "'Jarvis' becomes MARVIS")
+	var best: Dictionary = Radio.pick_heard([{"t": "it says easy sex", "c": 0.9}, {"t": "it says E6", "c": 0.6}])
+	check(str(best.t) == "it says E6", "The guess with the code in it wins")
+	check(S.parse_box("get the fuse from box bravo") == "B" and S.parse_box("charlie box") == "C", "NATO letters name boxes")
+	check(S.parse_code("echo nine") == 9 and S.parse_aux("it says ax two") == 2, "More spoken forms of codes and switches")
+	var mission = await _new_mission()
+	await _advance(mission, 20.0)  # let the opening lines play out
+	mission.ui.radio._audio_loading = true
+	var id: String = mission.lines.keys().filter(func(k): return not mission._said.has(k) and str(mission.lines[k].who) == "aaron")[0]
+	mission.say(id)
+	await _advance(mission, 3.0)
+	check(not mission._said.has(id), "Scripted lines wait while a crew reply's voice is on its way")
+	mission.ui.radio.hush()
+	await _advance(mission, 1.0)
+	check(mission._said.has(id), "...and play once it's done")
+	await _free(mission)
+	check(Mission.shown_text("[groans in pain] Agh! My leg.") == "Agh! My leg.", "Voice directions aren't shown in subtitles")
+	# Clicks: a screen drawn over a button doesn't swallow the click.
+	const Closeup = preload("res://scripts/prototype/escape_closeup.gd")
+	var cu = Closeup.new()
+	add_child(cu)
+	var fired := [""]
+	cu.on_press = func(part: String): fired[0] = part
+	cu.set_parts([{"id": "go", "kind": "button", "rect": Rect2(10, 10, 60, 30), "label": "GO"},
+		{"id": "screen", "kind": "display", "rect": Rect2(0, 0, 200, 100), "text": ""}])
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(30, 20)
+	cu._gui_input(click)
+	check(fired[0] == "go", "A click reaches a button under a screen")
+	cu.queue_free()
+	# Asking again while Aaron is on his way to the locker carries on, it doesn't block.
+	var m3 = await _new_mission()
+	await _advance(m3, 2.0)
+	check(m3.act_on_dialogue("mara", "lift_locker") == "", "Aaron heads to the locker")
+	check(m3.available_actions("mara").has("lift_locker") and m3.act_on_dialogue("mara", "lift_locker") == "", "Asking him again is fine")
+	check(str(m3.available_actions("mara").none).contains("next to Dhan"), "...and he can say what he's waiting for")
+	await _free(m3)
+
 func _test_outro_film() -> void:
 	const Outro = preload("res://scripts/ui/outro_film.gd")
 	for id in ["everyone_home", "what_he_left", "kept_each_other", "barely", "two_came_home"]:
@@ -641,6 +690,10 @@ func _test_outro_film() -> void:
 		layer.add_child(film)
 		film.play()
 		check(film.lines.size() >= 3, "Ending film has lines: " + id)
+		for i in film.lines.size():
+			var words := RegEx.create_from_string("[A-Z]").search(str(film.lines[i][1])) != null
+			check(not words or film._voices[i] != null, "Ending line is voiced: %s %d" % [id, i])
+		check(film.hum_level(film._starts[0] + 1.0) > 0.5 and film.hum_level(film.t_logo + 1.0) == 0.0, "Shuttle hum under the crew, gone by the logo: " + id)
 		check(film.t_later > film.T_EXT_END and film.t_earth > film.t_later and film.t_logo > film.t_earth and film.t_end > film.t_credits + 15.0, "Shots in order, credits roll: " + id)
 		if id == "everyone_home":
 			check(film.lines.any(func(l): return str(l[1]).contains("HEARD WHAT YOU SAID")), "Dhan remembers Johnny's promise")

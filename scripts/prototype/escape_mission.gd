@@ -41,6 +41,15 @@ const ACTION_HAPTICS := {
 	"take_splint": "tick", "apply_splint": "tick", "carry_dhan": "heavy",
 }
 ## Every task a crewmate can be part-way through (saves are checked against this).
+## What Aaron is doing, for when Johnny asks again while he's at it.
+const BUSY_TELL := {
+	"lift_locker": "going to the locker on Dhan. You lift as soon as Johnny is right next to Dhan, ready to pull him out.",
+	"lift_battery": "going to the cart in the lab. You lift the battery on three once Johnny is at the cart with you.",
+	"carry_dhan": "going to Dhan to carry him. You lift him once Johnny is next to Dhan too.",
+	"fetch_fuse": "fetching the spare fuse from Storage. You'll leave it by the engineering cabinet.",
+	"fetch_case": "fetching the insulated sample case from the shuttle for the lab freezer.",
+	"release_clamps": "releasing the clamps, then getting on the shuttle.",
+}
 const TASKS := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps"]
 
 var state = Rules.new()
@@ -70,6 +79,7 @@ var locker_visual: Sprite2D
 var carried_visual: Sprite2D
 var darkness
 var voice: AudioStreamPlayer
+var _marvis_chain_active := false
 var _intro = null
 var _busy := {}                 # crew id -> task
 var _task_arg := {}             # crew id -> extra (the fuse box Aaron is fetching)
@@ -381,6 +391,13 @@ func _update_carried() -> void:
 func after(seconds: float, call: Callable) -> void:
 	_timers.append({"at": elapsed + seconds, "call": call})
 
+## Run `call` once nobody is talking (no queued line, no line or reply playing).
+func when_quiet(call: Callable) -> void:
+	if _queue.is_empty() and elapsed >= _line_until and not ui.radio.voice_pending():
+		call.call()
+	else:
+		after(0.3, func(): when_quiet(call))
+
 func _run_timers() -> void:
 	var due: Array = []
 	for t in _timers:
@@ -459,6 +476,7 @@ func say(id: String, forced := true) -> void:
 
 func _deliver_lines() -> void:
 	if _queue.is_empty() or elapsed < _line_until or ui.fail_open(): return
+	if ui.radio.voice_pending(): return  # one voice at a time: wait for the crew reply to finish
 	var next: Dictionary = _queue[0]
 	if not next.forced:
 		if elapsed - _last_soft < SOFT_COOLDOWN or ui.mode == "chat" or ui.radio.busy: return
@@ -472,7 +490,7 @@ func _speak(id: String) -> void:
 	var entry: Dictionary = lines[id]
 	var who := _who_id(str(entry.who))
 	if who == "ivo" and not state.dhan_alive(): return
-	var text := str(entry.text)
+	var text := shown_text(str(entry.text))
 	ui.show_caption(crew_name(who), text, who)
 	if crew.has(who): ui.radio.remember_line(who, text)
 	var seconds := 1.4 + text.length() * 0.055
@@ -484,7 +502,11 @@ func _speak(id: String) -> void:
 	_line_until = elapsed + seconds
 
 func line_text(id: String) -> String:
-	return str(lines.get(id, {}).get("text", ""))
+	return shown_text(str(lines.get(id, {}).get("text", "")))
+
+## A line as it's shown: voice directions like "[groans in pain]" are for the recording only.
+static func shown_text(text: String) -> String:
+	return RegEx.create_from_string("\\s*\\[[^\\]]*\\]\\s*").sub(text, " ", true).strip_edges()
 
 ## M.A.R.V.I.S. speaks (unprompted): shown and logged, voiced from per-sentence clips.
 func marvis_say(ids: Array) -> void:
@@ -494,6 +516,7 @@ func marvis_say(ids: Array) -> void:
 
 func play_marvis(ids: Array) -> void:
 	if Settings.muted: return
+	ui.radio.hush()
 	var clips: Array = []
 	for id in ids:
 		var path := VOICE_DIR + "marvis_" + str(id).replace(" ", "_").to_lower() + ".mp3"
@@ -501,6 +524,9 @@ func play_marvis(ids: Array) -> void:
 	if clips.is_empty():
 		Sfx.play("objective", -18)
 		return
+	var total := 0.2
+	for c in clips: total += (load(c) as AudioStream).get_length()
+	_line_until = maxf(_line_until, elapsed + total)  # crew lines wait for the ship to finish
 	_play_chain(clips)
 
 ## Stop any scripted line (and the rest of a M.A.R.V.I.S. clip chain): you're talking.
@@ -596,11 +622,12 @@ func _free_dhan() -> void:
 	_swing_locker_clear()
 	crew.mara.following = true
 	say("freed_dhan")
-	after(3.0, func():
+	say("freed_context_aaron")  # where we are and what we're doing: the shuttle is the way home
+	after(1.0, func(): when_quiet(func():
 		if not _said.has("marvis_summary"):
 			_said["marvis_summary"] = true
 			marvis_say(["greeting", "main_offline", "shuttle_intact", "clamps_engaged_unpowered"])
-			_after_first_report())
+			_after_first_report()))
 
 func _swing_locker_clear() -> void:
 	var rest := anchor("locker_cleared")
@@ -903,7 +930,8 @@ func _after_action(action: String) -> void:
 		"launch": _launch()
 
 func _after_first_report() -> void:
-	after(4.5, func():
+	after(1.0, func():
+		say("beat2_problem_dhan")
 		say("beat2_dhan")
 		say("beat2_aaron")
 		say("beat2_dhan_call")
@@ -983,7 +1011,13 @@ func available_actions(id: String) -> Dictionary:
 			a["light_off"] = "Turn your flashlight off."
 		return a
 	if state.has_flag("aaron_aboard"): return a
-	if _busy.has(id): return {"none": "You are in the middle of a task (%s). Report progress; don't start another." % _busy[id]}
+	if _busy.has(id):
+		# Asked again (he didn't hear, or forgot): say plainly what you're doing and what you need
+		# from him. The same request again is fine; it just carries on.
+		var task := str(_busy[id]).trim_suffix("_walk")
+		var b := {"none": "You are busy: %s Tell Johnny that plainly. Don't start anything else." % str(BUSY_TELL.get(task, "doing a task."))}
+		if task in ["lift_locker", "lift_battery", "carry_dhan"]: b[task] = "Johnny asked again: keep at it and remind him what you need from him."
+		return b
 	a["follow"] = "Follow Johnny."
 	a["wait"] = "Stay where you are."
 	if not state.powered():
@@ -1012,6 +1046,9 @@ func act_on_dialogue(id: String, action: String, message := "") -> String:
 	if action == "none" or action == "": return ""
 	if not available_actions(id).has(action): return "Not right now. " + state.objective()
 	var actor = crew[id]
+	if str(_busy.get(id, "")).trim_suffix("_walk") == action:
+		actor.remove_meta("waiting")  # already on it: say again what he's waiting for
+		return ""
 	match action:
 		"light_on": actor.light_on = true
 		"light_off": actor.light_on = false
@@ -1145,9 +1182,12 @@ func _count_dropped() -> void:
 		if not state.has_flag("battery_loaded") and near(player.position, props.cart.position, 160.0) and not ending:
 			_start_count())
 
+## The count of three is timed, so it cuts off anything else being said.
 func _play_line_audio(id: String) -> void:
 	var path := VOICE_DIR + id + ".mp3"
 	if ResourceLoader.exists(path) and not Settings.muted:
+		ui.radio.hush()
+		stop_voice()
 		voice.stream = load(path)
 		voice.play()
 
@@ -1257,7 +1297,7 @@ func _check_stuck() -> void:
 func talking_points(id: String) -> Array:
 	var pts: Array = []
 	var step := next_step()
-	pts.append("Ship layout: Storage is aft of Galley and holds spare fuse boxes A, B, and C. Medbay is in the forward corridor and has a medical cabinet with a splint kit. Laboratory is on the starboard side and has the sample freezer, emergency battery, and service cart. Engineering is on the port side with the distribution cabinet and isolator handle. Shuttle Bay is aft where the emergency shuttle, battery socket, and clamp release are.")
+	pts.append("Ship layout: Storage is west, past the Galley, and holds spare fuse boxes A, B, and C. Medbay is west, off the corridor, and has a medical cabinet with a splint kit. The Laboratory is south of the junction and has the sample freezer, emergency battery, and service cart. Engineering is north of the junction with the power cabinet and the big power-cut handle by the door. The Shuttle Bay is east of the junction, with the escape shuttle, battery socket, and clamp console.")
 	if id == "mara":
 		pts.append("Kien died in the breach; you and he collected the lab samples together. Bring him up rarely: only when Johnny mentions him or the samples, and not again if you already have in this conversation.")
 		if not state.has_flag("freezer_off"):
@@ -1365,6 +1405,10 @@ func check_reply(id: String, line: String, message: String) -> String:
 		else: kept.append(sentence)
 	if not dropped: return line
 	if kept.is_empty():
+		# Everything he said was a guess: answer the question from what the game knows instead,
+		# so the player still gets a reply to what they asked.
+		var known: Dictionary = offline_response(id, message)
+		if str(known.get("action", "none")) == "none" and str(known.get("line", "")) != "": return str(known.line)
 		return "Read me what the panel says, Captain. I'm not guessing." if code == 0 and aux == 0 and not state.has_flag("code_read") else "Say that again? Read it to me exactly."
 	return " ".join(kept)
 
@@ -1417,39 +1461,39 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 			if stage >= 3: line = "%s one." % ["Left", "Middle", "Right"][state.toggle_for(aux)].capitalize()
 		elif _mentions(m, ["where", "find", "locate"]):
 			if _mentions(m, ["fuse", "box", "spares"]):
-				line = "Spare fuses are in Storage. Go through the Galley to the back."
+				line = "Spare fuses are in Storage. Go west, through the Galley."
 			elif _mentions(m, ["medbay", "medkit", "splint", "medical", "doctor"]):
-				line = "Medbay's down the corridor forward. The cabinet has splints."
+				line = "Medbay is west, off the corridor. The cabinet has splints."
 			elif _mentions(m, ["battery", "lab", "freezer"]):
-				line = "Laboratory is on the starboard side, through the central junction."
+				line = "The lab is south of the junction."
 			elif _mentions(m, ["cabinet", "engineering", "isolator"]):
-				line = "Engineering is on the port side, through the junction."
+				line = "Engineering is north of the junction."
 			elif _mentions(m, ["shuttle", "bay", "dock"]):
-				line = "Shuttle bay is straight aft through the junction."
+				line = "The shuttle bay is east of the junction."
 			else:
-				line = "Galley and Storage are aft, Engineering port, Lab starboard, Shuttle Bay straight back."
+				line = "From the junction: Engineering north, the lab south, the shuttle bay east. Galley, Storage and Medbay are west."
 		elif _mentions(m, ["what do", "what should", "what now", "what next", "how do", "help me"]):
 			match step:
 				"free_dhan": line = "Get this locker off my leg! Tell Aaron to lift it, then pull me out."
 				"marvis": line = "Check in with M.A.R.V.I.S. on the junction terminal or your radio."
 				"choose": line = "We need power for the bay clamps. Fix the cabinet in Engineering, or grab the lab battery."
-				"eng_isolate": line = "Pull that big isolator handle by the door before touching the cabinet!"
+				"eng_isolate": line = "Pull the big handle by the door first. It cuts the power to the cabinet."
 				"eng_code": line = "Look at the cabinet screen and read me the fault code."
 				"eng_fuse": line = "We need the fuse from box %s in Storage. Grab it and seat it in the cabinet." % (state.right_fuse() if state.has_flag("code_read") else "the right box")
 				"eng_test": line = "Hit TEST on the cabinet to check the circuits."
 				"eng_toggle": line = "AUX-%d is shorting. Flip the %s toggle down under the guard cover." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()]]
 				"eng_restart": line = "Hit RESTART on the cabinet to power the shuttle bay."
 				"bat_freezer": line = "Shut down the freezer in the Lab before you pull the battery."
-				"bat_latch": line = "Pop the latch on the emergency battery in the Lab."
+				"bat_latch": line = "Open the latch on the emergency battery in the Lab."
 				"bat_lift": line = "Battery's heavy. Help Aaron lift it onto the cart."
 				"bat_cart": line = "Roll the cart with the battery down to the Shuttle Bay."
 				"bat_socket": line = "Plug the battery into the bay socket."
-				"carry": line = "Bay has power! Get me onto that shuttle, Captain."
-				"seat": line = "Get in the pilot seat and prep the shuttle."
+				"carry": line = "The shuttle bay has power! Get me onto that shuttle, Captain."
+				"seat": line = "Get in the pilot seat on the shuttle."
 				"release": line = "Tell Aaron to release the clamps from the console."
 				_: line = "Get us home, Captain."
 		elif _mentions(m, ["selector", "setting", "position", "socket", "dial", "knob"]):
-			line = "Lab battery on the bay socket? Position %s. Wrong one just pops the breaker." % state.right_selector()
+			line = "The lab battery on the bay socket? Turn the selector to %s. The wrong setting trips it." % state.right_selector()
 		elif _mentions(m, ["code", "display", "screen", "fault", "error", "blinking"]):
 			if state.has_flag("code_read"): line = "Cabinet says %s. That's spare box %s in Storage." % [state.fault_code(), state.right_fuse()]
 			else: line = "Read me what it says. Every letter."
@@ -1458,15 +1502,15 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 			else: line = "Which fuse depends on the fault code. Read it to me off the cabinet display."
 		elif _mentions(m, ["switch", "toggle", "aux", "branch", "short", "tripped"]):
 			if state.has_flag("fault_found"): line = "AUX-%d is shorting. The %s toggle under the guard cuts it." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()]]
-			else: line = "It tripped? The display says which AUX branch is shorting. Tell me the number."
+			else: line = "It tripped? The display shows which AUX switch is shorting. Tell me the number."
 		elif _mentions(m, ["spark", "cabinet", "touch", "engineering"]):
-			line = "Don't touch that cabinet live. Big handle by the door is the isolator. Pull it first." if not state.has_flag("isolated") else "Isolated? Good. Read me the fault code on the display."
+			line = "Don't touch that cabinet with the power on. Pull the big handle by the door first." if not state.has_flag("isolated") else "Power's cut? Good. Read me the code on the display."
 		elif _mentions(m, ["leg", "pain", "hurt", "okay", "ok", "alright", "feel"]):
 			line = ["", "Leg's... not great. I'll live. Probably.", "It's getting worse, Captain. Just keep moving.", "Cold. Keep going.", "...still here."][stage]
 		elif _mentions(m, ["kien"]):
 			line = "Don't. Not yet. Get us home first." if stage < 3 else "...Kien."
 		elif _mentions(m, ["plan", "power", "clamp", "battery", "shuttle"]):
-			line = "Clamps need power. I can talk you through the cabinet. Or Aaron's battery, but that kills the freezer." if not state.powered() else "Bay's live. Get me on that shuttle."
+			line = "The shuttle's clamps need power. I can talk you through fixing the cabinet in engineering. Or use Aaron's lab battery, but then the freezer goes off." if not state.powered() else "The shuttle bay has power. Get me on that shuttle."
 		else:
 			line = ["", "I'm the engineer with a broken leg. Ask me about anything with wires.", "Ask me about the systems. Quickly.", "Wires. Ask.", "..."][stage]
 		return {"line": line, "action": "none", "source": "offline"}
@@ -1507,21 +1551,21 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 		line = "Releasing the clamps."
 	elif _mentions(m, ["where", "find", "locate"]):
 		if _mentions(m, ["fuse", "box", "spares"]):
-			line = "Storage is past the Galley. That's where the spare fuse boxes are."
+			line = "Storage is west, past the Galley. That's where the spare fuse boxes are."
 		elif _mentions(m, ["medbay", "medkit", "splint", "medical", "doctor"]):
-			line = "Medbay is in the forward corridor. There's a medical cabinet with a splint kit."
+			line = "Medbay is west, off the corridor. The medical cabinet has a splint kit."
 		elif _mentions(m, ["battery", "lab", "freezer"]):
-			line = "Laboratory is on the starboard side, through the central junction."
+			line = "The lab is south of the junction."
 		elif _mentions(m, ["cabinet", "engineering", "isolator"]):
-			line = "Engineering is on the port side."
+			line = "Engineering is north of the junction."
 		elif _mentions(m, ["shuttle", "bay", "dock"]):
-			line = "Shuttle bay is straight aft through the junction."
+			line = "The shuttle bay is east of the junction."
 		else:
-			line = "Galley and Storage are aft, Engineering port, Lab starboard, Shuttle Bay straight back."
+			line = "From the junction: Engineering north, the lab south, the shuttle bay east. Galley, Storage and Medbay are west."
 	elif _mentions(m, ["what do", "what should", "what now", "what next", "how do", "help me"]):
 		match step:
 			"free_dhan": line = "We have to get the locker off Dhan's leg! I can lift it while you pull him free."
-			"marvis": line = "Ask M.A.R.V.I.S. what systems are operational."
+			"marvis": line = "Ask M.A.R.V.I.S. what still works."
 			"choose": line = "We need power for the shuttle clamps: either repair Engineering or take the lab battery."
 			"eng_isolate", "eng_code", "eng_fuse", "eng_test", "eng_toggle", "eng_restart": line = "Dhan knows the engineering cabinet best. Radio him for instructions."
 			"bat_freezer": line = "If we take the battery, the freezer goes off. Or I can grab the shuttle sample case first."
@@ -1530,8 +1574,8 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 			"bat_cart": line = "Push the cart to the Shuttle Bay socket."
 			"bat_socket": line = "Connect the battery in the Shuttle Bay."
 			"carry": line = "We have power! Let's carry Dhan to the shuttle together."
-			"seat": line = "Take the pilot seat in the cockpit, Johnny."
-			"release": line = "I'm standing by the clamp release console. Just give the word from the helm."
+			"seat": line = "Get in the shuttle's pilot seat, Johnny."
+			"release": line = "I'm at the clamp console. Tell me when you're in the pilot seat."
 			_: line = "Let's get everyone home."
 	elif _mentions(m, ["sample", "research", "save", "freezer", "other option", "another way", "alternative"]):
 		if state.has_flag("samples_saved"): line = "The priority rack is in the case. Kien would've liked that."
@@ -1540,11 +1584,11 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 		elif state.has_flag("case_requested"): line = "I'm getting the case."
 		else: line = "There's an insulated case on the shuttle. It'd only fit the priority rack, but... I could fetch it."
 	elif _mentions(m, ["dhan", "leg", "medic", "splint", "pain"]):
-		line = "He needs that leg immobilised. The medbay cabinet should have a splint kit." if state.dhan_alive() and not state.has_flag("dhan_treated") else ("He's splinted. Let's not waste it." if state.dhan_alive() else "...He's gone, Johnny.")
+		line = "He needs a splint on that leg. The medbay cabinet should have one." if state.dhan_alive() and not state.has_flag("dhan_treated") else ("He's splinted. Let's not waste it." if state.dhan_alive() else "...He's gone, Johnny.")
 	elif _mentions(m, ["kien"]):
 		line = "We collected every one of those samples together. I keep expecting him to walk in."
 	elif _mentions(m, ["power", "plan", "battery", "engineering", "clamp"]):
-		line = "Clamps need power. Dhan can talk you through the cabinet in engineering. Or the lab battery. That one costs us the samples." if not state.powered() else "Bay's live. Dhan first, then the clamps."
+		line = "The shuttle's clamps need power. Dhan can talk you through fixing the cabinet in engineering. Or we use the lab battery, but then we lose the samples." if not state.powered() else "The shuttle bay has power. Dhan goes on the shuttle first, then we release the clamps."
 	elif _mentions(m, ["scared", "afraid", "okay", "ok", "home", "earth"]):
 		line = "Scared? Yes. But we've got a way home. Let's take it."
 	else:
@@ -1768,7 +1812,10 @@ func _restore_progress(data: Dictionary) -> void:
 	if state.has_flag("aaron_aboard"): crew.mara.visible = false
 	if crew.mara.pose == "straining": crew.mara.pose = "stand"
 	darkness.flashlight = bool(data.flashlight)
-	ui.radio.histories = {"mara": data.get("history", {}).get("mara", []).duplicate(true), "ivo": data.get("history", {}).get("ivo", []).duplicate(true)}
+	# The saved conversation can be ahead of the saved state ("On it!" before the lift
+	# happened), so a resumed crewmate would think it's done. Start the talk fresh and keep
+	# only the facts they remember (memory notes: promises, wishes).
+	ui.radio.histories = {"mara": [], "ivo": []}
 	ui.radio.memory_notes = {"mara": data.get("memory_notes", {}).get("mara", []).duplicate(true), "ivo": data.get("memory_notes", {}).get("ivo", []).duplicate(true)}
 	_resumed = true
 	var cover_layer := CanvasLayer.new()

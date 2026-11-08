@@ -41,14 +41,14 @@ const STAR_COLORS := [Color8(64, 72, 112), Color8(150, 160, 200), Color8(255, 24
 const BAYER4 := [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
 const SPEAKER_COLORS := {"AARON": Color8(224, 173, 101), "DHAN": Color8(177, 138, 218), "SHUTTLE": RED}
 
-## Aboard the shuttle, after the Wayfarer goes (ending id -> [speaker, line]).
-const DIALOGUE := {
-	"everyone_home": [["DHAN", "THERE GOES THE WAYFARER."], ["AARON", "EVERY ONE OF KIEN'S SAMPLES IS IN THE BACK."], ["DHAN", "SO ARE WE. MOSTLY IN ONE PIECE."]],
-	"what_he_left": [["AARON", "JUST THE PRIORITY RACK."], ["AARON", "IT'S THE PART HE CARED ABOUT MOST."], ["DHAN", "THEN WE BROUGHT SOME OF HIM HOME."]],
-	"kept_each_other": [["AARON", "SIX MONTHS OF WORK. GONE WITH HER."], ["DHAN", "WE'RE NOT."], ["AARON", "...HE'D HAVE UNDERSTOOD."]],
-	"barely": [["SHUTTLE", "MEDICAL ALERT. SEAT TWO."], ["DHAN", "...WORTH IT?"], ["AARON", "ASK ME WHEN YOU CAN WALK."]],
-	"two_came_home": [["AARON", "..."], ["AARON", "I KEEP LOOKING AT HIS SEAT."], ["AARON", "LET'S JUST GET HOME, JOHNNY."]],
-}
+## Aboard the shuttle, after the Wayfarer goes: data/outro_lines.json (ending id -> [speaker, line]),
+## each voiced by assets/voice/outro/<ending>_<n>.mp3 (and promise.mp3) when the file exists.
+const LINES_PATH := "res://data/outro_lines.json"
+const VOICE_DIR := "res://assets/voice/outro/"
+const VOICE_DELAY := 0.25     # the voice starts once the speaker's name has typed
+const T_ARRIVAL := 4.2        # after t_earth: the shuttle's "welcome home"
+const HUM_PATH := "res://assets/audio/shuttle_hum.wav"   # tools/make_shuttle_hum.py
+const HUM_DB := -9.0          # the drone at full level, under the voices
 
 # Shot boundaries (seconds); the dialogue's length sets the rest (_plan()).
 const T_DROP := 0.4
@@ -84,6 +84,11 @@ var _cover: ColorRect
 var _playing := false
 var _done := false
 var _sounds_done := {}
+var _script := {}
+var _voices: Array = []       # a clip (or null) per line
+var _voice: AudioStreamPlayer
+var _arrival: AudioStream
+var _hum: AudioStreamPlayer
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -96,6 +101,20 @@ func _ready() -> void:
 	add_child(bg)
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(DATA_PATH)) if FileAccess.file_exists(DATA_PATH) else null
 	_data = parsed if parsed is Dictionary else {}
+	var script_json = JSON.parse_string(FileAccess.get_file_as_string(LINES_PATH)) if FileAccess.file_exists(LINES_PATH) else null
+	_script = script_json if script_json is Dictionary else {}
+	_voice = AudioStreamPlayer.new()
+	add_child(_voice)
+	_arrival = _clip("arrival")
+	_hum = AudioStreamPlayer.new()
+	if ResourceLoader.exists(HUM_PATH):
+		var hum := load(HUM_PATH) as AudioStreamWAV
+		if hum != null:
+			hum.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			hum.loop_end = int(hum.get_length() * hum.mix_rate)
+			_hum.stream = hum
+	_hum.volume_db = -80.0
+	add_child(_hum)
 	for name in ["ship2", "far_planet_0", "far_planet_1", "far_planet_2"]:
 		if ResourceLoader.exists(ART + name + ".png"): _tex[name] = load(ART + name + ".png")
 	for name in ["rock_a", "rock_b", "rock_c", "hull", "canister"]:
@@ -169,14 +188,21 @@ func _ready() -> void:
 
 ## Everything that depends on the ending: the lines and the shot timings.
 func _plan() -> void:
-	lines = DIALOGUE.get(ending_id, DIALOGUE.kept_each_other).duplicate()
-	if dhan_promise and ending_id != "two_came_home":
-		lines.insert(1, ["DHAN", "I HEARD WHAT YOU SAID BACK THERE, CAPTAIN."])
+	var endings: Dictionary = _script.get("endings", {})
+	var id := ending_id if endings.has(ending_id) else "kept_each_other"
+	lines = (endings.get(id, []) as Array).duplicate()
+	_voices.clear()
+	for i in lines.size(): _voices.append(_clip("%s_%d" % [id, i]))
+	if dhan_promise and ending_id != "two_came_home" and _script.has("promise"):
+		lines.insert(1, _script.promise)
+		_voices.insert(1, _clip("promise"))
 	_starts.clear()
 	var at := T_EXT_END + 0.8
-	for line in lines:
+	for i in lines.size():
 		_starts.append(at)
-		at += 0.8 + str(line[1]).length() / CPS + 1.5
+		var shown := 0.8 + str(lines[i][1]).length() / CPS + 1.5
+		var clip: AudioStream = _voices[i]
+		at += maxf(shown, VOICE_DELAY + clip.get_length() + 0.9) if clip != null else shown
 	t_later = at + 0.3
 	t_earth = t_later + 3.6
 	t_logo = t_earth + 8.0
@@ -221,6 +247,7 @@ func _process(delta: float) -> void:
 	var before := t
 	set_time(t + delta)
 	_cues(before, t)
+	_update_hum()
 	_hint.visible = t > SKIP_GRACE and t < t_credits
 	if t >= t_end: skip()
 
@@ -234,12 +261,45 @@ func _cues(before: float, now: float) -> void:
 	if before < T_SPLIT and T_SPLIT <= now:
 		Sfx.play("launch", -2)
 		Haptics.play("breach")
+	for i in _starts.size():
+		var at: float = _starts[i] + VOICE_DELAY
+		if before < at and at <= now and _voices[i] != null and not Settings.muted:
+			_voice.stream = _voices[i]
+			_voice.play()
+	var arrive := t_earth + T_ARRIVAL + VOICE_DELAY
+	if before < arrive and arrive <= now and _arrival != null and not Settings.muted:
+		_voice.stream = _arrival
+		_voice.play()
 	if before < t_earth and t_earth <= now:
 		Sfx.start_ambient()
+
+## How loud the shuttle's engine drone is now (0-1): it comes in as the shuttle drops,
+## is loudest inside the cabin while the crew talk, and is gone by the logo.
+func hum_level(at: float) -> float:
+	if at < T_DROP or at >= t_logo: return 0.0
+	if at < T_EXT_END: return 0.45 * clampf((at - T_DROP) / 2.0, 0.0, 1.0)
+	if at < t_later: return lerpf(0.45, 1.0, clampf((at - T_EXT_END) / 0.6, 0.0, 1.0))
+	if at < t_earth: return 0.8
+	return lerpf(0.8, 0.0, clampf((at - t_earth) / (t_logo - t_earth), 0.0, 1.0))
+
+func _update_hum() -> void:
+	if _hum.stream == null: return
+	var level := 0.0 if Settings.muted else hum_level(t)
+	if level <= 0.0:
+		if _hum.playing: _hum.stop()
+		return
+	if not _hum.playing: _hum.play()
+	_hum.volume_db = HUM_DB + linear_to_db(level)
+
+func _clip(name: String) -> AudioStream:
+	var path := VOICE_DIR + name + ".mp3"
+	return load(path) as AudioStream if ResourceLoader.exists(path) else null
 
 func skip() -> void:
 	if _done: return
 	_done = true
+	_voice.stop()
+	create_tween().tween_property(_hum, "volume_db", -60.0, 0.5)
 	_hint.hide()
 	var tw := create_tween()
 	tw.tween_property(_cover, "color:a", 1.0, 0.5)
@@ -376,7 +436,7 @@ func draw_front(c: CanvasItem) -> void:
 		var u := clampf((t - t_earth) / (t_logo - 1.0 - t_earth), 0.0, 1.0)
 		var at := Vector2(lerpf(40, 176, _ease(u)), lerpf(150, 100, _ease(u)))
 		_shuttle(c, at, 2 if u < 0.55 else 1, u < 0.92)
-		if t > t_earth + 4.2: _caption(c, "SHUTTLE", "EARTH ORBIT. WELCOME HOME.", t - (t_earth + 4.2))
+		if t > t_earth + T_ARRIVAL: _caption(c, "SHUTTLE", str(_script.get("arrival", ["", "EARTH ORBIT. WELCOME HOME."])[1]), t - (t_earth + T_ARRIVAL))
 	if t >= T_EXT_END and t < t_later:
 		_letterbox(c)
 		for i in lines.size():

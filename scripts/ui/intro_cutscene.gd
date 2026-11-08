@@ -27,6 +27,10 @@ const HINT_DELAY := 1.0
 const SKIP_ACTIONS := ["confirm", "interact", "pause", "ui_accept", "ui_cancel"]
 const FADE_OUT_TIME := 0.28
 const FADE_IN_TIME := 0.42
+## The soundtrack's last words ("Then find Dhan.", 35.4-36.1 s) don't fit the story any more:
+## the sound fades out in the pause just before them. The picture runs on to its end.
+const VOICE_CUT_AT := 35.05
+const VOICE_CUT_FADE := 0.25
 
 var _film: Control = null
 var _video: VideoStreamPlayer = null
@@ -158,7 +162,10 @@ func _process(_delta: float) -> void:
 		# The picture ends a hair before the sound: let the last of it play out.
 		var audio_left := 0.0
 		if _audio != null and _audio.playing and _audio.stream != null:
-			audio_left = _audio.stream.get_length() - _audio.get_playback_position()
+			var heard := _audio.get_playback_position()
+			audio_left = _audio.stream.get_length() - heard
+			if heard > VOICE_CUT_AT:
+				_audio.volume_db = linear_to_db(maxf(0.0001, 1.0 - (heard - VOICE_CUT_AT) / VOICE_CUT_FADE))
 		if _t >= _length and audio_left <= 0.0:
 			_finish()
 	if _t >= _length + SAFETY_MARGIN:

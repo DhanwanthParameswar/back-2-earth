@@ -127,16 +127,18 @@ func _move(dir: Vector2) -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	# Later parts draw on top (a closed guard over its switches), so test them first.
+	# Screens, lights and switches you can't use yet never block the click on a part under them.
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		for i in range(parts.size() - 1, -1, -1):
-			if parts[i].rect.has_point(event.position):
+			if parts[i].rect.grow(2.0).has_point(event.position) and _pressable(parts[i]):
 				_start(i, true)
 				accept_event()
 				return
+		accept_event()
 	elif event is InputEventMouseMotion:
 		for i in range(parts.size() - 1, -1, -1):
-			if parts[i].rect.has_point(event.position):
-				if _pressable(parts[i]) and selected != i:
+			if parts[i].rect.has_point(event.position) and _pressable(parts[i]):
+				if selected != i:
 					selected = i
 					queue_redraw()
 				return

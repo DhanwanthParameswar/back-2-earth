@@ -2,7 +2,9 @@
 """Pre-record every scripted escape line with ElevenLabs (docs/Game Design.md section 9).
 
 Reads data/escape_lines.json and writes assets/voice/escape/<id>.mp3 for the crew's
-lines and assets/voice/escape/marvis_<id>.mp3 for M.A.R.V.I.S.'s sentences. The game
+lines and assets/voice/escape/marvis_<id>.mp3 for M.A.R.V.I.S.'s sentences. Also reads
+data/outro_lines.json (the ending film) and writes assets/voice/outro/<ending>_<n>.mp3,
+promise.mp3 and arrival.mp3; the shuttle's computer uses the M.A.R.V.I.S. voice. The game
 plays a file when it exists and shows text alone when it doesn't, so this is optional.
 
 Needs ELEVENLABS_API_KEY (on the team server it's in /etc/back2earth/companion.env):
@@ -20,12 +22,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
 OUT = ROOT / "assets/voice/escape"
+OUTRO = ROOT / "assets/voice/outro"
+NAMES = ["Kien", "Wayfarer", "Dhan", "Johnny", "Aaron", "Captain"]
+
+
+def spoken(caps: str) -> str:
+    """The film's all-caps pixel text as a normal sentence, so the voice doesn't shout it."""
+    text = re.sub(r"(^|[.?!]\s+|\.\.\.)([a-z])", lambda m: m.group(1) + m.group(2).upper(), caps.lower())
+    for name in NAMES:
+        text = re.sub(r"\b%s\b" % name.lower(), name, text)
+    return text
 
 
 def main() -> None:
@@ -42,12 +55,19 @@ def main() -> None:
     data = json.loads((ROOT / "data/escape_lines.json").read_text())
     jobs = [(lid, voices[entry["who"]], entry["text"]) for lid, entry in data["lines"].items()]
     jobs += [("marvis_" + lid.replace(" ", "_").lower(), voices["marvis"], text) for lid, text in data["marvis"].items()]
+    film = json.loads((ROOT / "data/outro_lines.json").read_text())
+    speakers = {"AARON": voices["aaron"], "DHAN": voices["dhan"], "SHUTTLE": voices["marvis"]}
+    film_lines = [(f"{ending}_{i}", line) for ending, rows in film["endings"].items() for i, line in enumerate(rows)]
+    film_lines += [("promise", film["promise"]), ("arrival", film["arrival"])]
+    jobs = [(OUT / f"{name}.mp3", name, voice, text) for name, voice, text in jobs]
+    jobs += [(OUTRO / f"{name}.mp3", name, speakers[who], spoken(text)) for name, (who, text) in film_lines
+             if re.search(r"[A-Za-z]", text)]
     OUT.mkdir(parents=True, exist_ok=True)
+    OUTRO.mkdir(parents=True, exist_ok=True)
     done = 0
-    for name, voice, text in jobs:
+    for path, name, voice, text in jobs:
         if args.only and name not in args.only and name.removeprefix("marvis_") not in args.only:
             continue
-        path = OUT / f"{name}.mp3"
         if path.exists() and not args.force:
             continue
         print(f"{name}: {text}")
@@ -55,7 +75,7 @@ def main() -> None:
             continue
         path.write_bytes(server.synthesize(text, voice))
         done += 1
-    print(f"recorded {done} line(s) into {OUT.relative_to(ROOT)}")
+    print(f"recorded {done} line(s) into assets/voice/escape and assets/voice/outro")
 
 
 if __name__ == "__main__":

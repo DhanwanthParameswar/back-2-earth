@@ -1,0 +1,12 @@
+{
+ "_doc": "The ending film's lines (scripts/ui/outro_film.gd). Voices: assets/voice/outro/<ending>_<n>.mp3 and promise.mp3, arrival.mp3, recorded by tools/record_escape_lines.py.",
+ "endings": {
+  "everyone_home": [["DHAN", "THERE GOES THE WAYFARER."], ["AARON", "EVERY ONE OF KIEN'S SAMPLES IS IN THE BACK."], ["DHAN", "SO ARE WE. MOSTLY IN ONE PIECE."]],
+  "what_he_left": [["AARON", "JUST THE PRIORITY RACK."], ["AARON", "IT'S THE PART HE CARED ABOUT MOST."], ["DHAN", "THEN WE BROUGHT SOME OF HIM HOME."]],
+  "kept_each_other": [["AARON", "SIX MONTHS OF WORK. GONE WITH THE SHIP."], ["DHAN", "WE'RE NOT."], ["AARON", "...HE'D HAVE UNDERSTOOD."]],
+  "barely": [["SHUTTLE", "MEDICAL ALERT. SEAT TWO."], ["DHAN", "...WORTH IT?"], ["AARON", "ASK ME WHEN YOU CAN WALK."]],
+  "two_came_home": [["AARON", "..."], ["AARON", "I KEEP LOOKING AT HIS SEAT."], ["AARON", "LET'S JUST GET HOME, JOHNNY."]]
+ },
+ "promise": ["DHAN", "I HEARD WHAT YOU SAID BACK THERE, CAPTAIN."],
+ "arrival": ["SHUTTLE", "EARTH ORBIT. WELCOME HOME."]
+}

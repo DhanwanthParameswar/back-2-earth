@@ -44,7 +44,7 @@ Beats (script by the team):
   24.2-27.2 outside: the same ship, breached; Kien tumbles away. Silence.
   27.2-41.2 Aaron pulls Johnny through the bulkhead, door slams, breathing, MAIN POWER
             OFFLINE; Johnny turns to Aaron: "That was a close one! We need to fix power
-            first. Then find Dhan." The crew turns to the locker jammed across the hallway
+            first." The crew turns to the locker jammed across the hallway
             (gameplay starts here, the cabin sealed off behind the barrier); fade to black.
 """
 from __future__ import annotations
@@ -101,7 +101,7 @@ CAPTIONS = [
     (12.2, 14.5, "KIEN:", "REAL FOOD. FINALLY.", "crew", "crew_1"),
     (15.9, 19.4, "SYSTEM:", "COLLISION DETECTED. EVACUATE NOW.", "system", "system_1"),
     (21.7, 24.2, "KIEN:", "*SUCKED OUT OF THE SHIP*", "action", "kien_1"),
-    (33.6, 37.6, "JOHNNY:", "THAT WAS A CLOSE ONE! WE NEED TO FIX POWER FIRST. THEN FIND DHAN.", "crew", "crew_2"),
+    (33.6, 37.6, "JOHNNY:", "THAT WAS A CLOSE ONE! WE NEED TO FIX POWER FIRST.", "crew", "crew_2"),
 ]
 JOHNNY_TURNS = 33.6      # Johnny turns to face Aaron as he starts talking
 CPS = 30.0               # caption typing speed (chars per second)
