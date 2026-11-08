@@ -1,6 +1,6 @@
 extends Node2D
 ## Ship lighting for the escape mission. Without power the ship is dark:
-##   - a round light of about 6 x 6 tiles always surrounds Johnny. Around it are
+##   - a small round light (about 4 x 4 tiles) always surrounds Johnny. Around it are
 ##     RINGS, each RING_WIDTH wide and half as bright as the one inside it, until
 ##     black (beams end in the same rings);
 ##   - F toggles a flashlight BEAM pointing the way you face (up/down/left/right);
@@ -17,17 +17,17 @@ extends Node2D
 ## When power comes back the overlay fades out and the whole map is visible.
 
 const TILE := 32.0
-const BASE_RADIUS := 3.0 * TILE         # always lit around you: ~6 x 6 tiles
-const BEAM_RANGE := 7.0 * TILE          # how far a flashlight beam is fully bright
+const BASE_RADIUS := 2.0 * TILE         # the bright circle around you (~4 x 4 tiles); rings go further
+const BEAM_RANGE := 5.0 * TILE          # how far a flashlight beam is fully bright
 ## Rings around the bright circle (and past a beam's end): each one is RING_WIDTH
 ## wide and RING_FACTOR as bright as the one inside it; after the last one, black.
-const RING_WIDTH := 1.0 * TILE
+const RING_WIDTH := 0.75 * TILE
 const RING_FACTOR := 0.5
 const RINGS := 3                        # 100% -> 50% -> 25% -> 12% -> black
-const RING_SOFT := 3.0                  # px of blending between rings (no jaggies)
+const RING_SOFT := RING_WIDTH * 0.45   # blending between rings: smooth steps, not hard lines
 const LIGHT_REACH := RINGS * RING_WIDTH # how far the rings reach past the bright part
 const BEAM_HALF_ANGLE := deg_to_rad(24.0)
-const BEAM_START_WIDTH := BASE_RADIUS * 0.75  # beam leaves your circle this wide: no sharp tip
+const BEAM_START_WIDTH := BASE_RADIUS * 0.6  # beam leaves your circle this wide: no sharp tip
 const TURN_SPEED := 10.0                # how fast a beam swings to a new direction
 const LABEL_RANGE := 52.0               # names show within E range (player reach 44)
 const DARK_COLOR := Color(0.006, 0.007, 0.014)  # unlit = black: nothing shows beyond your light

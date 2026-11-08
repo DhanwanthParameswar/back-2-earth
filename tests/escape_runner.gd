@@ -193,7 +193,7 @@ func _test_dark_and_fuse() -> void:
 			storage = Rect2(Vector2(room.rect[0], room.rect[1]) * 32.0, Vector2(room.rect[2], room.rect[3]) * 32.0)
 	check(storage.has_point(fuse_pos), "Spare fuse is in the storage room")
 	check(dark.is_dark(), "No power: the ship is dark")
-	check(absf(dark.BASE_RADIUS * 2.0 - 6.0 * 32.0) < 1.0, "Without a flashlight you see about 6 x 6 tiles")
+	check(absf(dark.BASE_RADIUS * 2.0 - 4.0 * 32.0) < 1.0, "Without a flashlight your bright circle is about 4 x 4 tiles")
 	for i in 3: await get_tree().process_frame
 	var src: Vector2i = dark._cell(mission.player.position + Vector2(0, -8))
 	var walls_lit := 0
