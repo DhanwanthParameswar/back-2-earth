@@ -45,7 +45,7 @@ func _physics_process(_delta: float) -> void:
 
 	velocity = Vector2.ZERO
 	if _director != null:
-		velocity = _director.get_drift(false) * SPEED_FACTOR
+		velocity = _director.get_drift() * SPEED_FACTOR
 	move_and_slide()
 
 	if _player != null and global_position.distance_to(_player.global_position + PLAYER_BODY_OFFSET) < HIT_RADIUS:

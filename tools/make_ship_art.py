@@ -315,9 +315,17 @@ def face(kind, accent=NAVY_L):
         a.rect(3, 3, 10, 5, NAVY_L)
         a.rect(4, 4, 2, 1, GREEN)
         a.rect(7, 4, 2, 1, AMBER)
-    elif kind == "alarm":  # red emergency lamp (corridor)
-        a.rect(6, 2, 4, 3, RED)
-        a.dot(7, 2, PINK)
+    elif kind == "alarm":  # rotating beacon (corridor): unlit glass dome on a wall mount.
+        # The spinning reflector, glow and sweeping beam are drawn live by
+        # scripts/prototype/escape_alarm.gd (BEACON_DOME there matches this dome).
+        a.rect(4, 6, 8, 2, STEEL_D)               # wall mount
+        a.hline(4, 11, 6, STEEL_L)
+        a.rect(5, 5, 6, 1, STEEL)                 # collar under the dome
+        a.rect(6, 1, 4, 1, (58, 10, 24))          # dome glass, rounded top
+        a.rect(5, 2, 6, 3, (92, 16, 34))
+        a.vline(5, 2, 4, (58, 10, 24))
+        a.vline(10, 2, 4, (58, 10, 24))
+        a.dot(6, 2, (170, 80, 100))               # glint on the glass
     TILES[f"wall_face_{kind}"] = a.image()
 
 

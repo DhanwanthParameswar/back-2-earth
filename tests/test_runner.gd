@@ -112,7 +112,7 @@ func _test_gravity_cycle() -> void:
 	_check(d.state == GravityDirector.State.CALM, "starts calm")
 	d.advance(GravityDirector.FIRST_CALM_TIME + 0.01)
 	_check(d.state == GravityDirector.State.WARNING and d.next_direction() == Vector2.DOWN, "warning comes first, DOWN")
-	_check(d.get_drift(false) == Vector2.ZERO, "no drift during warning")
+	_check(d.get_drift() == Vector2.ZERO, "no drift during warning")
 	d.advance(GravityDirector.WARNING_TIME)
 	_check(d.state == GravityDirector.State.PULL, "pull after 3 s warning")
 	_check(d.get_drift() == Vector2.DOWN * 90.0, "pull drift 90 px/s")
