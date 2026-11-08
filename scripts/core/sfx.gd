@@ -10,9 +10,11 @@ const SOUNDS := {
 	"objective": "res://assets/audio/objective.wav",
 	"door": "res://assets/audio/door.wav",
 	"launch": "res://assets/audio/launch.wav",
+	"hull_impact": "res://assets/audio/hull_impact.wav",  # tools/make_impact_sounds.py
+	"sparks": "res://assets/audio/sparks.wav",
 }
 const BACKGROUND_MUSIC := "res://assets/audio/game_music_loop.ogg"
-const POOL_SIZE := 4
+const POOL_SIZE := 6  # room for a long impact or the launch under other sounds
 
 var _streams := {}
 var _pool: Array[AudioStreamPlayer] = []
@@ -31,7 +33,8 @@ func _ready() -> void:
 	add_child(_ambient)
 
 
-func play(sound_name: String, volume_db := 0.0) -> void:
+## pitch_scale below 1 sounds bigger and further away (it also plays slower).
+func play(sound_name: String, volume_db := 0.0, pitch_scale := 1.0) -> void:
 	var stream := _get_stream(sound_name)
 	if stream == null:
 		return
@@ -39,6 +42,7 @@ func play(sound_name: String, volume_db := 0.0) -> void:
 	_next = (_next + 1) % POOL_SIZE
 	p.stream = stream
 	p.volume_db = volume_db
+	p.pitch_scale = pitch_scale
 	p.play()
 
 

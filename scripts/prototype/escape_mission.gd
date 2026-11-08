@@ -15,6 +15,7 @@ const Intro = preload("res://scripts/ui/intro_cutscene.gd")
 const Outro = preload("res://scripts/ui/outro_film.gd")
 const Darkness = preload("res://scripts/prototype/escape_darkness.gd")
 const Alarm = preload("res://scripts/prototype/escape_alarm.gd")
+const Impacts = preload("res://scripts/prototype/escape_impacts.gd")
 const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
 const Haptics = preload("res://scripts/core/haptics.gd")
 const TILE := 32
@@ -73,6 +74,7 @@ var _intro = null
 var _busy := {}                 # crew id -> task
 var _task_arg := {}             # crew id -> extra (the fuse box Aaron is fetching)
 var alarm                       # escape_alarm.gd: the corridor's rotating beacons
+var impacts                     # escape_impacts.gd: debris striking the hull now and then
 var _save_ready := false
 var _autosave_clock := 0.0
 var _resumed := false
@@ -135,6 +137,9 @@ func _ready() -> void:
 	alarm = Alarm.new()  # drawn above the dark: the beacons are light sources
 	alarm.mission = self
 	add_child(alarm)
+	impacts = Impacts.new()
+	impacts.mission = self
+	add_child(impacts)
 	ui = Interface.new()
 	ui.mission = self
 	add_child(ui)
