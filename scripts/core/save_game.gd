@@ -196,6 +196,24 @@ func sign_out() -> void:
 	changed.emit()
 	await _api("/auth/logout", {}, token)
 
+func delete_account(password: String) -> Dictionary:
+	if busy or not Settings.is_logged_in(): return {"code": 0, "message": "Sign in and wait for the current request to finish."}
+	busy = true
+	var generation := _generation
+	var local_path := _path()
+	var result := await _api("/auth/delete", {"password": password, "confirm": true}, Settings.account_token)
+	if generation != _generation: return {"code": 0, "message": "Account changed. Please try again."}
+	busy = false
+	if result.code == 200 and result.get("ok") == true:
+		# Invalidate in-flight uploads before switching back to the guest slot.
+		_generation += 1
+		for path in [local_path, local_path + ".tmp"]:
+			if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
+		Settings.clear_account()
+		status = "Account deleted. You can play as a guest or create a new account."
+		changed.emit()
+	return result
+
 func refresh_cloud() -> void:
 	if not enabled or not Settings.is_logged_in() or _syncing or busy: return
 	busy = true

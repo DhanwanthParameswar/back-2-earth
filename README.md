@@ -342,6 +342,12 @@ Saved Game, with confirmation before replacing or deleting progress. Guest saves
 stay on the current device; account saves also sync to the database. An existing
 guest checkpoint can be imported into an empty account slot.
 
+Signed-in players can choose Delete Account and confirm with their password.
+Deletion permanently removes the account, all sessions, cloud checkpoint and crew
+memories, owned runs and their events, and leaderboard results in one transaction.
+The current device's account checkpoint is removed after server confirmation;
+guest saves are kept. Offline or failed deletion keeps the account and save intact.
+
 The escape mission saves after progress changes, every five seconds while playing,
 on pause, and on leaving the mission or losing focus. Checkpoints include the
 route, inventory, player/crew positions, flashlights, recent radio conversation, remembered crew facts,

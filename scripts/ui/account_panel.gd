@@ -145,6 +145,7 @@ func _show_games() -> void:
 	if Settings.is_logged_in():
 		_button("REFRESH CLOUD SAVE", SaveGame.refresh_cloud, SaveGame.busy)
 		_button("SIGN OUT / SWITCH ACCOUNT", _sign_out, SaveGame.busy)
+		_button("DELETE ACCOUNT", _confirm_account_delete, SaveGame.busy)
 	else: _button("SIGN IN / CREATE ACCOUNT", _show_auth)
 	_button("Back", hide)
 	_layout()
@@ -174,6 +175,45 @@ func _delete() -> void:
 func _sign_out() -> void:
 	await SaveGame.sign_out()
 	_show_auth()
+
+func _confirm_account_delete() -> void:
+	if not Settings.is_logged_in() or SaveGame.busy: return
+	screen = "delete_account"
+	_clear("DELETE ACCOUNT PERMANENTLY?")
+	_text("This permanently deletes " + Settings.account_name + ", its cloud save, crew memories, and leaderboard history. This cannot be undone. Guest saves are kept.", 10)
+	password = LineEdit.new()
+	password.placeholder_text = "Enter your password to confirm"
+	password.secret = true
+	password.max_length = 128
+	password.add_theme_font_size_override("font_size", 11)
+	content.add_child(password)
+	status_label = _text("", 10, Style.MUTED)
+	_button("Cancel", _show_games)
+	_button("PERMANENTLY DELETE MY ACCOUNT", _delete_account)
+	password.grab_focus.call_deferred()
+
+func _delete_account() -> void:
+	if working or not is_instance_valid(password): return
+	if password.text.length() < 8:
+		status_label.text = "Enter your password to confirm permanent deletion."
+		return
+	working = true
+	for child in content.get_children():
+		if child is Button: child.disabled = true
+	password.editable = false
+	status_label.text = "Deleting account…"
+	var result := await SaveGame.delete_account(password.text)
+	working = false
+	if not is_instance_valid(password): return
+	password.clear()
+	if result.code == 200 and result.get("ok") == true:
+		_show_auth()
+		status_label.text = "Your account and its saved data have been deleted."
+	else:
+		password.editable = true
+		for child in content.get_children():
+			if child is Button: child.disabled = false
+		status_label.text = str(result.get("message", "Could not delete your account. Please try again."))
 
 func _start(resume: bool) -> void:
 	if SaveGame.busy: return

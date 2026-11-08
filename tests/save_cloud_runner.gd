@@ -68,6 +68,21 @@ func _run() -> void:
 	await saves.sign_out()
 	auth = await saves.authenticate("register", name + "B", "test-password-123")
 	check(auth.code == 200 and not saves.has_progress(), "A second account starts with a separate empty slot")
-	await saves.sign_out()
+	saves.store(data)
+	await _synced()
+	var deleted_path: String = saves._path()
+	var deleted_token: String = settings.account_token
+	var result: Dictionary = await saves.delete_account("incorrect-password")
+	check(result.code == 401 and settings.is_logged_in() and saves.has_progress(), "Incorrect deletion password preserves the account and save")
+	saves.network_enabled = false
+	result = await saves.delete_account("test-password-123")
+	check(result.code == 0 and settings.is_logged_in() and FileAccess.file_exists(deleted_path), "Offline deletion preserves local data and login")
+	saves.network_enabled = true
+	result = await saves.delete_account("test-password-123")
+	check(result.code == 200 and not settings.is_logged_in() and not FileAccess.file_exists(deleted_path), "Confirmed account deletion signs out and removes the local account checkpoint")
+	remote = await saves._api("/save", null, deleted_token)
+	check(remote.code == 401, "Deleted account session can no longer access cloud saves")
+	auth = await saves.authenticate("login", name + "B", "test-password-123")
+	check(auth.code == 401, "Deleted account cannot sign back in")
 	print("CLOUD CLIENT: %d checks, %d failures" % [checks, failures])
 	quit(failures)

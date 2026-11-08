@@ -19,6 +19,7 @@ var _fx: Node2D
 var _modulate: CanvasModulate
 var _t := 0.0
 var _stars: Array[Vector3] = []
+var _outside_crew: Sprite2D
 
 
 func _ready() -> void:
@@ -38,6 +39,25 @@ func _ready() -> void:
 	_modulate = CanvasModulate.new()
 	_modulate.color = DIM
 	mission.add_child.call_deferred(_modulate)
+	_build_observation_view()
+
+
+func _build_observation_view() -> void:
+	var observation := _room_rect("OBSERVATION")
+	if observation.size == Vector2.ZERO: return
+	# Keep the distant figure behind the glass, inside its steel frame.
+	var glass := Control.new()
+	glass.position = Vector2(observation.position.x + 3 * TILE + 2, observation.position.y - TILE + 2)
+	glass.size = Vector2(28, 20)
+	glass.clip_contents = true
+	glass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(glass)
+	_outside_crew = Sprite2D.new()
+	_outside_crew.texture = preload("res://assets/intro/tiny_mint_0.png")
+	_outside_crew.scale = Vector2(1.5, 1.5)
+	_outside_crew.position = glass.size / 2.0
+	_outside_crew.modulate = Color(0.8, 0.9, 1.0)
+	glass.add_child(_outside_crew)
 
 
 func tex(name: String) -> Texture2D:
@@ -49,6 +69,9 @@ func tex(name: String) -> Texture2D:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _outside_crew != null:
+		_outside_crew.position = Vector2(14 + roundf(3 * sin(_t * 0.23)), 10 + roundf(sin(_t * 0.31)))
+		_outside_crew.rotation = -0.5 + 0.35 * sin(_t * 0.13)
 	if _modulate != null and mission.state != null:
 		var target := LIT if mission.state.powered() else DIM
 		_modulate.color = _modulate.color.lerp(target, minf(1.0, delta * 2.0))
