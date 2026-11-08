@@ -2,7 +2,8 @@ extends Node2D
 ## Ship lighting for the escape mission: tile-based line of sight (like a
 ## top-down roguelike), drawn as a smooth dark overlay over the world.
 ## Without power the ship is dark:
-##   - a soft light of about 6 x 6 tiles always surrounds Johnny;
+##   - a soft light of about 6 x 6 tiles always surrounds Johnny, fading into a
+##     dim zone where you can still make things out, then black (same for beams);
 ##   - F toggles a flashlight BEAM pointing the way you face (up/down/left/right);
 ##     it swings smoothly when you turn and widens out from your light circle;
 ##   - crewmates can be asked to turn on their own flashlight; it points the way
@@ -19,6 +20,13 @@ const TILE := 32.0
 const BASE_RADIUS := 3.0 * TILE         # always lit around you: ~6 x 6 tiles
 const SOFT_EDGE := 0.9 * TILE
 const BEAM_RANGE := 8.0 * TILE          # how far a flashlight beam reaches
+## Gradient: a bright core, a gentle fade, then a DIM zone where you can still make
+## things out, then black.
+const BRIGHT_EDGE := 0.6                # light left at the end of the bright part
+const DIM_LEVEL := 0.22                 # light left at the end of the dim zone
+const CIRCLE_DIM := 2.0 * TILE          # dim zone beyond your 6 x 6 circle
+const BEAM_DIM := 1.5 * TILE            # dim tail beyond the beam's reach
+const EDGE := 1.0 * TILE                # from dim to black
 const BEAM_HALF_ANGLE := deg_to_rad(24.0)
 const BEAM_START_WIDTH := BASE_RADIUS * 0.75  # beam leaves your circle this wide: no sharp tip
 const TURN_SPEED := 10.0                # how fast a beam swings to a new direction
@@ -180,7 +188,7 @@ func _sight(src: Vector2i) -> Dictionary:
 	if _sight_cache.has(src):
 		return _sight_cache[src]
 	var seen := {}
-	var r := ceili(BEAM_RANGE / TILE) + 1
+	var r := ceili((BEAM_RANGE + BEAM_DIM + EDGE) / TILE) + 1
 	for y in range(src.y - r, src.y + r + 1):
 		for x in range(src.x - r, src.x + r + 1):
 			var c := Vector2i(x, y)
@@ -198,8 +206,9 @@ func _add_circle(origin: Vector2, radius: float) -> void:
 	var seen := _sight(_cell(origin))
 	for c in seen.keys():
 		var dist := origin.distance_to(Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0)
-		if dist < radius:
-			_add(c, 1.0 - smoothstep(radius - SOFT_EDGE, radius, dist))
+		var amount := falloff(dist, radius, radius + CIRCLE_DIM, radius + CIRCLE_DIM + EDGE)
+		if amount > 0.0:
+			_add(c, amount)
 
 
 func _add_beam(origin: Vector2, dir: Vector2) -> void:
@@ -208,16 +217,32 @@ func _add_beam(origin: Vector2, dir: Vector2) -> void:
 	for c in seen.keys():
 		var v: Vector2 = Vector2(c) * TILE + Vector2(TILE, TILE) / 2.0 - origin
 		var along := v.dot(dir)
-		if along < -BEAM_START_WIDTH * 0.5 or along > BEAM_RANGE:
+		if along < -BEAM_START_WIDTH * 0.5 or along > BEAM_RANGE + BEAM_DIM + EDGE:
 			continue
 		var perp := absf(v.cross(dir))
 		var half_w := BEAM_START_WIDTH + maxf(along, 0.0) * spread
-		if perp > half_w:
+		if perp > half_w * 1.5:
 			continue
-		var side := 1.0 - smoothstep(half_w * 0.5, half_w, perp)
+		# Bright in the middle of the beam, fading to its sides (with a dim fringe),
+		# and bright near you, fading along its length (with a dim tail).
+		var side := falloff(perp, half_w * 0.75, half_w * 1.2, half_w * 1.5)
+		var reach := falloff(maxf(along, 0.0), BEAM_RANGE, BEAM_RANGE + BEAM_DIM, BEAM_RANGE + BEAM_DIM + EDGE)
 		var back := smoothstep(-BEAM_START_WIDTH * 0.5, BEAM_START_WIDTH * 0.6, along)
-		var reach := 1.0 - smoothstep(BEAM_RANGE * 0.55, BEAM_RANGE, along)
 		_add(c, side * back * reach)
+
+
+## Light from 1 (bright) down to 0 over distance `d`: bright core, gentle fade to
+## BRIGHT_EDGE at `full`, a dim zone down to DIM_LEVEL at `dim_end`, then black at `black_end`.
+static func falloff(d: float, full: float, dim_end: float, black_end: float) -> float:
+	if d <= full * 0.45:
+		return 1.0
+	if d <= full:
+		return lerpf(1.0, BRIGHT_EDGE, smoothstep(full * 0.45, full, d))
+	if d <= dim_end:
+		return lerpf(BRIGHT_EDGE, DIM_LEVEL, smoothstep(full, dim_end, d))
+	if d <= black_end:
+		return lerpf(DIM_LEVEL, 0.0, smoothstep(dim_end, black_end, d))
+	return 0.0
 
 
 func _add(c: Vector2i, amount: float) -> void:
