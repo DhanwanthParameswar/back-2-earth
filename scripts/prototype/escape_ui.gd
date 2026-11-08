@@ -60,6 +60,9 @@ var _shake := 0.0
 var _alarm: ColorRect           # red siren wash during the launch
 var _alarm_t := -1.0
 var _black: ColorRect           # fade to black before the ending film; backdrop of the stats card
+var _banner: Panel              # timed moments: what to press now, with a time bar
+var _banner_text: Label
+var _banner_bar: ColorRect
 
 ## The HUD is one small tag in the corner (TAB: tablet, what you carry, pilot controls);
 ## everything else (task, crew, ship, notes, map) is on the crew tablet (show_map).
@@ -111,6 +114,17 @@ func _ready() -> void:
 	modal.add_theme_stylebox_override("panel", Style.panel())
 	root.add_child(modal)
 	modal.hide()
+	_banner = Panel.new()
+	_banner.add_theme_stylebox_override("panel", Style.box(Color("0b1526", 0.88), Style.AMBER, 2))
+	_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner.visible = false
+	root.add_child(_banner)
+	_banner_text = _label(_banner, "", Vector2(8, 5), 10, Style.AMBER)
+	_banner_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_bar = ColorRect.new()
+	_banner_bar.color = Style.AMBER
+	_banner_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner.add_child(_banner_bar)
 	_build_fail_layer()
 	radio = Radio.new()
 	radio.mission = mission
@@ -170,6 +184,23 @@ func _place_modal() -> void:
 		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - (206.0 if _quick_replies else 196.0))
 	elif mode != "":
 		modal.position.x = round((s.x - modal.custom_minimum_size.x) / 2.0)
+
+## A timed moment's instruction at the top of the screen (above any close-up), with a bar
+## for the time left (left < 0: no bar). "" hides it.
+func set_banner(text: String, left: float) -> void:
+	if _banner == null: return
+	_banner.visible = text != "" and not fail_open()
+	if not _banner.visible: return
+	if _banner_text.text != text:
+		_banner_text.text = text
+	var s := get_viewport().get_visible_rect().size
+	var w := minf(s.x - 16, _banner_text.get_minimum_size().x + 24)
+	_banner.size = Vector2(w, 26 if left >= 0.0 else 20)
+	_banner.position = Vector2(round((s.x - w) / 2.0), 6)
+	_banner_text.size = Vector2(w - 16, 14)
+	_banner_bar.visible = left >= 0.0
+	_banner_bar.position = Vector2(6, 19)
+	_banner_bar.size = Vector2((w - 12) * clampf(left, 0.0, 1.0), 3)
 
 func update_hud() -> void:
 	if objective == null or mission == null: return

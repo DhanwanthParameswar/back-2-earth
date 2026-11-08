@@ -27,6 +27,7 @@ const SCHEMA := 2
 const MAP_ID := "escape-v2"
 const NEAR := 115.0                 # "standing next to it" for crew tasks
 const LIFT_HOLD := 6.0              # how long Aaron can hold the locker up
+const BREAKER_HOLD := 7.0           # how long Aaron can hold the bay breaker shut (press RESTART meanwhile)
 const SOFT_COOLDOWN := 12.0         # seconds between unprompted lines
 const NUDGE_1 := 45.0
 const NUDGE_2 := 90.0
@@ -49,8 +50,9 @@ const BUSY_TELL := {
 	"fetch_fuse": "fetching the spare fuse from Storage. You'll leave it by the engineering cabinet.",
 	"fetch_case": "fetching the insulated sample case from the shuttle for the lab freezer.",
 	"release_clamps": "releasing the clamps, then getting on the shuttle.",
+	"hold_breaker": "at the shuttle bay breaker. When Johnny says now, you hold it shut for a few seconds while he presses RESTART in engineering.",
 }
-const TASKS := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps"]
+const TASKS := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps", "hold_breaker"]
 
 var state = Rules.new()
 var marvis = Marvis.new()
@@ -82,6 +84,8 @@ var voice: AudioStreamPlayer
 var _marvis_chain_active := false
 var _intro = null
 var _busy := {}                 # crew id -> task
+var _breaker_until := -1.0
+var _consulted := {}            # crew Johnny has asked anything this run      # Aaron is holding the bay breaker shut until then
 var _task_arg := {}             # crew id -> extra (the fuse box Aaron is fetching)
 var alarm                       # escape_alarm.gd: the corridor's rotating beacons
 var impacts                     # escape_impacts.gd: debris striking the hull now and then
@@ -372,6 +376,8 @@ func _process(delta: float) -> void:
 	_update_hold(delta)
 	_update_lift()
 	_update_count()
+	_update_breaker()
+	ui.set_banner(timing_banner(), timing_left())
 	_tick_dhan(delta)
 	_deliver_lines()
 	_check_stuck()
@@ -822,14 +828,25 @@ func closeup_press(panel: String, part: String) -> void:
 			match part:
 				"display":
 					pass
-				"slot": fail_or(perform("seat_fuse"))
-				"test": fail_or(perform("test"))
+				"slot":
+					_fumble_unless("ivo", "fumble_cabinet_aaron")
+					fail_or(perform("seat_fuse"))
+				"test":
+					_fumble_unless("ivo", "fumble_cabinet_aaron")
+					fail_or(perform("test"))
 				"restart":
-					var r := perform("restart")
+					var r := perform("restart", "held" if breaker_held() else "")
 					fail_or(r)
-					if r.ok: _bay_powered()
+					if r.ok:
+						_breaker_done()
+						_bay_powered()
+					elif state.has_flag("aux_off") and not breaker_held():
+						Sfx.play("hit", -12)
+						say("breaker_dhan")
 		"fuse":
-			if part in Rules.BOXES: perform("take_fuse", part)
+			if part in Rules.BOXES:
+				if not state.has_flag("code_read") or not _consulted.has("ivo"): _fumble("fumble_fuse_aaron")
+				perform("take_fuse", part)
 		"aux":
 			if part == "cover":
 				ui.aux_cover_open = not ui.aux_cover_open
@@ -842,9 +859,11 @@ func closeup_press(panel: String, part: String) -> void:
 					Sfx.play("hit", -10)
 					Haptics.play("jolt")
 					say_again("wrong_switch_dhan")
+					_fumble_unless("ivo", "fumble_toggle_aaron")
 		"freezer":
 			match part:
 				"cover":
+					_fumble_unless("mara", "fumble_freezer_dhan")
 					ui.freezer_cover_open = not ui.freezer_cover_open
 					if ui.freezer_cover_open: ui.closeup.prefer = "switch"
 				"switch":
@@ -857,7 +876,9 @@ func closeup_press(panel: String, part: String) -> void:
 						announce("CASE", "Packed. The case is sealed.")
 		"socket":
 			match part:
-				"knob": perform("set_selector", str((state.selector + 1) % 3))
+				"knob":
+					_fumble_unless("ivo", "fumble_socket_aaron")
+					perform("set_selector", str((state.selector + 1) % 3))
 				"connect":
 					if perform("connect_battery").ok:
 						marvis_say(["battery_bay"])
@@ -923,7 +944,9 @@ func _after_action(action: String) -> void:
 		"test":
 			state.learn("aux_" + state.short_branch(), "CABINET: Short circuit on %s." % state.short_branch())
 			Sfx.play("hit", -12)
-		"aux_off": pass
+		"aux_off":
+			say("breaker_dhan")
+			state.learn("d_breaker", "DHAN: RESTART needs the shuttle bay breaker held shut at the same time. Send Aaron to the bay power panel.")
 		"freezer_off": state.learn("freezer_off", "LAB: Freezer off. The samples are warming.")
 		"battery_latch": pass
 		"carry_dhan": pass
@@ -1016,7 +1039,9 @@ func available_actions(id: String) -> Dictionary:
 		# from him. The same request again is fine; it just carries on.
 		var task := str(_busy[id]).trim_suffix("_walk")
 		var b := {"none": "You are busy: %s Tell Johnny that plainly. Don't start anything else." % str(BUSY_TELL.get(task, "doing a task."))}
-		if task in ["lift_locker", "lift_battery", "carry_dhan"]: b[task] = "Johnny asked again: keep at it and remind him what you need from him."
+		if task in ["lift_locker", "lift_battery", "carry_dhan", "hold_breaker"]: b[task] = "Johnny asked again: keep at it and remind him what you need from him."
+		if task == "hold_breaker" and breaker_ready() and not breaker_held():
+			b["breaker_now"] = "Johnny says now / go / hold it: hold the breaker shut for a few seconds so he can press RESTART."
 		return b
 	a["follow"] = "Follow Johnny."
 	a["wait"] = "Stay where you are."
@@ -1036,6 +1061,8 @@ func available_actions(id: String) -> Dictionary:
 		a["lift_battery"] = "Go to the lab cart and lift the battery onto it with Johnny, on a count of three."
 	if state.powered() and state.dhan_alive() and not state.has_flag("dhan_aboard"):
 		a["carry_dhan"] = "Help Johnny carry Dhan to the shuttle."
+	if state.has_flag("aux_off") and not state.powered():
+		a["hold_breaker"] = "Go to the shuttle bay power panel and get ready to hold the bay breaker shut while Johnny presses RESTART in engineering. He'll say when."
 	if state.powered() and not state.has_flag("clamps"):
 		a["release_clamps"] = "Release the docking clamps from the bay console, then board the shuttle."
 	return a
@@ -1076,6 +1103,18 @@ func act_on_dialogue(id: String, action: String, message := "") -> String:
 		"carry_dhan":
 			_busy[id] = "carry_dhan"
 			actor.go_to(crew.ivo.position + Vector2(26, 6), func(): _when_player_near(id, "carry_dhan", crew.ivo.position))
+		"hold_breaker":
+			_busy[id] = "hold_breaker_walk"
+			actor.go_to(breaker_spot(), func():
+				if _busy.get(id, "") != "hold_breaker_walk": return
+				_busy[id] = "hold_breaker"
+				say_again("breaker_ready_aaron"))
+		"breaker_now":
+			if not breaker_ready(): return "I'm not at the breaker yet. Give me a second."
+			_breaker_until = elapsed + BREAKER_HOLD
+			actor.pose = "straining"
+			Sfx.play("hit", -16)
+			Haptics.play("heavy")
 		"release_clamps":
 			if state.dhan_alive() and not state.has_flag("dhan_aboard"): return line_text("aaron_dhan_first")
 			if not seated: return line_text("aaron_needs_pilot")
@@ -1216,6 +1255,65 @@ func _carry_dhan() -> void:
 		state.learn("dhan_aboard", "SHUTTLE: Dhan is strapped in."))
 
 ## The nearest walkable cell centre (the player can stand half over furniture).
+## Touching something nobody explained: the other crewmate isn't sure either and points
+## Johnny to whoever knows (once each per run).
+func _fumble(id: String) -> void:
+	if not lines.has(id): return
+	if str(lines[id].who) == "aaron" and state.has_flag("aaron_aboard"): return
+	say(id)
+
+func _fumble_unless(expert: String, id: String) -> void:
+	if not _consulted.has(expert): _fumble(id)
+
+# --- The bay breaker (engineering route): two places at once ---------------------------
+
+## Where Aaron stands to hold the breaker: the shuttle bay power panel (the battery socket's panel).
+func breaker_spot() -> Vector2:
+	return _free_spot(props.socket.position + Vector2(0, 30))
+
+## Aaron is at the breaker, waiting for "now".
+func breaker_ready() -> bool:
+	return _busy.get("mara", "") == "hold_breaker" and near(crew.mara.position, breaker_spot(), 40.0)
+
+func breaker_held() -> bool:
+	return _breaker_until > 0.0 and elapsed < _breaker_until
+
+func _update_breaker() -> void:
+	if _breaker_until < 0.0 or elapsed < _breaker_until: return
+	_breaker_until = -1.0
+	crew.mara.pose = "stand"
+	if not state.powered(): say_again("breaker_let_go_aaron")
+
+func _breaker_done() -> void:
+	_breaker_until = -1.0
+	if _busy.get("mara", "") in ["hold_breaker", "hold_breaker_walk"]: _busy.erase("mara")
+	crew.mara.pose = "stand"
+
+## "Now!" to Aaron at the breaker is instant (no waiting on the AI): timing matters.
+func quick_action(id: String, message: String) -> Dictionary:
+	if id != "mara" or not breaker_ready() or breaker_held(): return {}
+	var m := message.to_lower()
+	if RegEx.create_from_string("\\b(now|go|hold( it)?|do it|press|push|close it|shut it|ready)\\b").search(m) == null: return {}
+	if RegEx.create_from_string("\\b(not|don't|dont|wait)\\b").search(m) != null: return {}
+	return {"line": "Holding it! Press RESTART!", "action": "breaker_now", "source": "offline"}
+
+# --- Timing banner: every timed input says what to press, with a bar ------------------
+
+func timing_banner() -> String:
+	var e := Settings.button_label("interact")
+	if lifting() and not state.has_flag("dhan_free"): return "AARON IS LIFTING THE LOCKER  ·  HOLD %s ON DHAN TO PULL HIM OUT" % e
+	if _count.has("t"): return "LIFT TOGETHER  ·  PRESS %s WHEN AARON SAYS \"THREE!\"" % e
+	if breaker_held(): return "AARON IS HOLDING THE BREAKER  ·  PRESS RESTART ON THE CABINET NOW"
+	if breaker_ready() and not state.powered(): return "AARON IS AT THE BAY BREAKER  ·  RADIO HIM \"NOW\" (%s), THEN PRESS RESTART" % Settings.button_label("radio_1")
+	return ""
+
+## 0..1 time left on the banner's bar (-1: no bar).
+func timing_left() -> float:
+	if lifting() and not state.has_flag("dhan_free"): return clampf((_lift_until - elapsed) / LIFT_HOLD, 0.0, 1.0)
+	if _count.has("t"): return clampf(1.0 - float(_count.t) / COUNT_THREE, 0.0, 1.0)
+	if breaker_held(): return clampf((_breaker_until - elapsed) / BREAKER_HOLD, 0.0, 1.0)
+	return -1.0
+
 func _free_spot(at: Vector2) -> Vector2:
 	var c := Vector2i(at / TILE)
 	for r in range(0, 3):
@@ -1263,7 +1361,7 @@ func next_step() -> String:
 				if not state.has_flag("fuse_installed"): return "eng_fuse" if state.has_flag("code_read") else "eng_code"
 				if not state.has_flag("fault_found"): return "eng_test"
 				if not state.has_flag("aux_off"): return "eng_toggle"
-				return "eng_restart"
+				return "eng_restart" if breaker_ready() else "eng_breaker"
 		if room == "ENGINEERING": return "eng_isolate"
 		if room == "LABORATORY": return "bat_freezer"
 		return "choose"
@@ -1319,11 +1417,13 @@ func talking_points(id: String) -> Array:
 		if step in ["eng_isolate", "choose"] and room == "ENGINEERING":
 			pts.append("Before touching the cabinet, the big isolator handle by the door must be pulled.")
 		if step == "eng_test": pts.append("Once the new fuse is in, press TEST on the cabinet.")
-		if step == "eng_restart": pts.append("With the shorted branch cut, press RESTART on the cabinet.")
+		if step == "eng_breaker": pts.append("RESTART only works while someone holds the shuttle bay breaker shut. Johnny can't be in both places: Aaron has to go to the bay power panel.")
+		if step == "eng_restart": pts.append("Aaron is at the bay breaker. Johnny tells him 'now', then presses RESTART on the cabinet.")
 	return pts
 
 ## Everything the model may use about the world, for one crewmate (escape_dialogue.py).
 func snapshot(id: String, message := "") -> Dictionary:
+	_consulted[id] = true  # Johnny has talked to this crewmate (see _fumble)
 	var stage: int = state.stage()
 	var step := next_step()
 	var snap := {"npc_id": id, "state_version": state.version, "objective": state.objective(),
@@ -1482,7 +1582,8 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 				"eng_fuse": line = "We need the fuse from box %s in Storage. Grab it and seat it in the cabinet." % (state.right_fuse() if state.has_flag("code_read") else "the right box")
 				"eng_test": line = "Hit TEST on the cabinet to check the circuits."
 				"eng_toggle": line = "AUX-%d is shorting. Flip the %s toggle down under the guard cover." % [state.short_branch(), ["left", "middle", "right"][state.right_toggle()]]
-				"eng_restart": line = "Hit RESTART on the cabinet to power the shuttle bay."
+				"eng_breaker": line = "RESTART needs the shuttle bay breaker held shut at the same time. Send Aaron to the bay power panel."
+				"eng_restart": line = "Aaron's on the breaker. Tell him 'now', then press RESTART on the cabinet."
 				"bat_freezer": line = "Shut down the freezer in the Lab before you pull the battery."
 				"bat_latch": line = "Open the latch on the emergency battery in the Lab."
 				"bat_lift": line = "Battery's heavy. Help Aaron lift it onto the cart."
@@ -1522,6 +1623,12 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 	elif not query and _mentions(m, ["lift", "hold", "raise", "help", "grab", "locker", "off him", "off his", "get it off", "move it", "push", "pick"]) and acts.has("lift_locker"):
 		action = "lift_locker"
 		line = "On it. Get ready to pull him."
+	elif not query and _mentions(m, ["breaker", "bay panel", "power panel", "hold it", "hold the"]) and acts.has("hold_breaker"):
+		action = "hold_breaker"
+		line = "On my way to the bay breaker. Tell me when you're at the cabinet."
+	elif not query and _mentions(m, ["now", "go", "hold", "press"]) and acts.has("breaker_now"):
+		action = "breaker_now"
+		line = "Holding it! Press RESTART!"
 	elif not query and _mentions(m, ["follow", "come with", "with me", "come on"]) and acts.has("follow"):
 		action = "follow"
 		line = "Right behind you."
@@ -1567,7 +1674,9 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 			"free_dhan": line = "We have to get the locker off Dhan's leg! I can lift it while you pull him free."
 			"marvis": line = "Ask M.A.R.V.I.S. what still works."
 			"choose": line = "We need power for the shuttle clamps: either repair Engineering or take the lab battery."
-			"eng_isolate", "eng_code", "eng_fuse", "eng_test", "eng_toggle", "eng_restart": line = "Dhan knows the engineering cabinet best. Radio him for instructions."
+			"eng_breaker": line = "Need me on the shuttle bay breaker? Just say so and I'll go."
+			"eng_restart": line = "I'm on the breaker. Say 'now' when you're at the cabinet."
+			"eng_isolate", "eng_code", "eng_fuse", "eng_test", "eng_toggle": line = "Dhan knows the engineering cabinet best. Radio him for instructions."
 			"bat_freezer": line = "If we take the battery, the freezer goes off. Or I can grab the shuttle sample case first."
 			"bat_latch": line = "Unlatch the battery in the Lab."
 			"bat_lift": line = "The battery's too heavy for one person. Meet me at the cart and we'll lift on three."
@@ -1837,6 +1946,7 @@ func _resume_tasks() -> void:
 			"lift_locker": act_on_dialogue(id, "lift_locker")
 			"lift_battery": act_on_dialogue(id, "lift_battery")
 			"carry_dhan": act_on_dialogue(id, "carry_dhan")
+			"hold_breaker": act_on_dialogue(id, "hold_breaker")
 			"fetch_case": _fetch_case()
 			"fetch_fuse":
 				if _task_arg.has("mara"): _fetch_fuse(str(_task_arg.mara))

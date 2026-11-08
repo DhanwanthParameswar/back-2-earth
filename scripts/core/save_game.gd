@@ -86,7 +86,7 @@ func compatible(data) -> bool:
 		if not k in ["stage3_dhan_question", "freezer_question"] or not promises[k] is String or promises[k].length() > 100: return false
 	if not _strings(data.get("said"), 120, 60): return false
 	if not _number(data.get("elapsed"), 31536000) or not data.get("flashlight") is bool or not _point(data.player.get("position")): return false
-	var tasks := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps"]
+	var tasks := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps", "hold_breaker"]
 	if data.crew.size() != 2: return false
 	for id in ["mara", "ivo"]:
 		if not data.crew.get(id) is Dictionary: return false

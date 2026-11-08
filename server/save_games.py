@@ -31,7 +31,7 @@ engineering_power freezer_off battery_out battery_loaded battery_taken battery_c
 case_arrived samples_saved samples_wrong splint_taken dhan_treated dhan_dead dhan_aboard clamps aaron_aboard
 departed'''.split())
 CARRY_V2 = ('', 'fuse_A', 'fuse_B', 'fuse_C', 'splint', 'battery cart')
-TASKS_V2 = ('', 'lift_locker', 'stay_with_dhan', 'fetch_fuse', 'fetch_case', 'lift_battery', 'carry_dhan', 'release_clamps')
+TASKS_V2 = ('', 'lift_locker', 'stay_with_dhan', 'fetch_fuse', 'fetch_case', 'lift_battery', 'carry_dhan', 'release_clamps', 'hold_breaker')
 POSES = ('stand', 'pinned', 'straining', 'sit', 'carried', 'dead')
 FAILS = ('F1', 'F2', 'F3', 'F4', 'F5')
 QUESTIONS = ('stage3_dhan_question', 'freezer_question')

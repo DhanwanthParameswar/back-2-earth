@@ -205,6 +205,8 @@ func apply(action: String, arg := "") -> Dictionary:
 			if not has_flag("fuse_installed"): return _no("Restart fails. No fuse.")
 			if not has_flag("aux_off"): return _no("Breaker trips. %s is still shorting." % short_branch()) if has_flag("fault_found") else _no("Test the circuit before restarting.")
 			if powered(): return _no("The bay already has power.")
+			# Two places at once: the shuttle bay's breaker has to be held shut while RESTART is pressed.
+			if arg != "held": return _no("RESTART REJECTED. The shuttle bay breaker is open. Someone has to hold it shut at the bay power panel while you press RESTART.")
 			return _grant("engineering_power", "")
 		"fetch_case":
 			if has_flag("freezer_off"): return _no("The freezer's already off. The samples are gone.")

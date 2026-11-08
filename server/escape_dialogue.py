@@ -14,7 +14,7 @@ PERSONAS = {
 # Keep the public NPC IDs stable across existing web clients and saves.
 LIGHT_ACTIONS = {"light_on", "light_off"}
 AARON_ACTIONS = {"none", "follow", "wait", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case",
-                 "lift_battery", "carry_dhan", "release_clamps"} | LIGHT_ACTIONS
+                 "lift_battery", "carry_dhan", "release_clamps", "hold_breaker", "breaker_now"} | LIGHT_ACTIONS
 ROLE_ACTIONS = {"mara": AARON_ACTIONS, "ivo": {"none"} | LIGHT_ACTIONS}
 ACTIONS = AARON_ACTIONS
 
@@ -74,6 +74,9 @@ pilot, in command, the player), Aaron (researcher) and Dhan (engineer, injured).
 shuttle is intact but its docking clamps need power. Two ways to power the bay: repair the
 engineering power cabinet (Dhan talks Johnny through it; slower, keeps the lab freezer and
 samples alive), or take the lab's emergency battery (faster, but the freezer and samples die).
+On the engineering route the last step needs two people in two places: RESTART on the cabinet only
+works while someone holds the shuttle bay breaker shut, so Aaron goes to the bay power panel and holds it
+when Johnny says "now".
 A small insulated case on the shuttle can save one rack of samples, the priority rack, if it's
 packed before the freezer goes off. The medbay cabinet has a splint kit that slows Dhan's decline.
 Dhan's leg is getting worse over time: dhan_condition is stable, strained, fading or critical.

@@ -137,6 +137,11 @@ func ask(id: String, message: String) -> void:
 	pending_answering = mission.answering(id, pending_message)
 	mission.capture_answer(id, pending_message)
 	pending_version = mission.state.version
+	# Timed moments ("now!" to Aaron on the breaker) don't wait for the AI.
+	var quick: Dictionary = mission.quick_action(id, pending_message)
+	if not quick.is_empty():
+		_deliver(quick)
+		return
 	if not live_enabled:
 		_deliver(mission.offline_response(id, pending_message, pending_answering))
 		return
