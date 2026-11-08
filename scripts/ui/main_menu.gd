@@ -361,10 +361,11 @@ func _build_how_panel() -> void:
 
 
 func _build_settings_panel() -> void:
-	var vbox := _make_panel("settings", "SETTINGS", Vector2(380, 262))
+	var vbox := _make_panel("settings", "SETTINGS", Vector2(380, 300))
 	_settings_buttons["sound"] = _add_button(vbox, "", Settings.toggle_mute)
 	_settings_buttons["shake"] = _add_button(vbox, "", Settings.toggle_reduced_shake)
 	_settings_buttons["echo"] = _add_button(vbox, "", Settings.toggle_companion)
+	_settings_buttons["chat"] = _add_button(vbox, "", Settings.toggle_voice_chat)
 	if not OS.has_feature("web"):
 		_settings_buttons["fullscreen"] = _add_button(vbox, "", Settings.toggle_fullscreen)
 		_add_button(vbox, "QUIT GAME", _quit)
@@ -381,6 +382,7 @@ func _refresh_settings_labels() -> void:
 	_settings_buttons["sound"].set_label("SOUND: %s" % ("OFF" if Settings.muted else "ON"))
 	_settings_buttons["shake"].set_label("REDUCED SHAKE & FLASH: %s" % ("ON" if Settings.reduced_shake else "OFF"))
 	_settings_buttons["echo"].set_label("ECHO LIVE REPLIES: %s" % ("ON" if Settings.companion_enabled else "OFF"))
+	_settings_buttons["chat"].set_label("CREW CHAT: %s" % ("VOICE" if Settings.voice_chat else "TEXT"))
 	if _settings_buttons.has("fullscreen"):
 		_settings_buttons["fullscreen"].set_label("FULLSCREEN: %s" % ("ON" if Settings.fullscreen else "OFF"))
 	if _mute_slash != null:
