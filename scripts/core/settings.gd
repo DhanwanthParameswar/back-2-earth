@@ -186,8 +186,12 @@ func button_label(action: String) -> String:
 		"radio_1": "1", "radio_2": "2", "radio_3": "3", "deck_map": "TAB", "pause": "ESC", "move": "WASD"}.get(action, "?")
 
 
-## Notice which device the player is using (keys/mouse vs a controller).
+## Notice which device the player is using (keys/mouse vs a controller). F11: fullscreen.
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F11 and not OS.has_feature("web"):
+		toggle_fullscreen()
+		get_viewport().set_input_as_handled()
+		return
 	var pad := event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.4)
 	var keys := event is InputEventKey or event is InputEventMouseButton
 	if (pad and not using_controller) or (keys and using_controller):
@@ -202,10 +206,22 @@ func toggle_companion() -> void:
 
 
 func toggle_fullscreen() -> void:
-	fullscreen = not fullscreen
+	# On the web the browser can leave fullscreen on its own (Esc), so start from what it is now.
+	fullscreen = not is_fullscreen()
 	_apply_window()
-	_save()
+	if not OS.has_feature("web"): _save()  # a browser only allows fullscreen after a click, so don't restore it
 	changed.emit()
+
+
+## "   (F11)" on desktop; browsers keep F11 for themselves.
+func fullscreen_key_hint() -> String:
+	return "" if OS.has_feature("web") else "   (F11)"
+
+
+## Whether the game is fullscreen right now (the browser's real state on the web).
+func is_fullscreen() -> bool:
+	var mode := DisplayServer.window_get_mode()
+	return mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
 
 
 func _apply_window() -> void:

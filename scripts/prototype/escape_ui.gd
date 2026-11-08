@@ -788,6 +788,13 @@ func show_pause() -> void:
 	_text("WHAT YOU KNOW", 10, Style.CYAN)
 	_text(_facts(5), 10, Style.MUTED)
 	_button("Resume", close)
+	var full := _button("", func(): pass)
+	full.text = "Fullscreen: %s%s" % ["ON" if Settings.is_fullscreen() else "OFF", Settings.fullscreen_key_hint()]
+	full.pressed.connect(func():
+		Settings.toggle_fullscreen()
+		# The browser switches a moment later: read it back then.
+		get_tree().create_timer(0.3).timeout.connect(func():
+			if is_instance_valid(full): full.text = "Fullscreen: %s%s" % ["ON" if Settings.is_fullscreen() else "OFF", Settings.fullscreen_key_hint()]))
 	_text(SaveGame.status, 9, Style.MUTED)
 	_button("Restart game", _confirm_restart)
 	_button("Main menu", func(): get_tree().change_scene_to_file("res://scenes/menu.tscn"))

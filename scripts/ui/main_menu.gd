@@ -501,8 +501,8 @@ func _build_settings_panel() -> void:
 	_controller_line = UiStyle.label("", 9, UiStyle.MUTED)
 	_controller_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_controller_line)
+	_settings_buttons["fullscreen"] = _add_button(vbox, "", Settings.toggle_fullscreen)
 	if not OS.has_feature("web"):
-		_settings_buttons["fullscreen"] = _add_button(vbox, "", Settings.toggle_fullscreen)
 		_add_button(vbox, "QUIT GAME", _quit)
 	_add_back_button(vbox)
 
@@ -528,7 +528,7 @@ func _refresh_settings_labels() -> void:
 	_settings_buttons["vibration"].set_label("CONTROLLER VIBRATION: %s" % ("ON" if Settings.vibration else "OFF"))
 	_refresh_controller_line()
 	if _settings_buttons.has("fullscreen"):
-		_settings_buttons["fullscreen"].set_label("FULLSCREEN: %s" % ("ON" if Settings.fullscreen else "OFF"))
+		_settings_buttons["fullscreen"].set_label("FULLSCREEN: %s%s" % ["ON" if Settings.fullscreen else "OFF", Settings.fullscreen_key_hint()])
 	if _mute_slash != null:
 		_mute_slash.queue_redraw()
 
