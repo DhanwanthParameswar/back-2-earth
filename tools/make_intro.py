@@ -762,7 +762,9 @@ def build_corridor():
 T_LOCKER_LOOK = 37.9   # after Johnny's line, the crew turns to the locker blocking the hallway
 AHEAD_WAIT_X = 58.0    # Dhan stops here: the locker blocks the way aft
 # role: (x from, x to, delay, walk time) as they step up to the locker
-LOCKER_LOOK = {"survivor": (90.0, 76.0, 0.15, 0.7), "player": (124.0, 100.0, 0.4, 0.9)}
+# Johnny walks up to the locker past the others; Dhan steps back toward the barrier.
+LOCKER_LOOK = {"ahead": (58.0, 110.0, 0.0, 1.1), "survivor": (90.0, 96.0, 0.35, 0.4),
+               "player": (124.0, 54.0, 0.15, 1.5)}
 LOCKER = [(6, 132), (21, 132), (47, 60), (34, 52)]   # the wedged locker (side view)
 
 
@@ -1238,7 +1240,8 @@ def shot_seal(tf, cast):
     A, P = cast["survivor"], cast["player"]
     breath = ((t - 21.8) % 3.2) if t >= 21.8 else 0.0
     bob = 1 if 0.2 < breath < 1.1 else 0
-    cast["ahead"].draw(img, AHEAD_WAIT_X, FEET, left=tf >= T_LOCKER_LOOK, lift=bob, tint=crew)
+    if tf < T_LOCKER_LOOK:
+        cast["ahead"].draw(img, AHEAD_WAIT_X, FEET, left=False, lift=bob, tint=crew)
     if tf >= T_LOCKER_LOOK:
         draw_locker_look(img, tf, cast, crew, bob)
     elif t < 19.65:  # A runs back for the player; the player slides toward the breach
@@ -1292,13 +1295,14 @@ def locker_look_x(role, film_time):
 
 
 def draw_locker_look(img, film_time, cast, crew, bob):
-    """Aaron and Johnny step up to the locker; everyone faces it."""
-    for role in ("survivor", "player"):
+    """Johnny steps up to the locker, the others make room; everyone ends facing it
+    (where the game picks up: Johnny at the locker, Aaron and Dhan by the barrier)."""
+    for role in ("ahead", "survivor", "player"):
         x0, x1, delay, duration = LOCKER_LOOK[role]
         start = T_LOCKER_LOOK + delay
         walking = start <= film_time < start + duration
         cast[role].draw(img, locker_look_x(role, film_time), FEET, t_anim=film_time * 1.4, walking=walking,
-                        left=True, lift=0 if walking else bob, tint=crew)
+                        left=(x1 < x0) if walking else True, lift=0 if walking else bob, tint=crew)
 
 
 def _vignette_base():

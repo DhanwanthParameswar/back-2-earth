@@ -33,15 +33,13 @@ func _run() -> void:
 	var film = Film.new()
 	root.add_child(film)
 	check(film.is_ready(), "Intro art and timing load")
-	check(film.length() > 39.8, "Intro leaves time for all three survivors to enter the cabin")
-	check(film._hatch_open_amount(21.5) == 0.0, "Dhan cannot enter the cabin during the breach")
-	check(film._hatch_open_amount(37.5) == 0.0, "Cabin stays closed through Johnny's line")
-	check(film._hatch_open_amount(37.9) == 1.0, "Cabin opens before the crew walks in")
-	check(Film.AHEAD_WAIT_X > Film.HATCH[2] and Film.AHEAD_WAIT_X < Film.CORR_DOOR[0], "Dhan waits beyond the barrier but outside the cabin")
-	for role in ["ahead", "survivor", "player"]:
-		check(film.cabin_entry_x(role, 37.5) > Film.HATCH[2], "%s waits outside during the speech" % role)
-		check(film.cabin_entry_x(role, 40.5) < Film.HATCH[0], "%s enters the cabin before the fade" % role)
-		check(film.cabin_entry_x(role, 39.0) < film.cabin_entry_x(role, 37.5), "%s walks toward the cabin" % role)
+	check(film.length() > 39.8, "Intro leaves time for the crew to face the locker in the hallway")
+	check(Film.AHEAD_WAIT_X < Film.CORR_DOOR[0], "Dhan waits on the safe side of the barrier, at the locker")
+	var end := Film.LENGTH - 0.5
+	check(film._locker_look_x("player", 39.5) < film._locker_look_x("player", Film.T_LOCKER_LOOK), "Johnny walks up to the locker after his line")
+	check(film._locker_look_x("player", end) < film._locker_look_x("survivor", end) and film._locker_look_x("player", end) < film._locker_look_x("ahead", end), "Johnny ends nearest the locker, like the game's start")
+	for role in ["ahead", "survivor"]:
+		check(film._locker_look_x(role, end) > film._locker_look_x("player", end) + 30, "%s ends back toward the barrier" % role)
 	check(film._edit.size() > 1100 and film._edit[1099] == 1139 and film._edit[1100] == 1140, "New ending follows the original voice-timed cut without a jump")
 	print("INTRO: %d checks, %d failures" % [checks, failures])
 	film.queue_free()

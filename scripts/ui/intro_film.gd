@@ -90,7 +90,9 @@ const CORR_TERM := [50, 50, 118, 82]
 const T_LOCKER_LOOK := 37.9   # the crew turns to the locker blocking the hallway aft
 const AHEAD_WAIT_X := 58.0    # Dhan stops here: the locker blocks the way
 # role: [x from, x to, delay, walk time] as they step up to the locker
-const LOCKER_LOOK := {"survivor": [90.0, 76.0, 0.15, 0.7], "player": [124.0, 100.0, 0.4, 0.9]}
+# Johnny walks up to the locker past the others; Dhan steps back toward the barrier.
+const LOCKER_LOOK := {"ahead": [58.0, 110.0, 0.0, 1.1], "survivor": [90.0, 96.0, 0.35, 0.4],
+	"player": [124.0, 54.0, 0.15, 1.5]}
 const CORR_RUN := {"survivor": [330.0, 170.0], "player": [362.0, 206.5], "lost": [400.0, 246.5]}
 const AHEAD_X0 := 150.0
 const AHEAD_V := 82.0
@@ -974,8 +976,9 @@ func _shot_seal(tf: float) -> void:
 	_terminal(t)
 	var breath := fmod(t - 21.8, 3.2) if t >= 21.8 else 0.0
 	var bob := 1 if (0.2 < breath and breath < 1.1) else 0
-	# Dhan waits by the locker, facing back toward the rescue, then turns to it.
-	_astro("ahead", AHEAD_WAIT_X, FEET, 0.0, false, tf >= T_LOCKER_LOOK, -1, 0, bob, [], crew)
+	# Dhan waits by the locker, facing back toward the rescue, then makes room for Johnny.
+	if tf < T_LOCKER_LOOK:
+		_astro("ahead", AHEAD_WAIT_X, FEET, 0.0, false, false, -1, 0, bob, [], crew)
 	if tf >= T_LOCKER_LOOK:
 		_draw_locker_look(tf, crew, bob)
 	elif t < 19.65:
@@ -1023,18 +1026,19 @@ func _shot_seal(tf: float) -> void:
 		_canvas.draw_texture(_tex["vignette"], Vector2.ZERO, Color(1, 1, 1, strength))
 
 
-## After Johnny's line: Aaron and Johnny step up to the locker; everyone faces it.
+## After Johnny's line: Johnny steps up to the locker, the others make room; all face it.
 func _locker_look_x(role: String, film_time: float) -> float:
 	var e: Array = LOCKER_LOOK[role]
 	return lerpf(float(e[0]), float(e[1]), ease_io((film_time - T_LOCKER_LOOK - float(e[2])) / float(e[3])))
 
 
 func _draw_locker_look(film_time: float, crew, bob: int) -> void:
-	for role in ["survivor", "player"]:
+	for role in ["ahead", "survivor", "player"]:
 		var e: Array = LOCKER_LOOK[role]
 		var start := T_LOCKER_LOOK + float(e[2])
 		var walking := start <= film_time and film_time < start + float(e[3])
-		_astro(role, _locker_look_x(role, film_time), FEET, film_time * 1.4, walking, true, -1, 0,
+		var left := (float(e[1]) < float(e[0])) if walking else true
+		_astro(role, _locker_look_x(role, film_time), FEET, film_time * 1.4, walking, left, -1, 0,
 			0 if walking else bob, [], crew)
 
 
