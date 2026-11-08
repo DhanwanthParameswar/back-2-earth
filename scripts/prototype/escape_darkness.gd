@@ -26,6 +26,8 @@ const TEX := 256                        # light texture size
 ## Light layers: 1 = everything; 2 = SEE_THROUGH: lit when in reach but never shadowed
 ## (the jammed locker, so you can find it even though it sits in the wall line).
 const LAYER_NORMAL := 1
+## Which occluder edges are ignored, so light can enter a wall from the front.
+const OCCLUDER_CULL := OccluderPolygon2D.CULL_COUNTER_CLOCKWISE
 const LAYER_SEE_THROUGH := 2
 
 static var _glow_tex: Texture2D
@@ -176,38 +178,55 @@ func _make_light(texture: Texture2D, scale: float, energy: float) -> PointLight2
 	return light
 
 
-## Walls cast shadows: one occluder per horizontal run of wall cells.
+## Walls cast shadows. The occluders cover the whole wall mass (including the
+## two-tile wall faces), merged into rectangles, and are ONE-SIDED: light enters a
+## wall and lights it, then stops at its far edge. So walls in your light or
+## flashlight are visible, and nothing behind them is.
 func _build_occluders() -> void:
-	var walls: Dictionary = mission.walls
-	var rows := {}
-	for cell in walls.keys():
-		if not rows.has(cell.y):
-			rows[cell.y] = []
-		rows[cell.y].append(cell.x)
-	for y in rows.keys():
-		var xs: Array = rows[y]
-		xs.sort()
-		var start: int = xs[0]
-		var prev: int = xs[0]
-		for i in range(1, xs.size() + 1):
-			if i < xs.size() and xs[i] == prev + 1:
-				prev = xs[i]
+	var cells := {}
+	for cell in mission.walls.keys():
+		cells[cell] = true
+	for y in mission.map_size.y:
+		for x in mission.map_size.x:
+			if mission.cell_char(Vector2i(x, y)) in ["#", "w"]:
+				cells[Vector2i(x, y)] = true
+	# Greedy rectangles: run right, then grow down while the same run is all wall.
+	var used := {}
+	for y in mission.map_size.y:
+		for x in mission.map_size.x:
+			var c := Vector2i(x, y)
+			if not cells.has(c) or used.has(c):
 				continue
-			_add_occluder(Rect2(Vector2(start, y) * TILE, Vector2(prev - start + 1, 1) * TILE))
-			if i < xs.size():
-				start = xs[i]
-				prev = xs[i]
-	# The jammed locker blocks light until it's pushed out of the doorway.
-	var cells: Array = mission._locker_cells()
-	if not cells.is_empty():
-		var r := Rect2(Vector2(cells[0]) * TILE, Vector2(TILE, TILE))
-		for c in cells:
+			var w := 1
+			while cells.has(Vector2i(x + w, y)) and not used.has(Vector2i(x + w, y)):
+				w += 1
+			var h := 1
+			while true:
+				var full := true
+				for dx in w:
+					var n := Vector2i(x + dx, y + h)
+					if not cells.has(n) or used.has(n):
+						full = false
+						break
+				if not full:
+					break
+				h += 1
+			for dy in h:
+				for dx in w:
+					used[Vector2i(x + dx, y + dy)] = true
+			_add_occluder(Rect2(Vector2(x, y) * TILE, Vector2(w, h) * TILE))
+	# The jammed locker blocks light until it's pushed out of the hallway.
+	var locker: Array = mission._locker_cells()
+	if not locker.is_empty():
+		var r := Rect2(Vector2(locker[0]) * TILE, Vector2(TILE, TILE))
+		for c in locker:
 			r = r.merge(Rect2(Vector2(c) * TILE, Vector2(TILE, TILE)))
 		_locker_occluder = _add_occluder(r)
 
 
 func _add_occluder(r: Rect2) -> LightOccluder2D:
 	var poly := OccluderPolygon2D.new()
+	poly.cull_mode = OCCLUDER_CULL  # one-sided: the wall itself gets lit
 	poly.polygon = PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
 	var occ := LightOccluder2D.new()
 	occ.occluder = poly
