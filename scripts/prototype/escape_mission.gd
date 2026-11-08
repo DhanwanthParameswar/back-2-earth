@@ -24,7 +24,7 @@ var ui
 var active := false
 var ending := false
 var elapsed := 0.0
-var room := "CABIN"
+var room := "CORRIDOR"
 var floors := {}           # walkable cells (Vector2i -> true)
 var walls := {}            # blocking cells next to floor (for collision)
 var nav := AStarGrid2D.new()
@@ -185,7 +185,7 @@ func _prop_sprite(id: String) -> String:
 	return map_data.props[id].sprite
 
 func _build_props() -> void:
-	# The jammed locker: a solid block in the cabin doorway until it's pushed clear.
+	# The jammed locker: a solid block across the hallway until it is pushed clear.
 	_add_prop("locker", "JAMMED LOCKER", "", Color("e0ad65"), false)
 	locker_body = StaticBody2D.new()
 	var bounds := Rect2()
@@ -307,7 +307,11 @@ func perform(action: String) -> Dictionary:
 				locker_body.process_mode = Node.PROCESS_MODE_DISABLED
 				locker_body.get_child(0).set_deferred("disabled", true)
 				_set_locker_nav(false)
-				create_tween().tween_property(locker_visual, "position", anchor("locker_cleared"), 0.6)
+				var slide := create_tween()
+				slide.tween_property(locker_visual, "position", anchor("locker_cleared"), 0.6)
+				slide.tween_callback(func():  # stood back up against the wall
+					locker_visual.texture = load("res://assets/ship/locker.png")
+					locker_visual.offset = Vector2(0, -locker_visual.texture.get_height() / 2.0))
 				crew.mara.following = true
 			"assess":
 				crew.ivo.go_to(anchor("bay_watch"))
@@ -374,7 +378,7 @@ func act_on_dialogue(id: String, action: String) -> String:
 	var actor = crew[id]
 	match action:
 		"follow":
-			if find_path(actor.position, player.position).is_empty(): return "The cabin doorway is blocked. Clear it with Aaron first."
+			if find_path(actor.position, player.position).is_empty(): return "The hallway is blocked by the locker. Clear it with Aaron first."
 			actor.following = true
 		"wait":
 			actor.following = false
