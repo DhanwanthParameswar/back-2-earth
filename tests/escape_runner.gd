@@ -29,6 +29,7 @@ func _run() -> void:
 		add_child(mission)
 		await get_tree().process_frame
 		await get_tree().process_frame
+		mission.ui.radio.live_enabled = false  # tests use the offline interpreter, never the network
 		check(mission.active, "Scene enters gameplay: " + branch)
 		check(not mission.find_path(Vector2(175, 470), Vector2(570, 470)).size(), "Closed cabin blocks navigation")
 		mission.player.position = Vector2(300, 470)

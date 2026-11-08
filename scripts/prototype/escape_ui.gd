@@ -58,13 +58,11 @@ func _ready() -> void:
 	radio.mission = mission
 	add_child(radio)
 	radio.answered.connect(_answer)
-	radio.status_changed.connect(func(text):
-		if is_instance_valid(chat_status): chat_status.text = text)
+	# Status messages ("Contacting Gemini...", source labels) are no longer shown.
 	radio.transcribed.connect(func(text):
 		if mode == "chat" and is_instance_valid(chat_input):
 			chat_input.text = text.left(200)
-			chat_input.grab_focus()
-			chat_status.text = "Transcript ready. Edit if needed, then Enter to send.")
+			chat_input.grab_focus())
 
 func _label(parent: Node, text: String, point: Vector2, font_size: int, color: Color) -> Label:
 	var label := Style.label(text, font_size, color)
@@ -138,48 +136,36 @@ func close() -> void:
 	mission.player.current_target = null
 	mission.player.camera.offset = Vector2.ZERO
 
+## The crew chat box: same look as the main game's crewmate chat (scripts/ui/npc_chat.gd):
+## a wide box at the bottom with the name, your line, the reply, and a text field.
 func open_chat(id: String) -> void:
-	_panel(mission.crew[id].display_name + "  /  HELMET RADIO", "chat")
-	mission.player.camera.offset = Vector2(100, 0)
+	close()
+	mode = "chat"
 	chat_id = id
-	var toggle := CheckButton.new()
-	toggle.text = "Live Gemini + voice"
-	toggle.tooltip_text = "Requires the updated local or hosted backend. Off uses the labeled scripted interpreter."
-	toggle.add_theme_font_size_override("font_size", 10)
-	toggle.button_pressed = radio.live_enabled
-	toggle.toggled.connect(func(enabled):
-		radio.cancel()
-		radio.live_enabled = enabled
-		chat_status.text = "LIVE requested" if enabled else "OFFLINE · scripted intent prototype")
-	content.add_child(toggle)
-	chat_status = _text("LIVE requested" if radio.live_enabled else "OFFLINE · scripted intent prototype", 9, Style.AMBER)
+	content_width = 470.0
+	modal.position = Vector2(70, 192)
+	modal.size = Vector2(500, 124)
+	modal.custom_minimum_size = Vector2(500, 124)
+	content = VBoxContainer.new()
+	content.add_theme_constant_override("separation", 4)
+	modal.add_child(content)
+	content.add_child(Style.label(mission.crew[id].display_name.to_upper(), 12, Style.CYAN))
+	chat_status = _text("", 10, Style.MUTED)  # "YOU: ..." once you send something
 	var history: Array = radio.histories[id]
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(content_width, 70)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	content.add_child(scroll)
-	chat_reply = Style.label(str(history[-1].text) if not history.is_empty() else _greeting(id), 11)
-	chat_reply.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	chat_reply.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(chat_reply)
+	chat_reply = _text(str(history[-1].text) if not history.is_empty() else _greeting(id), 12)
+	chat_reply.custom_minimum_size.y = 30
 	chat_input = LineEdit.new()
-	chat_input.placeholder_text = "Ask or suggest a plan…"
+	chat_input.placeholder_text = "Ask something, e.g. can you help me with the locker?"
 	chat_input.max_length = 200
 	chat_input.add_theme_font_size_override("font_size", 12)
+	chat_input.add_theme_color_override("font_color", Style.TEXT)
+	chat_input.add_theme_color_override("font_placeholder_color", Style.MUTED)
+	chat_input.add_theme_stylebox_override("normal", Style.box(Style.NAVY_DEEP, Color(Style.CYAN, 0.5)))
+	chat_input.add_theme_stylebox_override("focus", Style.box(Style.NAVY_DEEP, Style.CYAN))
 	chat_input.text_submitted.connect(_send)
 	content.add_child(chat_input)
-	var row := HBoxContainer.new()
-	content.add_child(row)
-	_button("Send", func(): _send(chat_input.text), row)
-	var mic := _button("Speak", func(): radio.listen(), row)
-	mic.disabled = not radio.speech_supported()
-	mic.tooltip_text = "Speech recognition in a supported browser; audio may be processed by the browser's speech service. Review the transcript before sending."
-	_button("Close", close, row)
-	var hint := "You can type here. Browser builds also support microphone input where available."
-	if not mission.state.has_flag("locker_clear"): hint = "Try asking for help with the locker. You can phrase it your own way."
-	elif mission.state.has_flag("battery_out") and not mission.state.has_flag("battery_loaded"): hint = "Mara can help lift the battery when you're beside the lab cart."
-	elif id == "ivo" and not mission.state.has_flag("battery_out"): hint = "Ivo knows the shuttle equipment. You could ask about saving the samples."
-	_text(hint, 9, Style.MUTED)
+	content.add_child(Style.label("[Enter] send      [Esc] close", 9, Style.MUTED))
+	modal.show()
 	chat_input.grab_focus()
 
 func _greeting(id: String) -> String:
@@ -190,14 +176,14 @@ func _greeting(id: String) -> String:
 
 func _send(message: String) -> void:
 	if mode != "chat" or radio.busy or message.strip_edges() == "": return
-	chat_status.text = "YOU: " + message
+	chat_status.text = "YOU: " + message.strip_edges()
+	chat_reply.text = "..."
 	chat_input.text = ""
 	radio.ask(chat_id, message)
 
 func _answer(data: Dictionary) -> void:
 	if mode != "chat" or data.npc_id != chat_id: return
 	chat_reply.text = data.line
-	chat_status.text = str(data.get("source", "offline")).to_upper()
 	mission.announce("MARA" if chat_id == "mara" else "IVO", data.line)
 
 func show_routes() -> void:

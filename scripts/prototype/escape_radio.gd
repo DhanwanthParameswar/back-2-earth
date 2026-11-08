@@ -1,12 +1,13 @@
 extends Node
-## Optional live interpretation + ElevenLabs; offline mode is explicitly labeled.
+## Crew replies: Gemini (via /escape/talk) + ElevenLabs voice. If the server is
+## unreachable or the reply is unusable, the local scripted interpreter answers.
 
 signal answered(data: Dictionary)
 signal status_changed(text: String)
 signal transcribed(text: String)
 
 var mission
-var live_enabled := false
+var live_enabled := true
 var busy := false
 var histories := {"mara": [], "ivo": []}
 var request: HTTPRequest
