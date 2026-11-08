@@ -23,6 +23,7 @@ func _run() -> void:
 	check(not rules.apply("connect_battery").ok, "Cannot connect a missing battery")
 	check(not rules.apply("push_locker").ok, "Locker requires cooperation")
 	check(not rules.apply("choose_battery").ok, "Must assess shuttle before choosing")
+	await _test_ask_from_afar()
 	for branch in ["engineering", "battery", "saved"]:
 		var mission = Mission.new()
 		Settings.intro_pending = false
@@ -119,6 +120,30 @@ func _run() -> void:
 	await get_tree().process_frame
 	print("ESCAPE PROTOTYPE: %d checks, %d failures" % [checks, failures])
 	get_tree().quit(1 if failures else 0)
+
+## The bug players hit: asking Mara for the locker from the starting spot did nothing.
+## Now she walks over, waits, and starts when the player arrives; the chat closes itself.
+func _test_ask_from_afar() -> void:
+	var mission = Mission.new()
+	Settings.intro_pending = false
+	add_child(mission)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	mission.ui.radio.live_enabled = false
+	var start: Vector2 = mission.crew.mara.position
+	mission.ui.open_chat("mara")
+	mission.ui._send("Could you grab the other side and help me?")
+	check(mission.crew.mara.path.size() > 0, "Asked from the start position, Mara sets off for the locker")
+	await _settle(mission)
+	check(mission.crew.mara.position.distance_to(start) > 10, "Mara actually walks over")
+	check(not mission.state.has_flag("locker_ready"), "She waits for the player before holding it")
+	await get_tree().create_timer(1.7).timeout
+	check(not mission.ui.is_open(), "Chat closes by itself once she starts a task")
+	mission.player.position = Vector2(320, 450)
+	await get_tree().create_timer(0.6).timeout
+	check(mission.state.has_flag("locker_ready"), "Walking up to the locker starts it")
+	mission.queue_free()
+	await get_tree().process_frame
 
 func _settle(mission) -> void:
 	for i in range(700):

@@ -337,16 +337,31 @@ func act_on_dialogue(id: String, action: String) -> String:
 		"help_locker", "load_battery":
 			var target := Vector2(305, 440) if action == "help_locker" else Vector2(535, 800)
 			var player_target := Vector2(320, 450) if action == "help_locker" else Vector2(570, 815)
-			if player.position.distance_to(player_target) > 115: return "Meet me beside the " + ("cabin locker." if action == "help_locker" else "lab cart, then ask me to help lift it.")
+			# She always walks over; if the player isn't there yet she waits, and
+			# the task starts as soon as the player arrives.
 			_busy_actors[id] = true
-			actor.go_to(target, func():
-				_busy_actors.erase(id)
-				if action == "load_battery" and player.position.distance_to(player_target) > 115:
-					announce("MARA", "I'm at the cart. Come back here and ask me to lift it with you.")
-				else:
-					perform(action))
+			actor.go_to(target, func(): _start_when_player_near(id, action, player_target))
 		"fetch_case": perform("fetch_case")
 	return ""
+
+## Crew task that needs the player beside it: start now if they're close,
+## otherwise say so once and keep checking until they walk up.
+func _start_when_player_near(id: String, action: String, player_target: Vector2) -> void:
+	if ending or not available_actions(id).has(action) and not _busy_actors.has(id):
+		_busy_actors.erase(id)
+		return
+	if player.position.distance_to(player_target) <= 115:
+		_busy_actors.erase(id)
+		perform(action)
+		return
+	if not crew[id].has_meta("waiting_for_player"):
+		crew[id].set_meta("waiting_for_player", true)
+		announce("MARA", "I'm at the locker. Come push when you're ready." if action == "help_locker" else "I'm at the cart. Come here and we'll lift it together.")
+	get_tree().create_timer(0.25).timeout.connect(func():
+		if is_instance_valid(self) and is_inside_tree():
+			if player.position.distance_to(player_target) <= 115:
+				crew[id].remove_meta("waiting_for_player")
+			_start_when_player_near(id, action, player_target))
 
 func snapshot(id: String) -> Dictionary:
 	return {"npc_id": id, "state_version": state.version, "objective": state.objective(), "route": state.route, "flags": state.flags.duplicate(), "carrying": state.carrying, "room": room, "available_actions": available_actions(id), "recent_events": state.journal.slice(maxi(0, state.journal.size() - 5))}

@@ -256,6 +256,12 @@ func _send(message: String) -> void:
 func _answer(data: Dictionary) -> void:
 	if mode != "chat" or data.npc_id != chat_id: return
 	chat_reply.text = data.line  # the reply lives in the chat box only (no speech bubble)
+	if data.get("started", false):
+		# They're on their way: close the chat shortly so you can see them move.
+		show_caption("MARA" if chat_id == "mara" else "IVO", data.line)
+		var asked := chat_id
+		get_tree().create_timer(1.5).timeout.connect(func():
+			if mode == "chat" and chat_id == asked: close())
 
 func show_routes() -> void:
 	_panel("SHUTTLE / LAUNCH DIAGNOSTICS", "routes")
