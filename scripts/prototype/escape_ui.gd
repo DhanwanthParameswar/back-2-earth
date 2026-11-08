@@ -22,6 +22,9 @@ var chat_id := ""
 var chat_input: LineEdit
 var chat_reply: Label
 var chat_status: Label
+## Voice chat (Settings.voice_chat): no text field; live transcript + spoken replies.
+var voice_mode := false
+var voice_status: Label
 var mode := ""
 var toast_time := 0.0
 var hint_time := -1.0
@@ -69,6 +72,11 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	# Status messages ("Contacting Gemini...", source labels) are no longer shown.
+	radio.speech_partial.connect(_on_speech_partial)
+	radio.speech_final.connect(_on_speech_final)
+	radio.listening_changed.connect(_on_listening_changed)
+	radio.voice_finished.connect(_on_voice_finished)
+	radio.status_changed.connect(_on_radio_status)
 	radio.transcribed.connect(func(text):
 		if mode == "chat" and is_instance_valid(chat_input):
 			chat_input.text = text.left(200)
@@ -189,8 +197,10 @@ func _button(text: String, callback: Callable, parent: Node = null) -> Button:
 	(parent if parent != null else content).add_child(button)
 	return button
 
-func close() -> void:
-	if radio != null: radio.cancel()
+func close(stop_voice := true) -> void:
+	if radio != null: radio.cancel(stop_voice)
+	voice_mode = false
+	voice_status = null
 	if mode == "pause": mission.active = pause_was_active
 	chat_id = ""
 	chat_input = null
@@ -207,6 +217,9 @@ func close() -> void:
 ## The crew chat box: same look as the main game's crewmate chat (scripts/ui/npc_chat.gd):
 ## a wide box at the bottom with the name, your line, the reply, and a text field.
 func open_chat(id: String) -> void:
+	if Settings.voice_chat and radio.speech_supported():
+		_open_voice_chat(id)
+		return
 	close()
 	mode = "chat"
 	chat_id = id
@@ -232,12 +245,70 @@ func open_chat(id: String) -> void:
 	chat_input.add_theme_stylebox_override("focus", Style.box(Style.NAVY_DEEP, Style.CYAN))
 	chat_input.text_submitted.connect(_send)
 	content.add_child(chat_input)
-	content.add_child(Style.label("[Enter] send      [Esc] close", 9, Style.MUTED))
+	var keys_hint := "[Enter] send      [Esc] close"
+	if Settings.voice_chat:
+		keys_hint += "      (voice chat needs Chrome or Edge, so type here instead)"
+	content.add_child(Style.label(keys_hint, 9, Style.MUTED))
 	if mission.crew.has(id):
 		mission.crew[id].bubble_left = 0.0  # hide any bubble; the box shows the conversation
 	modal.show()
 	_place_modal()
 	chat_input.grab_focus()
+
+## Voice version of the chat box: same look, no text field. Your words show
+## live as you speak; when you stop, it sends; the reply appears and is spoken;
+## then it listens again. Space = talk again, Esc = close.
+func _open_voice_chat(id: String) -> void:
+	close()
+	mode = "chat"
+	voice_mode = true
+	chat_id = id
+	content_width = 470.0
+	modal.size = Vector2(500, 124)
+	modal.custom_minimum_size = Vector2(500, 124)
+	content = VBoxContainer.new()
+	content.add_theme_constant_override("separation", 4)
+	modal.add_child(content)
+	content.add_child(Style.label(mission.crew[id].display_name.to_upper(), 12, Style.CYAN))
+	chat_status = _text("", 10, Style.MUTED)  # "YOU: ..." live transcript
+	var history: Array = radio.histories[id]
+	chat_reply = _text(str(history[-1].text) if not history.is_empty() else _greeting(id), 12)
+	chat_reply.custom_minimum_size.y = 30
+	voice_status = _text("", 10, Style.CYAN_BRIGHT)
+	content.add_child(Style.label("[Space] talk      [Esc] close", 9, Style.MUTED))
+	modal.show()
+	_place_modal()
+	radio.listen()
+
+func _voice_open() -> bool:
+	return mode == "chat" and voice_mode and is_instance_valid(voice_status)
+
+func _on_listening_changed(on: bool) -> void:
+	if not _voice_open(): return
+	if on:
+		voice_status.text = "● LISTENING... speak now"
+	elif not radio.busy and voice_status.text.begins_with("●"):
+		voice_status.text = "Press Space to talk"
+
+func _on_speech_partial(text: String) -> void:
+	if _voice_open():
+		chat_status.text = "YOU: " + text + " ..."
+
+func _on_speech_final(text: String) -> void:
+	if not _voice_open(): return
+	voice_status.text = "Thinking..."
+	_send(text)
+
+func _on_radio_status(text: String) -> void:
+	# Only mic problems are worth showing; progress text stays hidden.
+	if _voice_open() and (text.begins_with("Microphone") or text.begins_with("Didn't") or text.begins_with("Speech")):
+		voice_status.text = text
+
+## The crew finished speaking: listen for your next line.
+func _on_voice_finished() -> void:
+	if _voice_open() and not radio.busy and not radio.listening:
+		voice_status.text = ""
+		radio.listen()
 
 func _greeting(id: String) -> String:
 	if not mission.state.has_flag("locker_clear"):
@@ -249,18 +320,30 @@ func _send(message: String) -> void:
 	if mode != "chat" or radio.busy or message.strip_edges() == "": return
 	chat_status.text = "YOU: " + message.strip_edges()
 	chat_reply.text = "..."
-	chat_input.text = ""
+	if is_instance_valid(chat_input): chat_input.text = ""
 	radio.ask(chat_id, message)
 
 func _answer(data: Dictionary) -> void:
 	if mode != "chat" or data.npc_id != chat_id: return
 	chat_reply.text = data.line  # the reply lives in the chat box only (no speech bubble)
+	if voice_mode and is_instance_valid(voice_status):
+		if str(data.get("audio_url", "")).begins_with("/npc/audio/"):
+			voice_status.text = "Speaking..."
+			# If the voice never arrives, don't leave the player waiting.
+			var asked_at := chat_id
+			get_tree().create_timer(8.0).timeout.connect(func():
+				if _voice_open() and chat_id == asked_at and not radio.voice.playing and not radio.listening and not radio.busy:
+					radio.listen())
+		elif not data.get("started", false):
+			voice_status.text = ""
+			get_tree().create_timer(1.2).timeout.connect(func():
+				if _voice_open() and not radio.listening and not radio.busy: radio.listen())
 	if data.get("started", false):
 		# They're on their way: close the chat shortly so you can see them move.
 		show_caption("AARON" if chat_id == "mara" else "DHAN", data.line)
 		var asked := chat_id
 		get_tree().create_timer(1.5).timeout.connect(func():
-			if mode == "chat" and chat_id == asked: close())
+			if mode == "chat" and chat_id == asked: close(false))  # let them finish speaking
 
 func show_routes() -> void:
 	_panel("SHUTTLE / LAUNCH DIAGNOSTICS", "routes")
@@ -326,6 +409,10 @@ func show_ending() -> void:
 func _input(event: InputEvent) -> void:
 	if not modal.visible: return
 	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_SPACE and _voice_open():
+			if not radio.listening and not radio.busy: radio.listen()
+			get_viewport().set_input_as_handled()
+			return
 		if event.physical_keycode == KEY_ESCAPE or (event.physical_keycode == KEY_TAB and mode == "map"):
 			if mode != "ending": close()
 			get_viewport().set_input_as_handled()

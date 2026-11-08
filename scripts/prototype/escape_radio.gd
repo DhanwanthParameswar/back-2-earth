@@ -5,6 +5,11 @@ extends Node
 signal answered(data: Dictionary)
 signal status_changed(text: String)
 signal transcribed(text: String)
+## Voice chat: words as you speak, the final sentence, mic on/off, crew voice done.
+signal speech_partial(text: String)
+signal speech_final(text: String)
+signal listening_changed(on: bool)
+signal voice_finished
 
 var mission
 var live_enabled := true
@@ -19,6 +24,10 @@ var pending_version := -1
 var audio_version := -1
 var _speech_callback = null
 var _speech_error = null
+var _speech_end = null
+var listening := false
+var _heard := ""      # latest transcript of the current listen
+var _final_sent := false
 
 func _ready() -> void:
 	request = HTTPRequest.new()
@@ -31,9 +40,11 @@ func _ready() -> void:
 	audio_request.request_completed.connect(_on_audio)
 	voice = AudioStreamPlayer.new()
 	add_child(voice)
+	voice.finished.connect(func(): voice_finished.emit())
 	if OS.has_feature("web"):
 		_speech_callback = JavaScriptBridge.create_callback(_on_speech)
 		_speech_error = JavaScriptBridge.create_callback(_on_speech_error)
+		_speech_end = JavaScriptBridge.create_callback(_on_speech_end)
 
 func ask(id: String, message: String) -> void:
 	if busy or message.strip_edges() == "": return
@@ -53,11 +64,13 @@ func ask(id: String, message: String) -> void:
 	var error := request.request(Settings.backend_url() + "/escape/talk", PackedStringArray(["Content-Type: application/json"]), HTTPClient.METHOD_POST, JSON.stringify(body))
 	if error != OK: _fallback()
 
-func cancel() -> void:
+func cancel(stop_voice := true) -> void:
 	request.cancel_request()
-	audio_request.cancel_request()
-	voice.stop()
+	if stop_voice:
+		audio_request.cancel_request()
+		voice.stop()
 	busy = false
+	_set_listening(false)
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("if(window.b2eRecognition){window.b2eRecognition.onresult=null;window.b2eRecognition.onerror=null;window.b2eRecognition.onend=null;window.b2eRecognition.abort();window.b2eRecognition=null;}", true)
 
@@ -122,36 +135,78 @@ func _on_audio(result: int, code: int, _headers: PackedStringArray, bytes: Packe
 func speech_supported() -> bool:
 	return OS.has_feature("web") and bool(JavaScriptBridge.eval("!!(window.SpeechRecognition || window.webkitSpeechRecognition)", true))
 
+## Browser speech recognition (Chrome / Edge). Words arrive live as
+## speech_partial; when you stop talking, speech_final carries the sentence.
 func listen() -> void:
 	if not speech_supported():
-		status_changed.emit("Speech input needs a supported web browser. You can always type.")
+		status_changed.emit("Speech input needs Chrome or Edge. You can always type.")
 		return
 	voice.stop()
+	_heard = ""
+	_final_sent = false
 	var window = JavaScriptBridge.get_interface("window")
 	window.b2eSpeechResult = _speech_callback
 	window.b2eSpeechError = _speech_error
+	window.b2eSpeechEnd = _speech_end
 	JavaScriptBridge.eval("""
-		if(window.b2eRecognition) window.b2eRecognition.abort();
+		if(window.b2eRecognition){window.b2eRecognition.onend=null;window.b2eRecognition.abort();}
 		const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 		const recognition = new Recognition();
 		window.b2eRecognition = recognition;
 		recognition.lang = 'en-US';
-		recognition.interimResults = false;
+		recognition.interimResults = true;
 		recognition.continuous = false;
-		recognition.onresult = e => window.b2eSpeechResult(e.results[0][0].transcript);
+		recognition.onresult = e => {
+			let text = '', done = false;
+			for (let i = 0; i < e.results.length; i++) { text += e.results[i][0].transcript; if (e.results[i].isFinal) done = true; }
+			window.b2eSpeechResult(text, done);
+		};
 		recognition.onerror = e => window.b2eSpeechError(e.error);
-		recognition.onend = () => { window.b2eRecognition = null; };
+		recognition.onend = () => { window.b2eRecognition = null; if (window.b2eSpeechEnd) window.b2eSpeechEnd(); };
 		try { recognition.start(); } catch(e) { window.b2eSpeechError(String(e)); }
 	""", true)
-	status_changed.emit("Listening… transcript appears below. Review it, then send.")
+	_set_listening(true)
+
+func stop_listening() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("if(window.b2eRecognition){window.b2eRecognition.onend=null;window.b2eRecognition.abort();window.b2eRecognition=null;}", true)
+	_set_listening(false)
+
+func _set_listening(on: bool) -> void:
+	if listening == on: return
+	listening = on
+	listening_changed.emit(on)
 
 func _on_speech(args: Array) -> void:
-	if not args.is_empty(): transcribed.emit(str(args[0]))
+	if args.is_empty(): return
+	_heard = str(args[0]).strip_edges()
+	var done := args.size() > 1 and bool(args[1])
+	if done:
+		_send_heard()
+	else:
+		speech_partial.emit(_heard)
+
+## Recognition stopped (you went quiet). Send whatever was heard, if anything.
+func _on_speech_end(_args: Array) -> void:
+	_set_listening(false)
+	_send_heard()
+
+func _send_heard() -> void:
+	if _final_sent or _heard == "": return
+	_final_sent = true
+	transcribed.emit(_heard)
+	speech_final.emit(_heard)
 
 func _on_speech_error(args: Array) -> void:
-	status_changed.emit("Microphone: " + str(args[0] if not args.is_empty() else "unavailable") + ". You can type instead.")
+	var error := str(args[0] if not args.is_empty() else "unavailable")
+	_set_listening(false)
+	match error:
+		"no-speech": status_changed.emit("Didn't hear anything. Press Space to talk.")
+		"aborted": pass
+		"not-allowed", "service-not-allowed": status_changed.emit("Microphone blocked. Allow it in the browser, or pick TEXT chat in Settings.")
+		_: status_changed.emit("Microphone: " + error + ". Press Space to try again.")
 
 func _exit_tree() -> void:
 	cancel()
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.b2eSpeechResult=null;window.b2eSpeechError=null;", true)
+		JavaScriptBridge.eval("window.b2eSpeechResult=null;window.b2eSpeechError=null;window.b2eSpeechEnd=null;", true)

@@ -13,6 +13,10 @@ var fullscreen := false
 ## Set false to force the scripted (offline) companion, e.g. for a web build
 ## with no HTTPS backend.
 var companion_enabled := true
+## Crew chat in the escape mission: true = talk with your microphone (voice),
+## false = type in the chat box (text). Voice falls back to text where the
+## browser has no speech recognition (Firefox, desktop builds).
+var voice_chat := true
 ## The /companion backend. Default matches server/companion_server.py.
 var companion_url := "http://127.0.0.1:8787/companion"
 ## The hosted backend (server/companion_server.py behind Cloudflare). Crewmate
@@ -128,6 +132,12 @@ func toggle_reduced_shake() -> void:
 
 
 ## Live model replies for ECHO on/off (off = authored lines only, no network).
+func toggle_voice_chat() -> void:
+	voice_chat = not voice_chat
+	_save()
+	changed.emit()
+
+
 func toggle_companion() -> void:
 	companion_enabled = not companion_enabled
 	_save()
@@ -161,6 +171,7 @@ func _load() -> void:
 	fullscreen = bool(cfg.get_value("video", "fullscreen", fullscreen))
 	companion_enabled = bool(cfg.get_value("companion", "enabled", companion_enabled))
 	companion_url = str(cfg.get_value("companion", "url", companion_url))
+	voice_chat = bool(cfg.get_value("companion", "voice_chat", voice_chat))
 	skin = PLAYER_SKIN  # ignore a suit saved back when there was a picker
 	account_name = str(cfg.get_value("account", "name", ""))
 	account_token = str(cfg.get_value("account", "token", ""))
@@ -174,6 +185,7 @@ func _save() -> void:
 	cfg.set_value("video", "fullscreen", fullscreen)
 	cfg.set_value("companion", "enabled", companion_enabled)
 	cfg.set_value("companion", "url", companion_url)
+	cfg.set_value("companion", "voice_chat", voice_chat)
 	cfg.set_value("player", "skin", skin)
 	cfg.set_value("account", "name", account_name)
 	cfg.set_value("account", "token", account_token)

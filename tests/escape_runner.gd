@@ -144,7 +144,11 @@ func _test_ask_from_afar() -> void:
 	await get_tree().process_frame
 	mission.ui.radio.live_enabled = false
 	var start: Vector2 = mission.crew.mara.position
+	var was_voice: bool = Settings.voice_chat
+	Settings.voice_chat = true
 	mission.ui.open_chat("mara")
+	check(is_instance_valid(mission.ui.chat_input) and not mission.ui.voice_mode, "Voice chat falls back to the text box where speech isn't available")
+	Settings.voice_chat = was_voice
 	mission.ui._send("Could you grab the other side and help me?")
 	check(mission.crew.mara.path.size() > 0, "Asked from the start position, Aaron sets off for the locker")
 	await _settle(mission)
