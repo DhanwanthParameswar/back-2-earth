@@ -87,11 +87,10 @@ const NAV_P2 := Vector2(250, 74)
 const CORR_DOOR := [144, 164]
 const CORR_PANEL := [128, 113, 140, 125]
 const CORR_TERM := [50, 50, 118, 82]
-const HATCH := [7, 75, 29, 132]
-const HATCH_OPEN := [37.6, 37.85]
-const T_CABIN_ENTRY := 37.9
-const AHEAD_WAIT_X := 58.0
-const CABIN_ENTRY := {"ahead": [58.0, 0.0, 1.2], "survivor": [90.0, 0.22, 1.6], "player": [124.0, 0.44, 2.0]}
+const T_LOCKER_LOOK := 37.9   # the crew turns to the locker blocking the hallway aft
+const AHEAD_WAIT_X := 58.0    # Dhan stops here: the locker blocks the way
+# role: [x from, x to, delay, walk time] as they step up to the locker
+const LOCKER_LOOK := {"survivor": [90.0, 76.0, 0.15, 0.7], "player": [124.0, 100.0, 0.4, 0.9]}
 const CORR_RUN := {"survivor": [330.0, 170.0], "player": [362.0, 206.5], "lost": [400.0, 246.5]}
 const AHEAD_X0 := 150.0
 const AHEAD_V := 82.0
@@ -135,9 +134,13 @@ func _ready() -> void:
 	view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# A newly allocated viewport texture may still contain an old frame.
+	# Keep the cutscene's black backing visible until the first draw finishes.
+	view.hide()
 	add_child(view)
 	_build()
 	set_time(0.0)
+	RenderingServer.frame_post_draw.connect(view.show, CONNECT_ONE_SHOT)
 
 
 ## True when the art and data loaded.
@@ -778,37 +781,6 @@ func _corridor_light(t: float) -> Array:
 	return [[1.0 * pulse, 0.42 * pulse, 0.46 * pulse], [1.0 * pulse, 0.7 * pulse, 0.72 * pulse]]
 
 
-func _hatch_open_amount(t: float) -> float:
-	return ease_out(clampf((t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]), 0.0, 1.0))
-
-
-func _hatch(t: float, m) -> void:
-	var x0: int = HATCH[0]
-	var y0: int = HATCH[1]
-	var x1: int = HATCH[2]
-	var y1: int = HATCH[3]
-	var u := _hatch_open_amount(t)
-	_rect(x0, y0, x1, y1, tint(Color8(8, 10, 16), m))
-	var bottom := pyround(y1 - u * (y1 - y0))
-	if bottom > y0:
-		_rect(x0, y0, x1, bottom, tint(STEEL, m))
-		_rect(x0, bottom - 1, x1, bottom, tint(STEEL_D, m))
-		var wy := 84 - (y1 - bottom)
-		if wy + 10 > y0:
-			_rect(13, maxi(y0, wy), 23, maxi(y0, wy + 10), tint(STEEL_D, m))
-
-
-func _hatch_light(t: float) -> void:
-	if _hatch_open_amount(t) > 0:
-		return
-	var col: Color
-	if t < HATCH_OPEN[0]:
-		col = Color8(20, 120, 70)
-	else:
-		col = RED if int((t - T_HIT2) * 2.5) % 2 == 0 else Color8(90, 0, 30)
-	_rect(15, 86, 21, 92, col)
-
-
 func _slab(t: float, m) -> void:
 	var d0: int = CORR_DOOR[0]
 	var d1: int = CORR_DOOR[1]
@@ -870,8 +842,6 @@ func _shot_breach(t: float) -> void:
 	var crew = light[1]
 	_canvas.draw_texture(_tex["corridor_bg"], Vector2.ZERO, mod_color(room))
 	_slab(0, room)
-	_hatch(t, room)
-	_hatch_light(t)
 	_button(0.0)
 	var hit := t >= T_HIT2
 	if hit:
@@ -992,8 +962,6 @@ func _shot_seal(tf: float) -> void:
 	var crew = light[1]
 	_canvas.draw_texture(_tex["corridor_bg"], Vector2.ZERO, mod_color(room))
 	_slab(t, room)
-	_hatch(tf, room)
-	_hatch_light(tf)
 	var slammed := t >= 21.45
 	if slammed:  # the breach side goes dark behind the door
 		var dark := minf(0.6, (t - 21.5) / 1.5 * 0.6) if t > 21.5 else 0.0
@@ -1006,11 +974,10 @@ func _shot_seal(tf: float) -> void:
 	_terminal(t)
 	var breath := fmod(t - 21.8, 3.2) if t >= 21.8 else 0.0
 	var bob := 1 if (0.2 < breath and breath < 1.1) else 0
-	# Dhan waits beyond the barrier, facing back toward the rescue.
-	if tf < T_CABIN_ENTRY:
-		_astro("ahead", AHEAD_WAIT_X, FEET, 0.0, false, false, -1, 0, bob, [], crew)
-	if tf >= T_CABIN_ENTRY:
-		_draw_cabin_entry(tf, crew)
+	# Dhan waits by the locker, facing back toward the rescue, then turns to it.
+	_astro("ahead", AHEAD_WAIT_X, FEET, 0.0, false, tf >= T_LOCKER_LOOK, -1, 0, bob, [], crew)
+	if tf >= T_LOCKER_LOOK:
+		_draw_locker_look(tf, crew, bob)
 	elif t < 19.65:
 		var ax := lerpf(170, 226, ease_io((t - 19.0) / 0.65))
 		var a_top := _astro("survivor", ax, FEET, t, true, false, -1, 0, 0, [], crew)
@@ -1056,22 +1023,19 @@ func _shot_seal(tf: float) -> void:
 		_canvas.draw_texture(_tex["vignette"], Vector2.ZERO, Color(1, 1, 1, strength))
 
 
-## The three survivors leave only after Johnny's existing line has finished.
-func cabin_entry_x(role: String, film_time: float) -> float:
-	var entry: Array = CABIN_ENTRY[role]
-	var progress := clampf((film_time - T_CABIN_ENTRY - float(entry[1])) / float(entry[2]), 0.0, 1.0)
-	return lerpf(float(entry[0]), -14.0, progress)
+## After Johnny's line: Aaron and Johnny step up to the locker; everyone faces it.
+func _locker_look_x(role: String, film_time: float) -> float:
+	var e: Array = LOCKER_LOOK[role]
+	return lerpf(float(e[0]), float(e[1]), ease_io((film_time - T_LOCKER_LOOK - float(e[2])) / float(e[3])))
 
 
-func _draw_cabin_entry(film_time: float, crew) -> void:
-	for role in ["ahead", "survivor", "player"]:
-		var entry: Array = CABIN_ENTRY[role]
-		var walking := film_time >= T_CABIN_ENTRY + float(entry[1])
-		var x := cabin_entry_x(role, film_time)
-		if x <= -10.0:
-			continue
-		var clip := [HATCH[0], 0, W, H] if x < HATCH[2] + 5 else []
-		_astro(role, x, FEET, film_time * 1.4, walking, walking, -1, 0, 0, clip, crew)
+func _draw_locker_look(film_time: float, crew, bob: int) -> void:
+	for role in ["survivor", "player"]:
+		var e: Array = LOCKER_LOOK[role]
+		var start := T_LOCKER_LOOK + float(e[2])
+		var walking := start <= film_time and film_time < start + float(e[3])
+		_astro(role, _locker_look_x(role, film_time), FEET, film_time * 1.4, walking, true, -1, 0,
+			0 if walking else bob, [], crew)
 
 
 ## Draws whatever frame the film is on.

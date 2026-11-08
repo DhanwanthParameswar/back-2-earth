@@ -241,7 +241,7 @@ func open_chat(id: String) -> void:
 
 func _greeting(id: String) -> String:
 	if not mission.state.has_flag("locker_clear"):
-		return "I can hold that locker while you push. We need both of us." if id == "mara" else "I'm checking the forward section. Can you and Aaron clear the cabin doorway?"
+		return "I can hold that locker while you push. We need both of us." if id == "mara" else "I'm checking the forward section. Can you and Aaron clear that locker?"
 	if mission.state.has_flag("clamps"): return "We're boarding. All three of us are going home."
 	return ("I'm with you. " if id == "mara" else "Shuttle's intact. We just need the clamps released. ") + mission.state.objective()
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import random
+import zlib
 from pathlib import Path
 
 from PIL import Image
@@ -168,7 +169,7 @@ def floor_sheet(name, draw):
     sheet = Image.new("RGBA", (32 * SCALE, 32 * SCALE))
     for v in range(4):
         a = Art(16, 16)
-        draw(a, v, random.Random(hash((name, v)) & 0xFFFF))
+        draw(a, v, random.Random(zlib.crc32(f"{name}/{v}".encode())))  # same art every run
         sheet.paste(a.image(), ((v % 2) * 16 * SCALE, (v // 2) * 16 * SCALE))
     TILES[f"floor_{name}"] = sheet
 
@@ -427,6 +428,22 @@ def _jammed_locker(a):  # gameplay: the locker wedged across the doorway, tilted
     a.rect(4, 23, 8, 1, INK)
     a.line(0, 2, 15, 0, STEEL_LL)                 # bent top edge
     a.dot(14, 1, YELLOW)
+
+
+@prop("fallen_locker", 22, 50)
+def _fallen_locker(a):  # gameplay: the locker the impact threw across the hallway (seen from above)
+    a.rect(2, 4, 20, 46, (0, 0, 0, 90))                # its shadow on the deck
+    a.box(0, 0, 18, 46, STEEL_L)
+    a.vline(9, 1, 44, STEEL)                          # the seam between its doors
+    for y in range(5, 14, 3):                         # vent slots
+        a.hline(3, 6, y, STEEL_D)
+        a.hline(12, 15, y, STEEL_D)
+    a.rect(6, 22, 1, 5, GRAY)                         # handles
+    a.rect(11, 22, 1, 5, GRAY)
+    a.rect(4, 36, 10, 3, AMBER)                       # name label
+    a.rect(5, 37, 8, 1, INK)
+    a.line(13, 28, 16, 33, STEEL_D)                   # a dent from the impact
+    a.hline(1, 16, 0, STEEL_LL)
 
 
 @prop("table", 24, 16)

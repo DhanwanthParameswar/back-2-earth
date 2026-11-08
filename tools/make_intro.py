@@ -37,13 +37,15 @@ Beats (script by the team):
   9-11.4    dashboard: nav map, DISTANCE TO EARTH 676,767 MI
   11.4-19.3 Kien wakes ("Real food. Finally."), impact, lights fail, red alarm,
             "Collision detected. Evacuate now.", crew unbuckle and hurry aft
-  19.3-24.2 corridor: Dhan stops beyond the barrier and looks back; the second impact
+  19.3-24.2 corridor: Dhan stops beyond the barrier, where a fallen locker blocks the
+            hallway aft, and looks back; the second impact
             tears the hull open; Kien is pulled out (*Sucked out of the ship*),
             Johnny reaches and misses
   24.2-27.2 outside: the same ship, breached; Kien tumbles away. Silence.
   27.2-41.2 Aaron pulls Johnny through the bulkhead, door slams, breathing, MAIN POWER
             OFFLINE; Johnny turns to Aaron: "That was a close one! We need to fix power
-            first. Then find Dhan." All three then enter the cabin; fade to black.
+            first. Then find Dhan." The crew turns to the locker jammed across the hallway
+            (gameplay starts here, the cabin sealed off behind the barrier); fade to black.
 """
 from __future__ import annotations
 
@@ -732,9 +734,9 @@ def build_corridor():
     rect(img, 0, 132, W, 133, STEEL_L)
     for x in range(0, W, 8):
         rect(img, x, 137, x + 1, H, (48, 46, 60))
-    # Cabin door (left); the leaf is drawn per frame (draw_hatch).
-    rect(img, 4, 72, 32, 132, STEEL_L)
-    draw_text(img, 4, 62, "CABIN", AMBER)
+    # No door on the left: the hallway runs on aft, blocked by a tall locker
+    # that the first impact threw across it, wedged against the wall at the top.
+    draw_jammed_locker(img)
     # Terminal frame (screen drawn per frame).
     tx0, ty0, tx1, ty1 = CORR_TERM
     rect(img, tx0, ty0, tx1, ty1, STEEL)
@@ -757,41 +759,31 @@ def build_corridor():
     return img
 
 
-HATCH = (7, 75, 29, 132)
-HATCH_OPEN = (37.6, 37.85)   # opens after Johnny finishes speaking
-T_CABIN_ENTRY = 37.9
-AHEAD_WAIT_X = 58.0
-CABIN_ENTRY = {"ahead": (58.0, 0.0, 1.2), "survivor": (90.0, 0.22, 1.6), "player": (124.0, 0.44, 2.0)}
+T_LOCKER_LOOK = 37.9   # after Johnny's line, the crew turns to the locker blocking the hallway
+AHEAD_WAIT_X = 58.0    # Dhan stops here: the locker blocks the way aft
+# role: (x from, x to, delay, walk time) as they step up to the locker
+LOCKER_LOOK = {"survivor": (90.0, 76.0, 0.15, 0.7), "player": (124.0, 100.0, 0.4, 0.9)}
+LOCKER = [(6, 132), (21, 132), (47, 60), (34, 52)]   # the wedged locker (side view)
 
 
-def hatch_open_amount(t):
-    return ease_out(max(0.0, min(1.0, (t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]))))
-
-
-def draw_hatch(img, t):
-    """Cabin hatch leaf (slides up). Takes film time."""
-    x0, y0, x1, y1 = HATCH
-    u = hatch_open_amount(t)
-    rect(img, x0, y0, x1, y1, (8, 10, 16))
-    bottom = int(round(y1 - u * (y1 - y0)))
-    if bottom > y0:
-        rect(img, x0, y0, x1, bottom, STEEL)
-        rect(img, x0, bottom - 1, x1, bottom, STEEL_D)
-        wy = 84 - (y1 - bottom)
-        if wy + 10 > y0:
-            rect(img, 13, max(y0, wy), 23, max(y0, wy + 10), STEEL_D)
-
-
-def draw_hatch_light(img, t):
-    """Window lamp in the cabin hatch before it opens."""
-    u = hatch_open_amount(t)
-    if u > 0:
-        return
-    if t < HATCH_OPEN[0]:
-        col = (20, 120, 70)
-    else:
-        col = RED if int((t - T_HIT2) * 2.5) % 2 == 0 else (90, 0, 30)
-    rect(img, 15, 86, 21, 92, col)
+def draw_jammed_locker(img):
+    """The locker lying across the hallway (it's the first thing the game asks
+    you to clear): bottom on the floor, top caught against the wall."""
+    poly = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(poly).polygon(LOCKER, fill=255)
+    m = np.asarray(poly) > 0
+    edge = ndimage.binary_dilation(m, iterations=1) & ~m
+    img[m] = STEEL_L
+    img[edge] = INK
+    (x0, y0), (x1, y1), (x2, y2), (x3, y3) = LOCKER
+    for k in range(9):  # the seam between the two doors, and vent slots
+        u = k / 8
+        x, y = int(lerp((x0 + x1) / 2, (x2 + x3) / 2, u)), int(lerp(y0, (y2 + y3) / 2, u))
+        img[y, x] = STEEL
+    for u in (0.72, 0.78, 0.84):
+        x, y = int(lerp(x0, x3, u)) + 4, int(lerp(y0, y3, u))
+        rect(img, x, y, x + 5, y + 1, STEEL_D)
+    rect(img, 12, 118, 19, 121, AMBER)  # name label, low on the door
 
 
 def draw_breach(img, t, m=None):
@@ -1115,9 +1107,7 @@ def shot_breach(t, cast):
     room, crew = corridor_light(t)
     img = CORR_BG.copy()
     draw_slab(img, 0)
-    draw_hatch(img, t)
     img = mul(img, room)
-    draw_hatch_light(img, t)
     draw_button(img, 0.0)
     hit = t >= T_HIT2
     if hit:
@@ -1227,15 +1217,14 @@ def shot_outside(t, cast):
 
 
 def shot_seal(tf, cast):
-    """27.2-41.2: rescue, barrier seals, Johnny speaks, all three enter the cabin.
+    """27.2-41.2: rescue, barrier seals, Johnny speaks, the crew turns to the
+    locker blocking the hallway aft (where the game begins).
     Inside, t runs on the original 19.0-28.0 clock (t = film time - SEAL_OFF)."""
     t = tf - SEAL_OFF
     room, crew = corridor_light(t)
     img = CORR_BG.copy()
     draw_slab(img, t)
-    draw_hatch(img, tf)
     img = mul(img, room)
-    draw_hatch_light(img, tf)  # cabin stays closed until the crew is ready
     slammed = t >= 21.45
     if slammed:  # the breach side goes dark behind the door
         dark = min(0.6, (t - 21.5) / 1.5 * 0.6) if t > 21.5 else 0.0
@@ -1249,10 +1238,9 @@ def shot_seal(tf, cast):
     A, P = cast["survivor"], cast["player"]
     breath = ((t - 21.8) % 3.2) if t >= 21.8 else 0.0
     bob = 1 if 0.2 < breath < 1.1 else 0
-    if tf < T_CABIN_ENTRY:
-        cast["ahead"].draw(img, AHEAD_WAIT_X, FEET, left=False, lift=bob, tint=crew)
-    if tf >= T_CABIN_ENTRY:
-        draw_cabin_entry(img, tf, cast, crew)
+    cast["ahead"].draw(img, AHEAD_WAIT_X, FEET, left=tf >= T_LOCKER_LOOK, lift=bob, tint=crew)
+    if tf >= T_LOCKER_LOOK:
+        draw_locker_look(img, tf, cast, crew, bob)
     elif t < 19.65:  # A runs back for the player; the player slides toward the breach
         ax = lerp(170, 226, ease_io((t - 19.0) / 0.65))
         a_top = A.draw(img, ax, FEET, t_anim=t, walking=True, tint=crew)
@@ -1298,22 +1286,19 @@ def shot_seal(tf, cast):
     return view(img, 0, dx, dy)
 
 
-def cabin_entry_x(role, film_time):
-    x, delay, duration = CABIN_ENTRY[role]
-    progress = max(0.0, min(1.0, (film_time - T_CABIN_ENTRY - delay) / duration))
-    return lerp(x, -14.0, progress)
+def locker_look_x(role, film_time):
+    x0, x1, delay, duration = LOCKER_LOOK[role]
+    return lerp(x0, x1, ease_io((film_time - T_LOCKER_LOOK - delay) / duration))
 
 
-def draw_cabin_entry(img, film_time, cast, crew):
-    for role in ("ahead", "survivor", "player"):
-        _, delay, _ = CABIN_ENTRY[role]
-        walking = film_time >= T_CABIN_ENTRY + delay
-        x = cabin_entry_x(role, film_time)
-        if x <= -10:
-            continue
-        clip = (HATCH[0], 0, W, H) if x < HATCH[2] + 5 else None
-        cast[role].draw(img, x, FEET, t_anim=film_time * 1.4, walking=walking,
-                        left=walking, tint=crew, clip=clip)
+def draw_locker_look(img, film_time, cast, crew, bob):
+    """Aaron and Johnny step up to the locker; everyone faces it."""
+    for role in ("survivor", "player"):
+        x0, x1, delay, duration = LOCKER_LOOK[role]
+        start = T_LOCKER_LOOK + delay
+        walking = start <= film_time < start + duration
+        cast[role].draw(img, locker_look_x(role, film_time), FEET, t_anim=film_time * 1.4, walking=walking,
+                        left=True, lift=0 if walking else bob, tint=crew)
 
 
 def _vignette_base():
@@ -1511,10 +1496,9 @@ def soundtrack():
     alarm(T_IMPACT + 0.8, T_HIT2, 0.09)
     fx(T_STAND - 0.2, fade(filt(noise(0.008), "high", 3000), 0.0005, 0.004), 0.4)  # restraints
     steps(T_WALK, T_CORR, 0.2, 0.5)
-    # Running feet during the breach; the cabin door opens after the final line.
+    # Running feet during the breach.
     steps(T_CORR, T_HIT2, 0.17, 0.55)
-    fx(HATCH_OPEN[0], fade(filt(noise(0.25), "band", [400, 2500]) * decay(0.25, 6), 0.01, 0.05), 0.25)
-    # Second impact: boom, tearing metal, the hatch slamming shut, rushing air.
+    # Second impact: boom, tearing metal, the barrier slamming shut, rushing air.
     add(T_HIT2, sweep(110, 25, 1.3) * decay(1.3, 2.6), 1.0)
     tear = filt(noise(1.0), "band", [300, 2200]) * decay(1.0, 2.2) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 23 * tt(1.0))))
     add(T_HIT2 + 0.02, tear, 0.6)

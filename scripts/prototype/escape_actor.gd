@@ -89,7 +89,7 @@ func go_to(point: Vector2, callback: Callable = Callable()) -> void:
 	path = mission.find_path(position, point)
 	if path.is_empty():
 		arrived = Callable()
-		mission.announce("SHIP", "Route obstructed. Clear the cabin doorway first.")
+		mission.announce("SHIP", "Route obstructed. Clear the jammed locker from the hallway first.")
 		return
 
 func _process(delta: float) -> void:

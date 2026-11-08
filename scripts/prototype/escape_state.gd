@@ -14,7 +14,7 @@ func objective() -> String:
 	if has_flag("departed"): return "Back to Earth"
 	if has_flag("clamps"): return "Everyone is ready. Board the shuttle."
 	if powered(): return "Release the docking clamps in the shuttle bay."
-	if not has_flag("locker_clear"): return "Work with Aaron to clear the cabin doorway."
+	if not has_flag("locker_clear"): return "Work with Aaron to clear the jammed locker from the hallway."
 	if not has_flag("assessed"): return "Inspect the launch terminal in the junction."
 	if route == "engineering":
 		if not has_flag("isolated"): return "Isolate the damaged engineering circuit."
@@ -49,7 +49,7 @@ func apply(action: String) -> Dictionary:
 			if not has_flag("locker_ready"): return _no("It catches at the top. Aaron could hold it while you push.")
 			return _grant("locker_clear", "Together, you slide the locker clear. The junction is open.")
 		"assess":
-			if not has_flag("locker_clear"): return _no("Clear the cabin doorway first.")
+			if not has_flag("locker_clear"): return _no("Clear the jammed locker from the hallway first.")
 			return _grant("assessed", "Shuttle intact. Clamps unpowered. Repair Engineering, or divert the lab battery; its samples will lose cooling.")
 		"choose_engineering", "choose_battery":
 			if not has_flag("assessed"): return _no("Check the junction launch terminal before choosing a plan.")
