@@ -141,7 +141,7 @@ PROPS = {
     "terminal": ("launch_terminal", 30.5, 23.6),
     "isolate": ("circuit_cutoff", 27.6, 7.9),
     "cabinet": ("distribution", 30.5, 8.1),
-    "fuse": ("fuse_rack", 33.2, 7.9),
+    "fuse": ("fuse_rack", 11.0, 6.9),        # the spare part is kept in storage
     "aux": ("aux_panel", 25.6, 9.7),
     "freezer": ("freezer", 26.8, 31.9),
     "battery": ("battery", 32.8, 31.6),
@@ -154,11 +154,12 @@ PROPS = {
 
 # Named spots the story uses (bottom-centre, tiles).
 ANCHORS = {
-    "player_start": (47.8, 20.6),          # where the film leaves the crew: facing the locker
-    "aaron_start": (44.6, 21.8),
-    "dhan_start": (43.8, 20.2),
+    "player_start": (44.3, 21.3),          # Johnny, right at the locker
+    "aaron_start": (47.0, 21.7),           # Aaron and Dhan, back by the barrier
+    "dhan_start": (47.7, 20.2),
+    "barrier_side": (48.3, 21.0),          # a spot by the barrier, away from the locker
     "locker_visual": (42.0, 21.95),        # the locker lying across the hallway
-    "locker_cleared": (40.6, 19.95),       # stood back up against the wall once pushed
+    "locker_cleared": (42.3, 19.55),       # pushed round to lie along the wall (pivot end)
     "locker_hold": (43.4, 20.0),           # Aaron holds the top here
     "locker_push": (43.6, 21.5),           # the player pushes from here
     "junction": (28.5, 21.5),

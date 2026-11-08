@@ -313,11 +313,7 @@ func perform(action: String) -> Dictionary:
 				locker_body.process_mode = Node.PROCESS_MODE_DISABLED
 				locker_body.get_child(0).set_deferred("disabled", true)
 				_set_locker_nav(false)
-				var slide := create_tween()
-				slide.tween_property(locker_visual, "position", anchor("locker_cleared"), 0.6)
-				slide.tween_callback(func():  # stood back up against the wall
-					locker_visual.texture = load("res://assets/ship/locker.png")
-					locker_visual.offset = Vector2(0, -locker_visual.texture.get_height() / 2.0))
+				_swing_locker_clear()
 				crew.mara.following = true
 			"assess":
 				crew.ivo.go_to(anchor("bay_watch"))
@@ -336,12 +332,64 @@ func perform(action: String) -> Dictionary:
 		refresh()
 	return result
 
+## The push: the locker jolts, then swings round on its far end and scrapes to
+## rest lying along the north wall, kicking up dust. It stays solid there.
+func _swing_locker_clear() -> void:
+	var rest := anchor("locker_cleared")
+	var tw := create_tween()
+	tw.tween_property(locker_visual, "position", locker_visual.position + Vector2(-4, 0), 0.08)
+	tw.tween_property(locker_visual, "position", locker_visual.position + Vector2(-1, 0), 0.06)
+	tw.tween_interval(0.08)
+	tw.set_parallel(true)
+	tw.tween_property(locker_visual, "rotation", -PI / 2.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(locker_visual, "position", rest, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tw.set_parallel(false)
+	tw.tween_callback(func():
+		_dust(rest + Vector2(-50, 0))
+		Sfx.play("hit", -10)
+		_block_cleared_locker())
+	_dust(locker_visual.position + Vector2(0, -40))
+
+## The fallen locker now lies along the wall: solid for the player and the crew.
+func _block_cleared_locker() -> void:
+	var t: Texture2D = locker_visual.texture
+	var rest := anchor("locker_cleared")
+	var rect := Rect2(rest.x - t.get_height(), rest.y - t.get_width() / 2.0 + 6, t.get_height(), t.get_width() / 2.0)
+	var body := StaticBody2D.new()
+	add_child(body)
+	_add_box(body, rect)
+	for y in map_size.y:
+		for x in map_size.x:
+			var centre := Vector2(x * TILE + 16, y * TILE + 16)
+			if rect.has_point(centre): nav.set_point_solid(Vector2i(x, y), true)
+
+func _dust(at: Vector2) -> void:
+	var p := CPUParticles2D.new()
+	p.position = at
+	p.amount = 16
+	p.lifetime = 0.7
+	p.one_shot = true
+	p.explosiveness = 0.9
+	p.direction = Vector2.UP
+	p.spread = 180.0
+	p.initial_velocity_min = 20.0
+	p.initial_velocity_max = 60.0
+	p.gravity = Vector2(0, 40)
+	p.scale_amount_min = 2.0
+	p.scale_amount_max = 4.0
+	p.color = Color(0.75, 0.75, 0.82, 0.7)
+	p.z_index = 4
+	world.add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(p.queue_free)
+
 func crew_ready() -> bool:
 	return crew.mara.position.distance_to(anchor("board_aaron")) < 20 and crew.ivo.position.distance_to(anchor("board_dhan")) < 20
 
 func refresh() -> void:
 	for prop in props.values(): prop.refresh()
 	props["case"].visible = state.has_flag("case_arrived")
+	props["locker"].visible = not state.has_flag("locker_clear")  # nothing left to push
 	props["cart"].visible = not state.has_flag("battery_taken")
 	props["battery"].visible = not state.has_flag("battery_loaded")
 	if state.has_flag("battery_out"):
