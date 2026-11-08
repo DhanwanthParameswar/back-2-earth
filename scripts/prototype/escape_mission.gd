@@ -10,6 +10,7 @@ const Interface = preload("res://scripts/prototype/escape_ui.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Intro = preload("res://scripts/ui/intro_cutscene.gd")
 const Darkness = preload("res://scripts/prototype/escape_darkness.gd")
+const Alarm = preload("res://scripts/prototype/escape_alarm.gd")
 const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
 const Haptics = preload("res://scripts/core/haptics.gd")
 ## Rumble for each story action that succeeds (see scripts/core/haptics.gd).
@@ -48,6 +49,7 @@ var locker_visual: Sprite2D
 var carried_visual: Sprite2D
 var _intro = null
 var darkness
+var alarm                  # escape_alarm.gd: the corridor's rotating beacons
 var _busy_actors := {}
 var _save_ready := false
 var _autosave_clock := 0.0
@@ -82,6 +84,9 @@ func _ready() -> void:
 	darkness = Darkness.new()  # dark until power is back; F = flashlight
 	darkness.mission = self
 	add_child(darkness)
+	alarm = Alarm.new()  # drawn above the dark: the beacons are light sources
+	alarm.mission = self
+	add_child(alarm)
 	ui = Interface.new()
 	ui.mission = self
 	add_child(ui)
