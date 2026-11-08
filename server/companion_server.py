@@ -29,6 +29,9 @@ POST /auth/register {"username", "password"} -> {"username", "token"}
 POST /auth/login    {"username", "password"} -> {"username", "token"}
 POST /auth/logout   (bearer)                 -> {"ok": true}
 GET  /auth/me       (bearer)                 -> {"username", "best"}
+GET  /save          (bearer)                 -> {"snapshot", "revision", "updated_at"}
+POST /save          {"snapshot", "revision"}  -> {"revision", "updated_at"} (bearer)
+POST /save/delete   {"revision"} (bearer)     -> deletion tombstone revision
 POST /runs/start    {"suit", "client"} (bearer optional) -> {"run_token", "username"}
 POST /runs/end      {"run_token", "outcome", stats..., "events"} -> {"duration_s", "best", ...}
 POST /runs/claim    {"run_token"} (bearer)   -> save a just-finished guest run to the account
@@ -536,6 +539,9 @@ class Handler(BaseHTTPRequestHandler):
                 limit = 10
             self._game("board", lambda: GAME.leaderboard(limit, self._token()))
             return
+        if url.path == "/save":
+            self._game("runs", lambda: GAME.load_save(self._token()))
+            return
         if url.path == "/auth/me":
             self._game("board", lambda: GAME.me(self._token()))
             return
@@ -563,6 +569,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(mp3)
 
     GAME_POSTS = {
+        "/save": ("runs", lambda h, d: GAME.write_save(d, h._token())),
+        "/save/delete": ("runs", lambda h, d: GAME.write_save(d, h._token(), delete=True)),
         "/auth/register": ("auth", lambda h, d: GAME.register(d)),
         "/auth/login": ("auth", lambda h, d: GAME.login(d)),
         "/auth/logout": ("auth", lambda h, d: GAME.logout(h._token())),

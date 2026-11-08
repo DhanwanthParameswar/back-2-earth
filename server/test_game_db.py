@@ -1,5 +1,6 @@
 """Tests for accounts, runs, and the leaderboard, against an in-memory fake database.
 Run: python3 -m unittest server/test_game_db.py"""
+import copy
 import json
 import secrets
 import sys
@@ -24,6 +25,7 @@ class FakeStore:
         self.sessions = {}   # token -> account id
         self.runs = {}       # run_token -> dict
         self.events = []
+        self.saves = {}
 
     def create_account(self, username, password_hash):
         if any(a["username"].lower() == username.lower() for a in self.accounts.values()):
@@ -49,6 +51,16 @@ class FakeStore:
 
     def delete_session(self, token):
         self.sessions.pop(token, None)
+
+    def load_save(self, account_id):
+        return copy.deepcopy(self.saves.get(account_id, {"snapshot": None, "revision": 0, "updated_at": None}))
+
+    def write_save(self, account_id, snapshot, revision):
+        current = self.saves.get(account_id, {"revision": 0})
+        if current["revision"] != revision:
+            return None
+        self.saves[account_id] = {"snapshot": copy.deepcopy(snapshot), "revision": revision + 1, "updated_at": self.clock}
+        return {"revision": revision + 1, "updated_at": self.clock}
 
     def start_run(self, run_token, account_id, guest_id, suit, client):
         self.runs[run_token] = {"account_id": account_id, "guest_id": guest_id, "start": self.clock, "end": None,
@@ -141,6 +153,25 @@ class HelperTests(unittest.TestCase):
                            ("debris_hits", 1.5), ("time_left_s", 9999), ("events", "x"),
                            ("events", [{"t": 1, "event": "DROP TABLE"}]), ("events", [{"event": "x"}] * 301)]:
             self.assertIsNone(game_db.validate_run_end({**end_body("t" * 32), key: value})[0], key)
+
+
+class SaveValidationTests(unittest.TestCase):
+    def test_corrupt_and_oversized_snapshots_are_rejected(self):
+        import save_games
+        checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())
+        self.assertTrue(save_games.valid(checkpoint))
+        for field, value in (("elapsed", float("nan")), ("elapsed", float("inf")), ("crew", []), ("schema", 999), ("player", {"position": [-1, 3]}), ("state", {}), ("history", {"mara": [{"role": "system", "text": "inject"}]})):
+            with self.subTest(field=field):
+                self.assertFalse(save_games.valid({**checkpoint, field: value}))
+        unicode_save = copy.deepcopy(checkpoint)
+        unicode_save["history"]["mara"] = [{"role": "npc", "text": "🚀" * 420}] * 6
+        self.assertTrue(save_games.valid(unicode_save), "Bound real UTF-8 data rather than expanded Unicode escapes")
+        broken = copy.deepcopy(checkpoint)
+        broken["crew"]["mara"]["path"] = [[1, 2]] * 301
+        self.assertFalse(save_games.valid(broken))
+        broken = copy.deepcopy(checkpoint)
+        broken["state"]["flags"]["departed"] = True
+        self.assertFalse(save_games.valid(broken))
 
 
 class ServiceTests(unittest.TestCase):
@@ -295,6 +326,26 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("/auth/me", token=acct["token"])[1]["username"], "Kien")
         self.assertEqual(self.call("/auth/logout", {}, acct["token"])[0], 200)
         self.assertEqual(self.call("/auth/me", token=acct["token"])[0], 401)
+
+    def test_checkpoint_auth_isolation_conflicts_and_deletion(self):
+        with open(Path(__file__).parent / "fixtures/checkpoint.json") as file:
+            checkpoint = json.load(file)
+        alice = self.call("/auth/register", {"username": "SaveAlice", "password": "password123"})[1]["token"]
+        bob = self.call("/auth/register", {"username": "SaveBob", "password": "password123"})[1]["token"]
+        self.assertEqual(self.call("/save")[0], 401)
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0})[0], 401)
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0}, alice)[0], 200)
+        saved = self.call("/save", token=alice)[1]
+        self.assertEqual(saved["snapshot"], checkpoint)
+        self.assertEqual(saved["revision"], 1)
+        self.assertIsNone(self.call("/save", token=bob)[1]["snapshot"])
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 0}, alice)[0], 409)
+        self.assertEqual(self.call("/save/delete", {"revision": 0}, alice)[0], 409)
+        self.assertEqual(self.call("/save/delete", {"revision": 1}, alice)[0], 200)
+        self.assertIsNone(self.call("/save", token=alice)[1]["snapshot"])
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 1}, alice)[0], 409, "stale offline device cannot resurrect a deleted save")
+        self.assertEqual(self.call("/save", {"snapshot": checkpoint, "revision": 2}, alice)[0], 200)
+        self.assertEqual(self.call("/auth/me", token=alice)[0], 200, "deleting progress keeps the account")
 
     def test_full_size_run_report(self):
         """The website bug: a real run's report (hundreds of events) was over the old 8 KB limit."""

@@ -17,6 +17,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
+import save_games
 import re
 import secrets
 import threading
@@ -241,6 +243,18 @@ class Store:
     def delete_session(self, token: str) -> None:
         self._query("DELETE FROM sessions WHERE token_hash = %s", (token_hash(token),))
 
+    def load_save(self, account_id):
+        row = self._query("SELECT snapshot, revision, extract(epoch FROM updated_at) FROM game_saves WHERE account_id = %s", (account_id,), "one")
+        return {"snapshot": row[0], "revision": row[1], "updated_at": float(row[2])} if row else {"snapshot": None, "revision": 0, "updated_at": None}
+
+    def write_save(self, account_id, snapshot, revision):
+        # Tombstones retain revisions so stale offline clients cannot resurrect deleted saves.
+        row = self._query("INSERT INTO game_saves (account_id, snapshot, revision) SELECT %s, %s::jsonb, 1 WHERE %s = 0 OR EXISTS (SELECT 1 FROM game_saves WHERE account_id = %s) "
+                          "ON CONFLICT (account_id) DO UPDATE SET snapshot = EXCLUDED.snapshot, revision = game_saves.revision + 1, updated_at = now() "
+                          "WHERE game_saves.revision = %s RETURNING revision, extract(epoch FROM updated_at)",
+                          (account_id, json.dumps(snapshot) if snapshot is not None else None, revision, account_id, revision), "one")
+        return {"revision": row[0], "updated_at": float(row[1])} if row else None
+
     def start_run(self, run_token: str, account_id: int | None, guest_id: str | None, suit: str, client: str) -> None:
         self._query("INSERT INTO runs (run_token, account_id, guest_id, suit, client) VALUES (%s, %s, %s, %s, %s)",
                     (run_token, account_id, guest_id, suit or None, client or None))
@@ -391,6 +405,29 @@ class Service:
         if account is None:
             return 401, {"error": "not_logged_in"}
         return 200, {"username": account[1], "best": self.store.best_for(player_key(account[0], None))}
+
+    def load_save(self, token):
+        account = self._account(token)
+        if account is None:
+            return 401, {"error": "not_logged_in", "message": "Sign in to load your cloud save."}
+        return 200, self.store.load_save(account[0])
+
+    def write_save(self, data, token, delete=False):
+        account = self._account(token)
+        if account is None:
+            return 401, {"error": "not_logged_in", "message": "Sign in to save your game."}
+        if not isinstance(data, dict):
+            return 400, {"error": "invalid_save"}
+        revision = data.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or not 0 <= revision <= 2**53:
+            return 400, {"error": "invalid_revision"}
+        snapshot = None if delete else data.get("snapshot")
+        if not delete and not save_games.valid(snapshot):
+            return 400, {"error": "invalid_save", "message": "This checkpoint is not compatible with the game."}
+        result = self.store.write_save(account[0], snapshot, revision)
+        if result is None:
+            return 409, {"error": "save_conflict", "message": "The cloud save changed on another device."}
+        return 200, {"ok": True, **result}
 
     def start_run(self, data: object, token: str) -> tuple[int, dict]:
         data = data if isinstance(data, dict) else {}
