@@ -8,7 +8,8 @@ extends Node
 ##     they walk (or the direction you asked for while they stand still);
 ##   - WALLS BLOCK LIGHT: every wall casts shadows, so you can't see through walls
 ##     (doorways let light through; the jammed locker blocks it until it's pushed);
-##   - unlit people and objects stay in the dark;
+##   - unlit people and objects stay in the dark (unlit = black);
+##   - exception: the jammed locker shows when your light reaches it, even through its wall;
 ##   - name labels (AARON, DHAN, SPARE FUSE...) show only within E range.
 ## When power comes back the ship lights up and the flashlights switch off.
 
@@ -19,9 +20,13 @@ const BEAM_HALF_ANGLE := deg_to_rad(24.0)
 const BEAM_START_WIDTH := BASE_RADIUS * 0.75  # beam leaves your circle this wide: no sharp tip
 const TURN_SPEED := 10.0                # how fast a beam swings to a new direction
 const LABEL_RANGE := 52.0               # names show within E range (player reach 44)
-const DARK_TINT := Color(0.035, 0.04, 0.07)  # how the unlit ship looks
+const DARK_TINT := Color(0.006, 0.007, 0.014)  # unlit = black: nothing shows beyond your light
 const FADE_SECONDS := 1.5
 const TEX := 256                        # light texture size
+## Light layers: 1 = everything; 2 = SEE_THROUGH: lit when in reach but never shadowed
+## (the jammed locker, so you can find it even though it sits in the wall line).
+const LAYER_NORMAL := 1
+const LAYER_SEE_THROUGH := 2
 
 static var _glow_tex: Texture2D
 static var _beam_tex: Texture2D
@@ -54,6 +59,7 @@ func _ready() -> void:
 		var light := _make_light(_beam_tex, BEAM_RANGE / (TEX / 2.0), 1.0)
 		mission.crew[id].add_child(light)
 		_crew_beams[id] = light
+	_mark_see_through()
 	_dark = 0.0 if is_powered() else 1.0
 	_apply(0.0)
 
@@ -131,6 +137,25 @@ func _apply(delta: float) -> void:
 		flashlight = false
 
 
+## Exception to "walls block light": the jammed locker shows whenever your light
+## reaches it, even through the wall it sits in.
+func _mark_see_through() -> void:
+	var nodes: Array = []
+	if mission.locker_visual != null:
+		nodes.append(mission.locker_visual)
+	if mission.props.has("locker"):
+		nodes.append(mission.props["locker"])
+	for node in nodes:
+		_set_light_layer(node, LAYER_SEE_THROUGH)
+
+
+static func _set_light_layer(node: Node, layer: int) -> void:
+	if node is CanvasItem:
+		node.light_mask = layer
+	for child in node.get_children():
+		_set_light_layer(child, layer)
+
+
 static func _swing(current: Vector2, target: Vector2, weight: float) -> Vector2:
 	return Vector2.from_angle(lerp_angle(current.angle(), target.angle(), weight))
 
@@ -145,6 +170,8 @@ func _make_light(texture: Texture2D, scale: float, energy: float) -> PointLight2
 	light.shadow_filter = Light2D.SHADOW_FILTER_PCF5
 	light.shadow_filter_smooth = 1.5
 	light.shadow_color = Color(0, 0, 0, 1)
+	light.range_item_cull_mask = LAYER_NORMAL | LAYER_SEE_THROUGH  # lights reach both layers
+	light.shadow_item_cull_mask = LAYER_NORMAL                    # ...but only layer 1 gets shadows
 	light.enabled = false
 	return light
 

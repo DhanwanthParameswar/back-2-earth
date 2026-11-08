@@ -193,6 +193,8 @@ func _test_dark_and_fuse() -> void:
 	check(dark.is_dark(), "No power: the ship is dark")
 	check(absf(dark.BASE_RADIUS * 2.0 - 6.0 * 32.0) < 1.0, "Without a flashlight you see about 6 x 6 tiles")
 	check(dark.occluder_count > 20, "Walls cast shadows (light can't pass through walls)")
+	check(mission.locker_visual.light_mask == dark.LAYER_SEE_THROUGH and dark._glow.shadow_item_cull_mask & dark.LAYER_SEE_THROUGH == 0 and dark._glow.range_item_cull_mask & dark.LAYER_SEE_THROUGH != 0, "Exception: the jammed locker is lit when in reach, even through its wall")
+	check(dark.DARK_TINT.v < 0.03, "Unlit areas are black (nothing shows beyond your light)")
 	# Your flashlight: D then W swings the beam from right to up.
 	dark.facing = Vector2.RIGHT
 	dark.toggle_flashlight()
