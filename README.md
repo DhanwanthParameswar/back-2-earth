@@ -224,7 +224,9 @@ The API key lives only in the server's environment. Never put it in Godot, the r
 
 Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (strict)** and a Cloudflare Origin CA certificate on the server. The server's firewall allows port 443 from Cloudflare's IP ranges only, so it can't be reached directly.
 
-**Redeploy the game:** copy `.env.example` to `.env` (gitignored) and fill in the server login, SSH key path, and Godot path, then run `tools/deploy_web.sh` (exports, gzips the wasm, uploads, swaps in). Ask a teammate for the server details; they are never committed.
+**Automatic deploys:** every push to `main` (except docs-only changes) builds the Web export on GitHub Actions and puts it live (`.github/workflows/deploy-web.yml`, about 2–4 minutes; watch it in the repo's Actions tab, or run it by hand there with "Run workflow"). It needs four repository secrets: `DEPLOY_SSH_KEY` (the server's private key), `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_KNOWN_HOSTS` (the server's public host keys from `ssh-keyscan`). The site's favicon is the pixel Earth from `tools/make_logo.py` (`assets/icon.png`, plus `web/favicon.ico` served at the site root).
+
+**Redeploy by hand:** copy `.env.example` to `.env` (gitignored) and fill in the server login, SSH key path, and Godot path, then run `tools/deploy_web.sh` (exports, gzips the wasm, uploads, swaps in). Ask a teammate for the server details; they are never committed.
 
 **Update the backend:** copy `server/companion_server.py` to `/opt/back2earth/server/` on the server, then `sudo systemctl restart back2earth-companion`. Secrets (e.g. `ANTHROPIC_API_KEY`) go in `/etc/back2earth/companion.env`, never in the repo. The endpoint is public: add rate limiting before switching ECHO to live mode.
 

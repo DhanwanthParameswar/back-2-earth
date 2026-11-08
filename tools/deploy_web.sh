@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Export the Web build and upload it to the team server, where Caddy serves it
 # behind Cloudflare at https://back2earth.pp.ua. Owner: D (release).
+# Pushing to main does this automatically (.github/workflows/deploy-web.yml);
+# this script is for deploying by hand.
 #
 #   GODOT=/path/to/Godot_v4.7.2-stable_console.exe tools/deploy_web.sh
 #
@@ -25,6 +27,7 @@ OUT=build/web
 rm -rf "$OUT"
 mkdir -p "$OUT"
 "$GODOT" --headless --path . --export-release "Web" "$OUT/index.html"
+cp web/favicon.ico "$OUT/favicon.ico"   # pixel-art Earth (tools/make_logo.py)
 # The ~40 MB wasm shrinks to ~10 MB; Caddy serves the .gz to browsers that accept it.
 gzip -9 -k -f "$OUT/index.wasm"
 ls -l "$OUT"
