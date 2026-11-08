@@ -30,6 +30,46 @@ var _speech_end = null
 var listening := false
 var _heard := ""      # latest transcript of the current listen
 var _final_sent := false
+## The last few things the crew / M.A.R.V.I.S. said out loud. If the mic "hears"
+## one of them, it came from your speakers, not from you: it's thrown away.
+var recent_lines: Array[String] = []
+const ECHO_MATCH := 0.75   # share of the heard words found in a recent crew line
+
+## Mic rules (tap to talk): the mic is only on after you press Space, Space again
+## sends, and it never listens while a crew voice is playing (no speaker echo loop).
+func _process(_delta: float) -> void:
+	if listening and crew_talking():
+		stop_listening()
+		status_changed.emit("Mic off while the crew talks. Press %s when they're done." % Settings.button_label("talk"))
+
+## Any crew / M.A.R.V.I.S. voice playing right now (replies or scripted lines).
+func crew_talking() -> bool:
+	return voice.playing or (mission != null and mission.voice != null and mission.voice.playing)
+
+## Remember a line that was just spoken, for the echo check.
+func note_spoken(text: String) -> void:
+	if text.strip_edges() == "": return
+	recent_lines.append(text)
+	while recent_lines.size() > 6: recent_lines.pop_front()
+
+static func _words(text: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	var clean := RegEx.create_from_string("[^a-z0-9' ]").sub(text.to_lower(), " ", true)
+	for w in clean.split(" ", false): out.append(w)
+	return out
+
+## True when what the mic heard is mostly a line the crew just said (3+ words, so a
+## short "yes" or "okay" is never thrown away).
+func is_echo(heard: String) -> bool:
+	var words := _words(heard)
+	if words.size() < 3: return false
+	for line in recent_lines:
+		var said := {}
+		for w in _words(line): said[w] = true
+		var hits := 0
+		for w in words: if said.has(w): hits += 1
+		if float(hits) / words.size() >= ECHO_MATCH: return true
+	return false
 
 func _ready() -> void:
 	live_enabled = Settings.companion_enabled  # Settings · CREW LIVE AI (off = scripted replies)
@@ -141,11 +181,13 @@ func _deliver(data: Dictionary) -> void:
 		if not memory_notes[pending_id].has(note): memory_notes[pending_id].append(note)
 		while memory_notes[pending_id].size() > 12: memory_notes[pending_id].pop_front()
 	mission.save_progress()
+	note_spoken(str(data.line))
 	data["npc_id"] = pending_id
 	answered.emit(data)
 
 ## A pre-written line this crewmate just said: part of their conversation from now on.
 func remember_line(id: String, text: String) -> void:
+	note_spoken(text)
 	if not histories.has(id): return
 	histories[id].append({"role": "npc", "text": text.left(420)})
 	while histories[id].size() > 6: histories[id].pop_front()
@@ -172,7 +214,10 @@ func listen() -> void:
 	if not speech_supported():
 		status_changed.emit("Speech input needs Chrome or Edge. You can always type.")
 		return
+	# You pressed talk: the crew stop talking (and a reply still downloading won't play).
 	voice.stop()
+	audio_request.cancel_request()
+	if mission != null: mission.stop_voice()
 	_heard = ""
 	_final_sent = false
 	var window = JavaScriptBridge.get_interface("window")
@@ -197,6 +242,12 @@ func listen() -> void:
 		try { recognition.start(); } catch(e) { window.b2eSpeechError(String(e)); }
 	""", true)
 	_set_listening(true)
+
+## Space while listening: send what you've said so far (or just turn the mic off).
+func finish_listening() -> void:
+	var heard := _heard
+	stop_listening()
+	if heard != "": _send_heard()
 
 func stop_listening() -> void:
 	if OS.has_feature("web"):
@@ -225,6 +276,9 @@ func _on_speech_end(_args: Array) -> void:
 func _send_heard() -> void:
 	if _final_sent or _heard == "": return
 	_final_sent = true
+	if is_echo(_heard):
+		status_changed.emit("That was the crew's voice, not yours. Press %s to talk." % Settings.button_label("talk"))
+		return
 	transcribed.emit(_heard)
 	speech_final.emit(_heard)
 

@@ -381,18 +381,18 @@ func _open_voice_chat(id: String) -> void:
 	voice_mode = true
 	chat_id = id
 	_chat_frame(id)
-	voice_status = _text("", 10, Style.CYAN_BRIGHT)
-	content.add_child(Style.label("[%s] talk      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")], 9, Style.MUTED))
+	voice_status = _text("Press %s to talk" % Settings.button_label("talk"), 10, Style.CYAN_BRIGHT)
+	content.add_child(Style.label("[%s] talk / send      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")], 9, Style.MUTED))
 	modal.show()
 	_place_modal()
-	radio.listen()
+	# Tap to talk: the mic stays off until you press the talk button.
 
 func _voice_open() -> bool:
 	return mode == "chat" and voice_mode and is_instance_valid(voice_status)
 
 func _on_listening_changed(on: bool) -> void:
 	if not _voice_open(): return
-	if on: voice_status.text = "● LISTENING... speak now"
+	if on: voice_status.text = "● LISTENING... press %s to send" % Settings.button_label("talk")
 	elif not radio.busy and voice_status.text.begins_with("●"):
 		voice_status.text = "Press %s to talk" % Settings.button_label("talk")
 
@@ -405,13 +405,12 @@ func _on_speech_final(text: String) -> void:
 	_send(text)
 
 func _on_radio_status(text: String) -> void:
-	if _voice_open() and (text.begins_with("Microphone") or text.begins_with("Didn't") or text.begins_with("Speech")):
+	if _voice_open() and (text.begins_with("Microphone") or text.begins_with("Didn't") or text.begins_with("Speech") or text.begins_with("Mic off") or text.begins_with("That was")):
 		voice_status.text = text
 
 func _on_voice_finished() -> void:
 	if _voice_open() and not radio.busy and not radio.listening:
-		voice_status.text = ""
-		radio.listen()
+		voice_status.text = "Press %s to talk" % Settings.button_label("talk")
 
 ## Ready-made lines for controller players: what fits right now, then everyday ones.
 func _suggestions(id: String) -> Array[String]:
@@ -444,9 +443,8 @@ func _send(message: String) -> void:
 	if chat_id == "marvis":
 		mission.note_player_spoke()
 		chat_reply.text = mission.ask_marvis(message.strip_edges().left(200))
-		if voice_mode:
-			get_tree().create_timer(1.6).timeout.connect(func():
-				if _voice_open() and not radio.listening: radio.listen())
+		radio.note_spoken(chat_reply.text)
+		if _voice_open(): voice_status.text = "Press %s to talk" % Settings.button_label("talk")
 		return
 	chat_reply.text = "..."
 	radio.ask(chat_id, message)
@@ -458,16 +456,11 @@ func _answer(data: Dictionary) -> void:
 	if mode != "chat" or data.npc_id != chat_id: return
 	chat_reply.text = data.line
 	if voice_mode and is_instance_valid(voice_status):
+		# No auto-listen (it heard the crew through speakers and looped): you press talk.
 		if str(data.get("audio_url", "")).begins_with("/npc/audio/"):
-			voice_status.text = "Speaking..."
-			var asked_at := chat_id
-			get_tree().create_timer(8.0).timeout.connect(func():
-				if _voice_open() and chat_id == asked_at and not radio.voice.playing and not radio.listening and not radio.busy:
-					radio.listen())
-		elif not data.get("started", false):
-			voice_status.text = ""
-			get_tree().create_timer(1.2).timeout.connect(func():
-				if _voice_open() and not radio.listening and not radio.busy: radio.listen())
+			voice_status.text = "Speaking...  (%s to interrupt)" % Settings.button_label("talk")
+		else:
+			voice_status.text = "Press %s to talk" % Settings.button_label("talk")
 	if data.get("started", false):
 		# They're on their way: close the chat so you can watch them do it.
 		show_caption(mission.crew_name(chat_id), data.line)
@@ -674,7 +667,8 @@ func _input(event: InputEvent) -> void:
 	if not modal.visible: return
 	if not event.is_pressed() or event.is_echo(): return
 	if event.is_action_pressed("talk") and _voice_open():
-		if not radio.listening and not radio.busy: radio.listen()
+		if radio.listening: radio.finish_listening()   # tap again: send
+		elif not radio.busy: radio.listen()
 		get_viewport().set_input_as_handled()
 		return
 	if mode == "closeup":

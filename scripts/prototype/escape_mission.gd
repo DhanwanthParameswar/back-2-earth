@@ -452,6 +452,7 @@ func line_text(id: String) -> String:
 ## M.A.R.V.I.S. speaks (unprompted): shown and logged, voiced from per-sentence clips.
 func marvis_say(ids: Array) -> void:
 	ui.show_caption("M.A.R.V.I.S.", marvis.text(ids), "marvis")
+	ui.radio.note_spoken(marvis.text(ids))
 	play_marvis(ids)
 
 func play_marvis(ids: Array) -> void:
@@ -464,6 +465,12 @@ func play_marvis(ids: Array) -> void:
 		Sfx.play("objective", -18)
 		return
 	_play_chain(clips)
+
+## Stop any scripted line (and the rest of a M.A.R.V.I.S. clip chain): you're talking.
+func stop_voice() -> void:
+	if voice == null: return
+	voice.stop()
+	for c in voice.finished.get_connections(): voice.finished.disconnect(c.callable)
 
 func _play_chain(clips: Array) -> void:
 	if clips.is_empty(): return

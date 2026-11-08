@@ -11,6 +11,7 @@ var failures := 0
 var checks := 0
 var visual := false
 var fixture := false
+var _voice_guard_checked := false
 
 func check(condition: bool, description: String) -> void:
 	checks += 1
@@ -164,6 +165,15 @@ func _new_mission():
 	await get_tree().process_frame
 	await get_tree().process_frame
 	mission.ui.radio.live_enabled = false  # tests use the scripted interpreter, never the network
+	if not _voice_guard_checked:
+		_voice_guard_checked = true
+		# Voice chat echo guard: the mic hearing the crew through speakers is ignored.
+		var radio = mission.ui.radio
+		radio.note_spoken("Grab the bottom edge while I lift the top of the locker.")
+		check(radio.is_echo("grab the bottom edge while I lift the top"), "Mic hearing a crew line from the speakers is thrown away")
+		check(not radio.is_echo("yes"), "...but a short 'yes' always counts")
+		check(not radio.is_echo("can you help me find the fuse"), "...and your own words go through")
+		check(not radio.listening, "The mic is off until you press talk")
 	mission.discoveries_path = "user://test_escape_discoveries.cfg"  # never touch a player's real record
 	return mission
 
