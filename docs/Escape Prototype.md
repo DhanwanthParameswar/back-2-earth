@@ -92,8 +92,8 @@ Launch Godot with `B2E_BACKEND=http://127.0.0.1:8787` in its environment. With n
 override, the existing hosted API address is used. This work does **not** deploy
 the backend or modify the hosted game. Updating the server requires both
 `server/companion_server.py` and `server/escape_dialogue.py` alongside the existing
-server modules. `PILOT_VOICE_ID` optionally gives Dhan a separate ElevenLabs voice;
-otherwise both NPCs use the existing configured voice.
+server modules. Aaron and Dhan each have their own ElevenLabs voice
+(`AARON_VOICE_ID`, `DHAN_VOICE_ID`; `JOHNNY_VOICE_ID` is reserved for the player).
 
 **Speech input:** the radio's Speak button uses browser SpeechRecognition when
 available in a web export. It is unavailable in the native Godot build; type or

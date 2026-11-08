@@ -83,6 +83,11 @@ ELEVEN_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVEN_URL = os.environ.get("ELEVENLABS_URL", "https://api.elevenlabs.io")
 # "Katie - Advertisements & Commercials" from the ElevenLabs voice library.
 NPC_VOICE_ID = os.environ.get("NPC_VOICE_ID", "HXrznjtuwc7KlmunddH7")
+# Escape crew voices (ElevenLabs voice library). Internal NPC ids: "mara" = Aaron, "ivo" = Dhan.
+AARON_VOICE_ID = os.environ.get("AARON_VOICE_ID", "HhZz3hiP5lrqMIJOxTVX")
+DHAN_VOICE_ID = os.environ.get("DHAN_VOICE_ID", "WRgZjkmNCCNsWdUJ7QSt")
+JOHNNY_VOICE_ID = os.environ.get("JOHNNY_VOICE_ID", "SSfU0eLfP3qeuR4j2bwD")  # the player; no spoken lines yet
+CREW_VOICES = {"mara": AARON_VOICE_ID, "ivo": DHAN_VOICE_ID}
 ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")  # fastest model
 ELEVEN_FORMAT = os.environ.get("ELEVENLABS_FORMAT", "mp3_44100_64")
 TTS_TIMEOUT = float(os.environ.get("TTS_TIMEOUT", "10"))
@@ -596,7 +601,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/escape/talk":
             if self._limited("npc"):
                 return
-            voice_id = os.environ.get("PILOT_VOICE_ID", NPC_VOICE_ID) if isinstance(data, dict) and data.get("npc_id") == "ivo" else NPC_VOICE_ID
+            voice_id = CREW_VOICES.get(data.get("npc_id") if isinstance(data, dict) else None, AARON_VOICE_ID)
             # Current clients save each crewmate's memory with mission progress.
             # Keep the independent database path only for older web builds.
             key, memory = None, None
