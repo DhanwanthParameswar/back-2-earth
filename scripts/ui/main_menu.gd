@@ -89,6 +89,7 @@ func activate(id: String) -> void:
 
 func _start_game() -> void:
 	_leaving = true
+	Settings.intro_pending = true  # suit picker -> opening story -> gameplay
 	Sfx.play("launch", -6.0)
 	var tw := create_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.35)
@@ -333,8 +334,8 @@ func _build_how_panel() -> void:
 	var body := UiStyle.label(
 		"Your ship is tumbling toward a black hole. ECHO, its damaged AI, is still talking.\n"
 		+ "Reach the escape pod before the 6:00 evacuation window closes.\n\n"
-		+ "1   Start the evacuation at the cockpit terminal.\n"
-		+ "2   Restore power in Engineering.\n"
+		+ "1   Restore emergency power at the cockpit terminal.\n"
+		+ "2   Restore main power in Engineering.\n"
 		+ "3   Wait for a DOWN surge: it slides the cargo sled onto the plate.\n"
 		+ "     Then grab the navigation core.\n"
 		+ "4   Release the pod clamp and board the pod.\n\n"

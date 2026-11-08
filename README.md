@@ -64,9 +64,9 @@ Input actions are registered in code (`scripts/core/input_setup.gd`). If you add
 ## How a run plays
 
 ```
-Title menu ─Start Game─▶ Suit picker ─Launch─▶ run
-   ▲                                                                        │
-   └──────────── Q from pause / win / lose (R restarts the run) ───────────┘
+Title menu ─Start Game─▶ Suit picker ─Launch─▶ Opening story (30 s, skippable) ─▶ run
+   ▲                                                                              │
+   └──────────── Q from pause / win / lose (R restarts the run, no story) ────────┘
 ```
 
 ```
@@ -78,8 +78,8 @@ Picker ─▶ Cockpit ──▶ Engineering ──▶ Cargo ──────�
 
 | # | Objective id | Done by | Opens |
 |---|---|---|---|
-| 1 | `start_evacuation` | Cockpit terminal `T` | Door `1`, starts the 6:00 timer |
-| 2 | `restore_power` | Power console `P` | Door `2`, powers the cargo sled |
+| 1 | `start_evacuation` ("Restore emergency power") | Cockpit terminal `T` | Door `1`, starts the 6:00 timer |
+| 2 | `restore_power` ("Restore main power") | Power console `P` | Door `2`, powers the cargo sled |
 | 3 | `open_compartment` | Sled reaches plate `S` during a DOWN pull | Door `K` |
 | 4 | `collect_core` | Core `N` (adds `navigation_core`) | Door `3` |
 | 5 | `release_clamp` | Clamp console `L` | — |
@@ -257,6 +257,30 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
   - The speaker icon toggles sound.
 - Every setting is saved in `user://settings.cfg`.
 - **Fallback:** if the video is missing, the menu still works and shows labeled buttons.
+
+## Opening story
+
+A 30-second cutscene plays after the suit picker when a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Launch key doesn't skip it too).
+
+| Time | Beat |
+|---|---|
+| 0:00–0:05 | Ship cruising toward Earth, three astronauts strapped in. Monitor: LUNAR STATION: REPAIRS COMPLETE / RETURNING HOME |
+| 0:05–0:08 | One wakes: "Real food. Finally." |
+| 0:08–0:13 | Impact, lights fail, emergency red. "SYSTEM: Hull damage. Evacuate." Crew unbuckles and heads for the pods |
+| 0:13–0:19 | Second impact tears open the corridor. The player reaches and misses. Outside: a tiny astronaut tumbling against Earth, in silence |
+| 0:19–0:24 | The crewmate pulls the player through the bulkhead. The player hits the emergency control and the door slams |
+| 0:24–0:28 | Terminal flickers MAIN POWER OFFLINE. "CREWMATE: Power first. Then we find them." |
+| 0:28–0:30 | Black, pixel logo |
+
+- **The player wears their picked suit.** There's one video per suit (`assets/video/intro_<suit>.ogv`, ~1.9 MB each) plus one shared soundtrack (`assets/audio/intro.ogg`) that `scripts/ui/intro_cutscene.gd` plays alongside. The crewmate who survives wears the same suit as the in-game crewmate NPC (first of `SUIT_PREFERENCE` in `crewmate.gd` that isn't yours). The next one in that list is the crewmate who's lost.
+- **Re-render** after changing the script, timing, or art:
+  ```bash
+  pip install pillow numpy scipy   # ffmpeg with libtheora + libvorbis required
+  python3 tools/make_intro.py                      # all suits + soundtrack (~1 min)
+  python3 tools/make_intro.py --preview /tmp/intro # key frames as PNGs, classic suit
+  ```
+  Captions, monitor lines, and the shot timings are constants at the top of `tools/make_intro.py`. If `SUIT_PREFERENCE` in `crewmate.gd` changes, change it there too. The logo is cut from the menu video, so redraw the menu and the intro picks it up.
+- **Missing files:** if a suit's video is missing, the classic one plays. If there's no intro video at all, the run starts straight away.
 
 ## Video
 

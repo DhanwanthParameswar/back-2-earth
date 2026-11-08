@@ -46,8 +46,8 @@ const DOOR_UNLOCKS := {
 
 ## Console char -> [objective_id, prompt, texture, fallback color]
 const CONSOLES := {
-	"T": ["start_evacuation", "Start evacuation", "res://assets/sprites/terminal.png", Art.CYAN],
-	"P": ["restore_power", "Restore power", "res://assets/sprites/power_console.png", Art.AMBER],
+	"T": ["start_evacuation", "Restore emergency power", "res://assets/sprites/terminal.png", Art.CYAN],
+	"P": ["restore_power", "Restore main power", "res://assets/sprites/power_console.png", Art.AMBER],
 	"L": ["release_clamp", "Release pod clamp", "res://assets/sprites/clamp_console.png", Art.AMBER],
 }
 

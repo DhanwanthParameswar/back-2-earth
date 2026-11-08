@@ -10,6 +10,7 @@ const NpcClient = preload("res://scripts/ai/npc_client.gd")
 const RunRecorder = preload("res://scripts/core/run_recorder.gd")
 const MainScene = preload("res://scenes/main.tscn")
 const MenuScene = preload("res://scenes/menu.tscn")
+const IntroCutscene = preload("res://scripts/ui/intro_cutscene.gd")
 
 var _failures := 0
 var _passes := 0
@@ -30,6 +31,7 @@ func _ready() -> void:
 	await _test_full_run()
 	await _test_restart_resets()
 	await _test_menu()
+	await _test_intro()
 	print("=== %d passed, %d failed ===\n" % [_passes, _failures])
 	get_tree().quit(_failures)
 
@@ -336,4 +338,44 @@ func _test_menu() -> void:
 	Settings.toggle_companion()
 	_check(ResourceLoader.exists("res://scenes/main.tscn"), "START GAME has a scene to load")
 	menu.queue_free()
+	await get_tree().process_frame
+
+
+func _test_intro() -> void:
+	print("Opening story")
+	for skin in Settings.SKINS:
+		_check(ResourceLoader.exists(IntroCutscene.VIDEO_PATH % skin["id"]), "%s suit has its intro video" % skin["id"])
+	_check(ResourceLoader.exists(IntroCutscene.AUDIO_PATH), "intro soundtrack is in the build")
+	_check(IntroCutscene.video_path_for("no_such_suit") == IntroCutscene.VIDEO_PATH % "classic", "unknown suit falls back to the classic intro")
+
+	# From the main menu: suit picker -> story -> gameplay.
+	Settings.intro_pending = true
+	var main = MainScene.instantiate()
+	add_child(main)
+	await get_tree().process_frame
+	var hud = main.get_node("HUD")
+	hud._launch()
+	var intro = hud.get_node_or_null("IntroCutscene")
+	_check(intro != null and hud.is_intro_playing(), "launching from the menu plays the story first")
+	_check(GameState.phase == GameState.Phase.BRIEFING, "the run waits while the story plays")
+	_check(not main.get_node("HUD/SuitPicker").visible, "the suit picker is hidden during the story")
+	_check(not Settings.intro_pending, "the story is used up once it starts")
+	hud._launch()
+	_check(GameState.phase == GameState.Phase.BRIEFING, "launch is ignored while the story plays")
+	if intro != null:
+		intro.skip()
+	_check(GameState.phase == GameState.Phase.PLAYING, "skipping (or the story ending) starts the run")
+	_check(main.get_node("HUD/ObjectiveCard").visible, "gameplay opens on the objective card")
+	_check(GameState.get_canonical()["text"] == "Restore emergency power", "first objective is to restore emergency power")
+	main.queue_free()
+	await get_tree().process_frame
+
+	# Restart (no menu in between): straight into the run.
+	main = MainScene.instantiate()
+	add_child(main)
+	await get_tree().process_frame
+	hud = main.get_node("HUD")
+	hud._launch()
+	_check(hud.get_node_or_null("IntroCutscene") == null and GameState.phase == GameState.Phase.PLAYING, "restarts skip the story")
+	main.queue_free()
 	await get_tree().process_frame

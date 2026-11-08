@@ -6,6 +6,7 @@ extends CanvasLayer
 
 const Art = preload("res://scripts/ship/art.gd")
 const PressButton = preload("res://scripts/ui/press_button.gd")
+const IntroCutscene = preload("res://scripts/ui/intro_cutscene.gd")
 
 const CAPTION_TIME := 6.0
 
@@ -35,6 +36,11 @@ var _won_stats: Label
 var _won_prompt: Label
 var _earth: TextureRect
 var _pod: Control
+var _card: Control
+var _card_step: Label
+var _card_title: Label
+var _card_tween: Tween = null
+var _intro = null  # the opening story while it plays (intro_cutscene.gd)
 
 var _caption_left := 0.0
 var _launch_line := ""
@@ -50,6 +56,7 @@ func _ready() -> void:
 	layer = 10
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_hud()
+	_build_objective_card()  # above the HUD, under the picker/pause/end screens
 	_build_picker()
 	_build_pause()
 	_build_lost()
@@ -133,6 +140,8 @@ func _update_prompt() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.is_pressed() or event.is_echo():
 		return
+	if is_intro_playing():
+		return  # the cutscene takes all input until it hands over
 	var phase: int = GameState.phase
 	if phase == GameState.Phase.BRIEFING:
 		# The suit picker is the only pre-run screen (the menu covers the rest).
@@ -467,13 +476,63 @@ func _show_picker() -> void:
 	_pick_index = maxi(0, Settings.skin_index(Settings.skin))
 
 
-## Start the run with the highlighted suit.
+## Start the run with the highlighted suit. Coming from the main menu, the
+## opening story plays first; restarts (R) go straight in.
 func _launch() -> void:
-	if GameState.phase != GameState.Phase.BRIEFING:
+	if GameState.phase != GameState.Phase.BRIEFING or is_intro_playing():
 		return
 	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
-	Sfx.play("objective", -8.0)
+	if Settings.intro_pending:
+		Settings.intro_pending = false
+		_play_intro()
+	else:
+		Sfx.play("objective", -8.0)
+		_begin_run()
+
+
+func is_intro_playing() -> bool:
+	return _intro != null and is_instance_valid(_intro) and _intro.is_running()
+
+
+func _play_intro() -> void:
+	_picker.visible = false
+	Sfx.stop_ambient()  # the film has its own soundtrack, silences included
+	_intro = IntroCutscene.new()
+	_intro.name = "IntroCutscene"
+	add_child(_intro)
+	_intro.finished.connect(_on_intro_finished)
+	_intro.play_for_skin(Settings.skin)
+
+
+func _on_intro_finished() -> void:
+	_intro = null
+	Sfx.start_ambient()
+	Sfx.play("objective", -6.0)
+	_begin_run()
+
+
+## Hand control to the player and announce the first objective.
+func _begin_run() -> void:
 	GameState.begin_play()
+	_show_objective_card()
+
+
+## Big centered title for the current objective ("RESTORE EMERGENCY POWER"),
+## typed out, held, then faded. Doesn't block input.
+func _show_objective_card() -> void:
+	var c: Dictionary = GameState.get_canonical()
+	_card_step.text = "OBJECTIVE %d/%d" % [GameState.objective_index + 1, GameState.OBJECTIVES.size()]
+	_card_title.text = str(c["text"]).to_upper()
+	_card_title.visible_ratio = 0.0
+	_card.modulate.a = 1.0
+	_card.visible = true
+	if _card_tween != null and _card_tween.is_valid():
+		_card_tween.kill()
+	_card_tween = create_tween()
+	_card_tween.tween_property(_card_title, "visible_ratio", 1.0, 0.5)
+	_card_tween.tween_interval(2.0)
+	_card_tween.tween_property(_card, "modulate:a", 0.0, 0.6)
+	_card_tween.tween_callback(func(): _card.visible = false)
 
 
 func _on_card_clicked(i: int) -> void:
@@ -490,6 +549,20 @@ func _move_pick(delta: int) -> void:
 	_pick_index = (_pick_index + delta + n) % n
 	Settings.set_skin(Settings.SKINS[_pick_index]["id"])
 	Sfx.play("boots", -10.0)
+
+
+func _build_objective_card() -> void:
+	_card = _full_screen()
+	_card.name = "ObjectiveCard"
+	_card.visible = false
+	_card.add_child(_rect(Vector2(0, 136), Vector2(640, 64), Color(0.02, 0.03, 0.09, 0.82)))
+	_card.add_child(_rect(Vector2(0, 136), Vector2(640, 2), Art.CYAN))
+	_card.add_child(_rect(Vector2(0, 198), Vector2(640, 2), Art.CYAN))
+	_card_step = _label("", Vector2(0, 142), Vector2(640, 16), 11, HORIZONTAL_ALIGNMENT_CENTER)
+	_card_step.modulate = Art.AMBER
+	_card.add_child(_card_step)
+	_card_title = _label("", Vector2(0, 158), Vector2(640, 36), 26, HORIZONTAL_ALIGNMENT_CENTER)
+	_card.add_child(_card_title)
 
 
 func _build_pause() -> void:
