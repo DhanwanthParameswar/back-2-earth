@@ -8,7 +8,7 @@
       "lines": [
         "Gameplay & integration — your name",
         "Level & puzzles — your name",
-        "ECHO companion & backend — your name",
+        "Crew AI, M.A.R.V.I.S. & backend — your name",
         "Art, UI & release — your name"
       ]
     },
@@ -24,7 +24,7 @@
       "lines": [
         "Godot Engine 4.7",
         "Monocraft font by Idrees Hassan (SIL Open Font License 1.1)",
-        "ECHO's live lines via a language model (labeled LIVE in-game)"
+        "Crew conversations by Google Gemini · voices by ElevenLabs"
       ]
     }
   ]

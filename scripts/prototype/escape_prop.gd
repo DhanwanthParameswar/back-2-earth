@@ -32,10 +32,10 @@ func _ready() -> void:
 	add_child(caption)
 
 func can_interact(_player) -> bool:
-	return mission.active and not mission.ending and visible
+	return mission.active and not mission.ending and visible and not mission.scripted and not mission.seated
 
 func get_prompt() -> String:
-	return title
+	return mission.prompt_for(prop_id)
 
 func interact(_player) -> void:
 	mission.use_prop(prop_id)

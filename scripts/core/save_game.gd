@@ -44,8 +44,9 @@ func _profile_changed() -> void:
 	_syncing = false
 	if FileAccess.file_exists(_path()):
 		var parsed = JSON.parse_string(FileAccess.get_file_as_string(_path()))
-		if parsed is Dictionary and parsed.get("snapshot") is Dictionary and _number(parsed.get("revision"), 9007199254740992.0) and parsed.get("dirty") is bool and (parsed.snapshot.is_empty() or compatible(parsed.snapshot)):
+		if parsed is Dictionary and parsed.get("snapshot") is Dictionary and _number(parsed.get("revision"), 9007199254740992.0) and parsed.get("dirty") is bool and (parsed.snapshot.is_empty() or compatible(parsed.snapshot) or _outdated(parsed.snapshot)):
 			_record = parsed
+			if _outdated(parsed.snapshot): _record["snapshot"] = {}  # an earlier story version: start fresh
 		else:
 			status = "This device's save could not be read. Your cloud save may still be available."
 	changed.emit()
@@ -60,31 +61,47 @@ func _point(value, direction := false) -> bool:
 		if item < (-1 if direction else 0) or item > (1 if direction else 10000): return false
 	return true
 
+## Escape checkpoints (schema 2). Mirrors server/save_games.py valid(): keep both in step.
 func compatible(data) -> bool:
-	if not data is Dictionary or data.get("schema") != 1 or data.get("map") != "escape-v1": return false
+	if not data is Dictionary or data.get("schema") != 2 or data.get("map") != "escape-v2": return false
 	if not data.get("state") is Dictionary or not data.get("player") is Dictionary or not data.get("crew") is Dictionary: return false
+	var Rules = load("res://scripts/prototype/escape_state.gd")
 	var state: Dictionary = data.state
 	if not state.get("flags") is Dictionary or state.get("flags", {}).get("departed", false): return false
-	var allowed := "locker_ready locker_clear assessed isolated fuse_taken fuse_installed fault_found aux_off engineering_power case_requested case_arrived samples_saved battery_out battery_loaded battery_taken battery_connected clamps departed".split(" ")
 	for key in state.flags:
-		if not key in allowed or not state.flags[key] is bool: return false
-	if not state.get("route") in ["", "engineering", "battery"] or not state.get("carrying") in ["", "fuse", "battery cart"]: return false
+		if not key in Rules.FLAGS or not state.flags[key] is bool: return false
+	if not state.get("carrying") in Rules.CARRY: return false
 	if not _number(state.get("version"), 1000000) or not state.get("journal") is Array or state.journal.size() > 40: return false
 	for line in state.journal:
 		if not line is String or line.length() > 500: return false
+	if not _strings(state.get("learned"), 80, 40) or not _strings(state.get("fails"), 5, 4): return false
+	for f in state.fails:
+		if not f in Rules.FAILS: return false
+	if not _number(state.get("vitality"), 100) or not _number(state.get("selector"), 2): return false
+	if not state.get("fuse_at_cabinet") in ["", "A", "B", "C"] or not state.get("fuse_task") in ["", "A", "B", "C"]: return false
+	if not _puzzle(state.get("puzzle")): return false
+	var promises = state.get("promises")
+	if not promises is Dictionary or promises.size() > 4: return false
+	for k in promises:
+		if not k in ["stage3_dhan_question", "freezer_question"] or not promises[k] is String or promises[k].length() > 100: return false
+	if not _strings(data.get("said"), 120, 60): return false
 	if not _number(data.get("elapsed"), 31536000) or not data.get("flashlight") is bool or not _point(data.player.get("position")): return false
+	var tasks := ["", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case", "lift_battery", "carry_dhan", "release_clamps"]
+	if data.crew.size() != 2: return false
 	for id in ["mara", "ivo"]:
 		if not data.crew.get(id) is Dictionary: return false
 		var actor: Dictionary = data.crew[id]
 		if not _point(actor.get("position")) or not _point(actor.get("facing"), true): return false
-		for field in ["following", "light_on", "cargo"]:
+		for field in ["following", "light_on", "cargo", "visible"]:
 			if not actor.get(field) is bool: return false
-		if not actor.get("task") in ["", "help_locker", "load_battery", "fetch_case"]: return false
+		if not actor.get("task") in tasks or not actor.get("pose") in ["stand", "pinned", "straining", "sit", "carried", "dead"]: return false
 		if not actor.get("path") is Array or actor.path.size() > 300: return false
 		for point in actor.path:
 			if not _point(point): return false
 	if not data.get("history", {}) is Dictionary: return false
-	for turns in data.get("history", {}).values():
+	for id in data.get("history", {}):
+		if not id in ["mara", "ivo"]: return false
+		var turns = data.history[id]
 		if not turns is Array or turns.size() > 6: return false
 		for turn in turns:
 			if not turn is Dictionary or not turn.get("role") in ["player", "npc"] or not turn.get("text") is String or turn.text.length() > 420: return false
@@ -96,6 +113,31 @@ func compatible(data) -> bool:
 		for note in notes:
 			if not note is String or note.length() == 0 or note.length() > 120: return false
 	return JSON.stringify(data).to_utf8_buffer().size() <= 24000
+
+## A checkpoint from the earlier story (schema 1) can't be resumed; it's treated as no save.
+func _outdated(snapshot) -> bool:
+	return snapshot is Dictionary and snapshot.get("schema") == 1
+
+func _strings(value, longest: int, most: int) -> bool:
+	if not value is Array or value.size() > most: return false
+	for item in value:
+		if not item is String or item.length() == 0 or item.length() > longest: return false
+	return true
+
+## Per-run answers: a code from 3/6/9, each code and branch mapped to a distinct box/toggle.
+func _puzzle(p) -> bool:
+	if not p is Dictionary or not p.get("fuse_for") is Dictionary or not p.get("toggle_for") is Dictionary: return false
+	if not p.get("code") in [3, 6, 9, 3.0, 6.0, 9.0] or not p.get("aux") in [1, 2, 3, 1.0, 2.0, 3.0] or not p.get("selector") in [0, 1, 2, 0.0, 1.0, 2.0]: return false
+	var boxes: Array = []
+	for k in ["3", "6", "9"]:
+		if not p.fuse_for.get(k) in ["A", "B", "C"] or boxes.has(p.fuse_for[k]): return false
+		boxes.append(p.fuse_for[k])
+	var toggles: Array = []
+	for k in ["1", "2", "3"]:
+		var t = p.toggle_for.get(k)
+		if not t in [0, 1, 2, 0.0, 1.0, 2.0] or toggles.has(int(t)): return false
+		toggles.append(int(t))
+	return p.size() == 5 and p.fuse_for.size() == 3 and p.toggle_for.size() == 3
 
 func has_progress() -> bool:
 	return compatible(_record.get("snapshot", {}))
@@ -227,6 +269,7 @@ func refresh_cloud() -> void:
 		status = "Your session expired. Sign in again; your local save is safe."
 	elif result.code == 200 and _number(result.get("revision"), 9007199254740992.0):
 		var remote = result.get("snapshot")
+		if _outdated(remote): remote = null
 		if remote == null or compatible(remote):
 			if _record.get("dirty", false):
 				if (remote if remote is Dictionary else {}) == checkpoint():
@@ -262,6 +305,7 @@ func resolve_conflict(use_cloud: bool) -> void:
 		changed.emit()
 		return
 	var remote = result.get("snapshot")
+	if _outdated(remote): remote = null
 	if remote != null and not compatible(remote):
 		status = "Cloud save is incompatible. Local progress is safe."
 		changed.emit()

@@ -22,6 +22,7 @@ var voice: AudioStreamPlayer
 var pending_id := ""
 var pending_message := ""
 var pending_version := -1
+var pending_answering := ""  # the crew question this message answers
 var audio_version := -1
 var _speech_callback = null
 var _speech_error = null
@@ -31,6 +32,7 @@ var _heard := ""      # latest transcript of the current listen
 var _final_sent := false
 
 func _ready() -> void:
+	live_enabled = Settings.companion_enabled  # Settings · CREW LIVE AI (off = scripted replies)
 	request = HTTPRequest.new()
 	request.timeout = 8
 	add_child(request)
@@ -53,13 +55,17 @@ func ask(id: String, message: String) -> void:
 	audio_request.cancel_request()
 	pending_id = id
 	pending_message = message.strip_edges().left(200)
+	mission.note_player_spoke()
+	var body: Dictionary = mission.snapshot(id, pending_message)
+	pending_answering = mission.answering(id, pending_message)
+	mission.capture_answer(id, pending_message)
 	pending_version = mission.state.version
 	if not live_enabled:
-		_deliver(mission.offline_response(id, pending_message))
+		_deliver(mission.offline_response(id, pending_message, pending_answering))
 		return
 	busy = true
 	status_changed.emit("Contacting Gemini…")
-	var body: Dictionary = mission.snapshot(id)
+	body["state_version"] = pending_version
 	body["message"] = pending_message
 	body["history"] = histories[id]
 	body["memory_notes"] = memory_notes[id]
@@ -106,9 +112,10 @@ func _on_reply(result: int, code: int, _headers: PackedStringArray, bytes: Packe
 		var name_pattern := RegEx.new()
 		name_pattern.compile("(?i)\\b" + old_name + "\\b")
 		current_line = name_pattern.sub(current_line, "Aaron" if old_name == "mara" else "Dhan", true)
-	if current_line != data.line:
-		data.line = current_line
-		data["audio_url"] = ""
+	var checked: String = mission.check_reply(pending_id, current_line, pending_message)
+	if current_line != data.line or checked != current_line:
+		data.line = checked
+		data["audio_url"] = ""  # the voice would say the unchecked words
 	_deliver(data)
 	var url: String = str(data.get("audio_url", ""))
 	if url.begins_with("/npc/audio/"):
@@ -117,12 +124,12 @@ func _on_reply(result: int, code: int, _headers: PackedStringArray, bytes: Packe
 
 func _fallback() -> void:
 	busy = false
-	var response: Dictionary = mission.offline_response(pending_id, pending_message)
+	var response: Dictionary = mission.offline_response(pending_id, pending_message, pending_answering)
 	response["source"] = "offline · live unavailable"
 	_deliver(response)
 
 func _deliver(data: Dictionary) -> void:
-	var correction: String = mission.act_on_dialogue(pending_id, str(data.get("action", "none")))
+	var correction: String = mission.act_on_dialogue(pending_id, str(data.get("action", "none")), pending_message)
 	if correction != "": data["line"] = correction
 	# True when the crewmate actually started doing something (the chat then closes so you can watch).
 	data["started"] = str(data.get("action", "none")) != "none" and correction == ""
@@ -136,6 +143,18 @@ func _deliver(data: Dictionary) -> void:
 	mission.save_progress()
 	data["npc_id"] = pending_id
 	answered.emit(data)
+
+## A pre-written line this crewmate just said: part of their conversation from now on.
+func remember_line(id: String, text: String) -> void:
+	if not histories.has(id): return
+	histories[id].append({"role": "npc", "text": text.left(420)})
+	while histories[id].size() > 6: histories[id].pop_front()
+
+func add_memory(id: String, note: String) -> void:
+	if not memory_notes.has(id) or note.strip_edges() == "": return
+	note = note.strip_edges().left(120)
+	if not memory_notes[id].has(note): memory_notes[id].append(note)
+	while memory_notes[id].size() > 12: memory_notes[id].pop_front()
 
 func _on_audio(result: int, code: int, _headers: PackedStringArray, bytes: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or bytes.size() < 200 or audio_version != mission.state.version or mission.ending: return

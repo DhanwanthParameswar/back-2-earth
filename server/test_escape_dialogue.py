@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import escape_dialogue as dialogue
 
 VALID = {
-    "npc_id": "mara", "state_version": 3, "message": "Could you hold the locker?",
-    "objective": "Clear the jammed locker from the hallway", "flags": {}, "history": [],
-    "available_actions": {"none": "Answer", "help_locker": "Hold the locker"},
+    "npc_id": "mara", "state_version": 3, "message": "Could you lift the locker off him?",
+    "objective": "Help Dhan.", "flags": {}, "history": [],
+    "available_actions": {"none": "Answer", "lift_locker": "Lift the locker off Dhan"},
 }
 
 
@@ -22,7 +22,7 @@ class EscapeDialogueTests(unittest.TestCase):
         return dialogue.reply(request or VALID, lambda *args: json.dumps(result), False, None, "voice")
 
     def test_live_proposal_echoes_version_and_identity(self):
-        code, data = self.call({"line": "I'll hold it while you push.", "action": "help_locker"})
+        code, data = self.call({"line": "Lifting. Pull him out!", "action": "lift_locker"})
         self.assertEqual(code, 200)
         self.assertEqual(data["state_version"], 3)
         self.assertEqual(data["npc_id"], "mara")
@@ -42,12 +42,13 @@ class EscapeDialogueTests(unittest.TestCase):
                 self.assertEqual(code, 200)
                 self.assertEqual(data["line"], f"I'm {name}.")
                 self.assertTrue(prompts[0].startswith(f"You are {name},"))
-                self.assertIn(f'-> "{name}.', prompts[0])
+                self.assertIn("Kien was pulled out through the breach and is dead", prompts[0])
+                self.assertIn("Johnny (the\npilot", prompts[0])
                 self.assertNotIn("Mara", prompts[0])
                 self.assertNotIn("Ivo", prompts[0])
 
     def test_unavailable_or_invented_actions_fail_closed(self):
-        for action in ("launch", "disconnect_battery", "fetch_case", "delete_ship", None):
+        for action in ("launch", "freezer_off", "fetch_case", "delete_ship", None):
             with self.subTest(action=action):
                 self.assertEqual(self.call({"line": "Okay", "action": action})[0], 502)
 
@@ -70,9 +71,28 @@ class EscapeDialogueTests(unittest.TestCase):
             self.assertEqual(dialogue.reply(VALID, generate, False, None, "v")[0], 502)
 
     def test_voice_uses_existing_cache_route(self):
-        code, data = dialogue.reply(VALID, lambda *a: '{"line":"On my way.","action":"help_locker"}', False, lambda voice, text: "a" * 20, "v")
+        code, data = dialogue.reply(VALID, lambda *a: '{"line":"On my way.","action":"lift_locker"}', False, lambda voice, text: "a" * 20, "v")
         self.assertEqual(code, 200)
         self.assertEqual(data["audio_url"], "/npc/audio/" + "a" * 20 + ".mp3")
+
+    def test_dhan_cannot_be_given_aarons_tasks(self):
+        request = {**VALID, "npc_id": "ivo", "available_actions": {"none": "Answer", "lift_locker": "Lift"}}
+        self.assertEqual(dialogue.reply(request, lambda *a: self.fail("provider called"), False, None, "v")[0], 400)
+
+    def test_dhan_only_uses_codes_johnny_read_out(self):
+        prompts = []
+
+        def generate(system, turns, *args):
+            prompts.append((system, turns))
+            return json.dumps({"line": "E-6? Box B.", "action": "none"})
+
+        request = {**VALID, "npc_id": "ivo", "message": "It says E six", "available_actions": {"none": "Answer"},
+                   "codes_johnny_read_out": {"E-6": "spare fuse box B"}, "max_words": 22}
+        code, data = dialogue.reply(request, generate, False, None, "v")
+        self.assertEqual(code, 200)
+        system, turns = prompts[0]
+        self.assertIn("codes_johnny_read_out", system)
+        self.assertIn('"E-6": "spare fuse box B"', turns[-1][1])
 
     def test_http_endpoint_dispatches_new_contract(self):
         import companion_server as server

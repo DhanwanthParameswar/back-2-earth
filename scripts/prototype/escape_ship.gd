@@ -20,6 +20,15 @@ var _modulate: CanvasModulate
 var _t := 0.0
 var _stars: Array[Vector3] = []
 var _outside_crew: Sprite2D
+## Launch (escape_mission._launch): every door seals, then a hatch opens under the shuttle.
+var sealed := 0.0:
+	set(v):
+		sealed = v
+		queue_redraw()
+var hatch := 0.0:
+	set(v):
+		hatch = v
+		queue_redraw()
 
 
 func _ready() -> void:
@@ -160,6 +169,7 @@ func _draw() -> void:
 			if room.name == "CABIN":
 				var rr: Array = room.rect
 				draw_rect(Rect2(rr[0] * TILE, rr[1] * TILE, rr[2] * TILE, rr[3] * TILE), Color(0, 0, 0, 0.45))
+	if hatch > 0.0: _draw_hatch()
 	if mission.state.powered():  # bay guide lights come on
 		var bay := _room_rect("SHUTTLE BAY")
 		var x0 := bay.position.x + 16
@@ -167,6 +177,41 @@ func _draw() -> void:
 			draw_rect(Rect2(x0, bay.end.y - 10, 12, 3), Color("87d5b3"))
 			x0 += 32
 
+
+## A blast door sliding shut across a doorway (u = 0 open .. 1 shut).
+func _draw_seal(_x: int, _y: int, r: Rect2, vertical_frame: bool) -> void:
+	var u := clampf(sealed, 0.0, 1.0)
+	var slab := Rect2(r.position, Vector2(r.size.x, r.size.y * u)) if vertical_frame else Rect2(r.position, Vector2(r.size.x * u, r.size.y))
+	draw_rect(slab, Color("3a3848"))
+	draw_rect(slab.grow(-3), Color("5f5c70"))
+	var k := 0.0
+	while k < (slab.size.x if not vertical_frame else slab.size.y):
+		var stripe := Rect2(slab.position + Vector2(k, slab.size.y / 2.0 - 2), Vector2(4, 4)) if not vertical_frame else Rect2(slab.position + Vector2(slab.size.x / 2.0 - 2, k), Vector2(4, 4))
+		draw_rect(stripe, Color("ffa300") if int(k / 8.0) % 2 == 0 else Color("201a08"))
+		k += 8.0
+
+## The launch hatch under the shuttle: hazard frame, then doors parting onto space.
+func _draw_hatch() -> void:
+	var s: Dictionary = mission.map_data.props.shuttle
+	var c := Vector2(s.pos[0], s.pos[1] - 40)
+	var full := Rect2(c - Vector2(96, 34), Vector2(192, 68))
+	draw_rect(full.grow(6), Color("201a08"))
+	var x := full.position.x - 6
+	while x < full.end.x + 6:
+		draw_rect(Rect2(x, full.position.y - 6, 6, 6), Color("ffa300"))
+		draw_rect(Rect2(x, full.end.y, 6, 6), Color("ffa300"))
+		x += 12
+	var open := clampf(hatch, 0.0, 1.0)
+	draw_rect(full, Color("05060f"))
+	for st in _stars:
+		var sp := Vector2(full.position.x + fposmod(st.x, full.size.x), full.position.y + fposmod(st.y, full.size.y))
+		if absf(sp.x - c.x) < full.size.x * open / 2.0:
+			draw_rect(Rect2(sp, Vector2.ONE * (2 if st.z > 0.9 else 1)), Color(0.6, 0.7, 0.95, 0.4 + 0.5 * st.z))
+	# Two doors sliding apart from the middle.
+	var door_w := full.size.x / 2.0 * (1.0 - open)
+	for door in [Rect2(full.position, Vector2(door_w, full.size.y)), Rect2(Vector2(full.end.x - door_w, full.position.y), Vector2(door_w, full.size.y))]:
+		draw_rect(door, Color("3a3848"))
+		if door.size.x > 8.0: draw_rect(door.grow(-4), Color("4a4858"))
 
 func _room_rect(name: String) -> Rect2:
 	for room in mission.rooms:
@@ -236,6 +281,9 @@ func _draw_doors() -> void:
 				draw_rect(Rect2(r.position.x, r.position.y, TILE, 5), Color("5f5c70"))
 			if wall_d:
 				draw_rect(Rect2(r.position.x, r.end.y - 5, TILE, 5), Color("5f5c70"))
+			if sealed > 0.0 and ch == "D":
+				_draw_seal(x, y, r, wall_l or wall_r)
+				continue
 			# Amber dashes on the threshold, like the film's bulkhead frame.
 			if (wall_l or wall_r) and not (wall_u or wall_d):
 				var yy := r.position.y + (TILE - 4 if _ch(x, y + 1) not in ["D", "L"] else 0)

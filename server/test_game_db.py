@@ -174,6 +174,28 @@ class SaveValidationTests(unittest.TestCase):
         for bad in ([], {'mara': 'fact'}, {'mara': ['x'] * 13}, {'mara': ['x' * 121]}, {'mara': [None]}, {'pirate': []}):
             self.assertFalse(save_games.valid({**checkpoint, 'memory_notes': bad}), bad)
 
+    def test_v2_checkpoint_from_the_game_is_accepted(self):
+        import save_games
+        # Written by the Godot tests (tests/escape_runner.gd --fixture): both checks must agree.
+        checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint_v2.json").read_text())
+        self.assertTrue(save_games.valid(checkpoint))
+        for path, value in ((("state", "flags", "teleport"), True), (("state", "carrying"), "laser"), (("state", "vitality"), 101),
+                            (("state", "fails"), ["F9"]), (("state", "puzzle", "code"), 4), (("state", "promises", "x"), "y"),
+                            (("crew", "ivo", "pose"), "flying"), (("crew", "mara", "task"), "launch"), (("state", "selector"), 3)):
+            with self.subTest(path=path):
+                bad = copy.deepcopy(checkpoint)
+                node = bad
+                for key in path[:-1]:
+                    node = node[key]
+                node[path[-1]] = value
+                self.assertFalse(save_games.valid(bad))
+        bad = copy.deepcopy(checkpoint)
+        bad["state"]["puzzle"]["fuse_for"]["3"] = bad["state"]["puzzle"]["fuse_for"]["6"]
+        self.assertFalse(save_games.valid(bad), "two codes on one fuse box")
+        bad = copy.deepcopy(checkpoint)
+        bad["map"] = "escape-v1"
+        self.assertFalse(save_games.valid(bad))
+
     def test_corrupt_and_oversized_snapshots_are_rejected(self):
         import save_games
         checkpoint = json.loads((Path(__file__).parent / "fixtures/checkpoint.json").read_text())

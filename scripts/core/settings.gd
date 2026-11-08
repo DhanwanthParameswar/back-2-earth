@@ -163,9 +163,9 @@ func controller_name() -> String:
 func button_label(action: String) -> String:
 	if using_controller:
 		return {"interact": "A", "confirm": "A", "back": "B", "talk": "X", "flashlight": "Y",
-			"radio_1": "LB", "radio_2": "RB", "deck_map": "BACK", "pause": "START", "move": "L-STICK"}.get(action, "?")
+			"radio_1": "LB", "radio_2": "RB", "radio_3": "L3", "deck_map": "BACK", "pause": "START", "move": "L-STICK"}.get(action, "?")
 	return {"interact": "E", "confirm": "ENTER", "back": "ESC", "talk": "SPACE", "flashlight": "F",
-		"radio_1": "1", "radio_2": "2", "deck_map": "TAB", "pause": "ESC", "move": "WASD"}.get(action, "?")
+		"radio_1": "1", "radio_2": "2", "radio_3": "3", "deck_map": "TAB", "pause": "ESC", "move": "WASD"}.get(action, "?")
 
 
 ## Notice which device the player is using (keys/mouse vs a controller).

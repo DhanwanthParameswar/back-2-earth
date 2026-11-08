@@ -1,125 +1,340 @@
 extends RefCounted
-## Prototype rules. Model output is a proposal; only this reducer grants progress.
+## Story rules (docs/Game Design.md). Model output is only a proposal: this reducer
+## is the one place progress is granted. It knows nothing about positions or nodes;
+## escape_mission.gd checks who is standing where before calling apply().
+
+## Every permanent progress flag (saves are validated against this list).
+const FLAGS := ["dhan_free", "locker_clear", "isolated", "code_read", "fuse_installed",
+	"fault_found", "aux_off", "engineering_power", "freezer_off", "battery_out",
+	"battery_loaded", "battery_taken", "battery_connected", "case_requested", "case_arrived",
+	"samples_saved", "samples_wrong", "splint_taken", "dhan_treated", "dhan_dead",
+	"dhan_aboard", "clamps", "aaron_aboard", "departed"]
+const CARRY := ["", "fuse_A", "fuse_B", "fuse_C", "splint", "battery cart"]
+const BOXES := ["A", "B", "C"]
+const CODES := [3, 6, 9]
+const SELECTOR := ["I", "II", "III"]
+
+## Dhan's condition (section 5 of the design doc). Tune here.
+const DRAIN := 0.25            # per second, untreated
+const DRAIN_TREATED := 0.12    # after the splint kit
+const AARON_FACTOR := 0.85     # Aaron staying beside him
+const SPLINT_BOOST := 10.0
+const FAIL_COST := 5.0
+const WRONG_SWITCH_COST := 3.0
+
+## Quick failures (section 6): id -> title card.
+const FAILS := {
+	"F1": "Dhan did mention the handle.",
+	"F2": "Fresh air. Briefly.",
+	"F3": "Parking brake.",
+	"F4": "Forgetting someone?",
+	"F5": "Read the label.",
+}
 
 var flags: Dictionary = {}
-var route := ""
 var carrying := ""
 var version := 0
+## What the player has learned, in the words of whoever said it (the log on the map).
 var journal: Array[String] = []
+var learned: Dictionary = {}       # fact id -> true (each fact is logged once)
+## Per-run puzzle answers. Only Dhan knows the code book; the player has to ask.
+var puzzle: Dictionary = {}
+var vitality := 100.0
+var fails: Dictionary = {}         # fail ids hit this run
+var promises: Dictionary = {}      # question id -> the player's own words
+var fuse_at_cabinet := ""          # a fuse Aaron left beside the cabinet ("A"/"B"/"C")
+var selector := 0                  # socket selector position the player has set (0 = I)
+
+func _init() -> void:
+	new_puzzle()
+
+## Random answers so a judge's run differs from a rehearsal.
+func new_puzzle(seed_value := -1) -> void:
+	var rng := RandomNumberGenerator.new()
+	if seed_value >= 0: rng.seed = seed_value
+	else: rng.randomize()
+	var boxes := BOXES.duplicate()
+	_shuffle(boxes, rng)
+	var toggles := [0, 1, 2]
+	_shuffle(toggles, rng)
+	puzzle = {
+		"code": CODES[rng.randi_range(0, 2)],
+		# Dhan's code book: fault code -> spare fuse box.
+		"fuse_for": {"3": boxes[0], "6": boxes[1], "9": boxes[2]},
+		"aux": rng.randi_range(1, 3),
+		# Dhan's wiring memory: AUX branch -> toggle position (0 = left).
+		"toggle_for": {"1": toggles[0], "2": toggles[1], "3": toggles[2]},
+		"selector": rng.randi_range(0, 2),
+	}
+
+func _shuffle(list: Array, rng: RandomNumberGenerator) -> void:
+	for i in range(list.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var t = list[i]
+		list[i] = list[j]
+		list[j] = t
+
+func fault_code() -> String: return "E-%d" % int(puzzle.code)
+func right_fuse() -> String: return str(puzzle.fuse_for[str(puzzle.code)])
+func fuse_for(code: int) -> String: return str(puzzle.fuse_for.get(str(code), ""))
+func short_branch() -> String: return "AUX-%d" % int(puzzle.aux)
+func right_toggle() -> int: return int(puzzle.toggle_for[str(puzzle.aux)])
+func toggle_for(branch: int) -> int: return int(puzzle.toggle_for.get(str(branch), -1))
+func right_selector() -> String: return SELECTOR[int(puzzle.selector)]
 
 func has_flag(key: String) -> bool:
 	return bool(flags.get(key, false))
 
-func objective() -> String:
-	if has_flag("departed"): return "Back to Earth"
-	if has_flag("clamps"): return "Everyone is ready. Board the shuttle."
-	if powered(): return "Release the docking clamps in the shuttle bay."
-	if not has_flag("locker_clear"): return "Work with Aaron to clear the jammed locker from the hallway."
-	if not has_flag("assessed"): return "Inspect the launch terminal in the junction."
-	if route == "engineering":
-		if not has_flag("isolated"): return "Isolate the damaged engineering circuit."
-		if not has_flag("fuse_taken"): return "Collect a replacement fuse from the storage room."
-		if not has_flag("fuse_installed"): return "Install the replacement in the distribution cabinet."
-		if not has_flag("fault_found"): return "Test the repaired supply at the distribution cabinet."
-		if not has_flag("aux_off"): return "Disconnect the shorted auxiliary branch."
-		return "Restart the distribution cabinet."
-	if route == "battery":
-		if not has_flag("battery_out"): return "Decide what to save, then disconnect the lab battery."
-		if not has_flag("battery_loaded"): return "Ask Aaron to help load the battery onto the cart."
-		if not has_flag("battery_taken"): return "Collect the loaded battery cart."
-		return "Connect the battery at the shuttle bay's emergency socket."
-	return "Choose a plan: repair Engineering or use the Laboratory battery."
-
 func powered() -> bool:
 	return has_flag("engineering_power") or has_flag("battery_connected")
 
-func ending() -> String:
-	if route == "engineering": return "A SHIP LEFT BEHIND. NOTHING ELSE."
-	if has_flag("samples_saved"): return "THE IMPORTANT THINGS."
-	return "EVERYONE IS HOME."
+func dhan_alive() -> bool:
+	return not has_flag("dhan_dead")
 
-func apply(action: String) -> Dictionary:
-	if has_flag("departed"): return _no("The crew is already on the way home.")
-	var line := ""
+## 1 joking · 2 strained · 3 fading · 4 critical · 0 dead.
+func stage() -> int:
+	if has_flag("dhan_dead"): return 0
+	if vitality >= 70.0: return 1
+	if vitality >= 45.0: return 2
+	if vitality >= 20.0: return 3
+	return 4
+
+## Which way the player is going (for the HUD and the AI). Only the freezer commits.
+func route() -> String:
+	if has_flag("freezer_off"): return "battery"
+	if has_flag("isolated"): return "engineering"
+	return ""
+
+## Goal only, never the steps (section 11).
+func objective() -> String:
+	if has_flag("departed"): return "Back to Earth."
+	if not has_flag("dhan_free"): return "Help Dhan."
+	if not powered(): return "Get the shuttle working."
+	return "Get everyone aboard. Launch."
+
+func samples() -> String:
+	if not has_flag("freezer_off"): return "all"
+	if has_flag("samples_saved"): return "priority"
+	return "none"
+
+## Section 7. Checked in this order.
+func ending() -> String:
+	if has_flag("dhan_dead"): return "two_came_home"
+	if stage() >= 3: return "barely"
+	match samples():
+		"all": return "everyone_home"
+		"priority": return "what_he_left"
+	return "kept_each_other"
+
+## Log a fact once. Returns true the first time.
+func learn(id: String, text: String) -> bool:
+	if learned.has(id): return false
+	learned[id] = true
+	journal.append(text)
+	while journal.size() > 40: journal.pop_front()
+	return true
+
+## Dhan's clock. Returns "died" the moment he dies, else "".
+func tick(delta: float, aaron_beside: bool) -> String:
+	if not has_flag("dhan_free") or has_flag("dhan_dead") or has_flag("departed") or has_flag("dhan_aboard"):
+		return ""
+	var rate := DRAIN_TREATED if has_flag("dhan_treated") else DRAIN
+	if aaron_beside: rate *= AARON_FACTOR
+	vitality = maxf(0.0, vitality - rate * delta)
+	if vitality <= 0.0:
+		flags["dhan_dead"] = true
+		version += 1
+		return "died"
+	return ""
+
+func hurt(amount: float) -> void:
+	if has_flag("dhan_free") and dhan_alive() and not has_flag("dhan_aboard"):
+		vitality = maxf(1.0, vitality - amount)  # a mistake never kills him outright
+
+## One player or crew action. Returns {ok, line} plus "fail" (an F-id) for a quick failure,
+## or "hurt" when a wrong guess cost Dhan something.
+func apply(action: String, arg := "") -> Dictionary:
+	if has_flag("departed"): return _no("We're already on our way home.")
 	match action:
-		"help_locker":
-			if has_flag("locker_clear"): return _no("The doorway is already clear. I'll stay with you.")
-			return _grant("locker_ready", "Aaron is holding the locker. Push it with E.")
-		"push_locker":
-			if not has_flag("locker_ready"): return _no("It catches at the top. Aaron could hold it while you push.")
-			return _grant("locker_clear", "Together, you slide the locker clear. The junction is open.")
-		"assess":
-			if not has_flag("locker_clear"): return _no("Clear the jammed locker from the hallway first.")
-			return _grant("assessed", "Shuttle intact. Clamps unpowered. Repair Engineering, or divert the lab battery; its samples will lose cooling.")
-		"choose_engineering", "choose_battery":
-			if not has_flag("assessed"): return _no("Check the junction launch terminal before choosing a plan.")
-			var wanted := "engineering" if action == "choose_engineering" else "battery"
-			if route == wanted: return _no("That's our current plan. " + objective())
-			if powered() or has_flag("isolated") or has_flag("battery_out"):
-				return _no("We've committed equipment to this route. " + objective())
-			route = wanted
-			line = "Engineering route agreed. Aaron will read diagnostics while you repair the supply." if wanted == "engineering" else "Battery route agreed. Cooling stays on until you explicitly disconnect it. Ask about saving the samples."
+		"free_dhan":
+			if has_flag("dhan_free"): return _no("Dhan's already free.")
+			flags["locker_clear"] = true
+			return _grant("dhan_free", "")
+		"airlock":
+			return _fail("F2")
 		"isolate":
-			if route != "engineering": return _no("Agree on the Engineering repair at the junction terminal first.")
-			return _grant("isolated", "Circuit isolated. The cabinet is safe to work on.")
+			if has_flag("isolated"): return _no("The isolator is already pulled. The cabinet is dead.")
+			return _grant("isolated", "")
+		"cabinet_touch":
+			if not has_flag("isolated"): return _fail("F1")
+			return {"ok": true, "line": ""}
+		"read_code":
+			flags["code_read"] = true
+			return {"ok": true, "line": ""}
 		"take_fuse":
-			if route != "engineering" or not has_flag("isolated"): return _no("Isolate the engineering circuit before taking a replacement.")
-			if has_flag("fuse_taken"): return _no("You've already collected the replacement fuse.")
-			carrying = "fuse"
-			return _grant("fuse_taken", "Replacement fuse collected. Bring it to the distribution cabinet.")
-		"cabinet":
-			if not has_flag("isolated"): return _no("Live circuit. Use the isolation switch first.")
-			if not has_flag("fuse_installed"):
-				if carrying != "fuse": return _no("The fuse is burned out. There's a spare in the storage room.")
-				carrying = ""
-				return _grant("fuse_installed", "Replacement fitted. Test the supply at this cabinet.")
-			if not has_flag("aux_off"): return _grant("fault_found", "Breaker tripped safely. The cabin-lighting branch is shorted. Disconnect AUX at the adjacent panel.")
-			return _grant("engineering_power", "Shuttle bay power restored. The lab remains cold; cabin lighting has been sacrificed.")
-		"aux":
-			if not has_flag("fault_found"): return _no("Test the repaired cabinet first; we need to identify the fault.")
-			return _grant("aux_off", "Damaged cabin-lighting branch isolated. Restart the cabinet.")
+			if not arg in BOXES: return _no("Pick a box.")
+			if carrying == "fuse_" + arg: return _no("You're already holding a fuse from box %s." % arg)
+			if carrying != "" and not carrying.begins_with("fuse_"): return _no("Your hands are full.")
+			carrying = "fuse_" + arg
+			version += 1
+			return {"ok": true, "line": "Fuse from box %s." % arg}
+		"seat_fuse":
+			if not has_flag("isolated"): return _fail("F1")
+			if has_flag("fuse_installed"): return _no("The new fuse is already seated.")
+			var box := carrying.trim_prefix("fuse_") if carrying.begins_with("fuse_") else fuse_at_cabinet
+			if box == "": return _no("The slot's empty. It needs a spare fuse.")
+			if box != right_fuse():
+				return _no("The box %s fuse is the wrong size. It won't seat." % box)
+			if carrying.begins_with("fuse_"): carrying = ""
+			else: fuse_at_cabinet = ""
+			return _grant("fuse_installed", "")
+		"test":
+			if not has_flag("isolated"): return _fail("F1")
+			if not has_flag("fuse_installed"): return _no("Nothing happens. The fuse slot is empty.")
+			if has_flag("fault_found"): return _no("It trips again. %s is still shorting." % short_branch()) if not has_flag("aux_off") else _no("Test passes. Press RESTART.")
+			return _grant("fault_found", "")
+		"toggle":
+			if not has_flag("fault_found"): return _no("Nothing to isolate yet. Test the cabinet first.")
+			if has_flag("aux_off"): return _no("The shorted branch is already cut.")
+			if int(arg) != right_toggle():
+				version += 1
+				return {"ok": false, "line": "Clunk. Wrong branch. The short is still there.", "hurt": WRONG_SWITCH_COST}
+			return _grant("aux_off", "")
+		"restart":
+			if not has_flag("isolated"): return _fail("F1")
+			if not has_flag("fuse_installed"): return _no("Restart fails. No fuse.")
+			if not has_flag("aux_off"): return _no("Breaker trips. %s is still shorting." % short_branch()) if has_flag("fault_found") else _no("Test the circuit before restarting.")
+			if powered(): return _no("The bay already has power.")
+			return _grant("engineering_power", "")
 		"fetch_case":
-			if not has_flag("assessed"): return _no("Check the shuttle's condition at the junction terminal first.")
-			if has_flag("battery_out"): return _no("Cooling has already stopped; the samples are no longer viable.")
-			return _grant("case_requested", "Dhan is fetching the insulated case from the shuttle. Meet him at the lab freezer.")
-		"case_arrived": return _grant("case_arrived", "Dhan delivered the case beside the lab freezer. Pack the priority rack before disconnecting power.")
-		"pack_samples":
-			if has_flag("battery_out"): return _no("The samples were lost when cooling stopped. We can still get everyone home.")
-			if not has_flag("case_arrived"): return _no("Ask Dhan to fetch the insulated sample case first.")
-			return _grant("samples_saved", "Priority rack secured in the insulated case. The remaining samples must stay behind.")
-		"disconnect_battery":
-			if route != "battery": return _no("Agree on the battery route at the junction terminal first.")
-			return _grant("battery_out", "Freezer shut down. Battery released. Aaron can help load it onto the cart.")
+			if has_flag("freezer_off"): return _no("The freezer's already off. The samples are gone.")
+			if has_flag("case_requested"): return _no("The case is already on its way.")
+			return _grant("case_requested", "")
+		"case_arrived":
+			return _grant("case_arrived", "")
+		"pack_rack":
+			if has_flag("freezer_off"): return _no("Too late. They've warmed.")
+			if not has_flag("case_arrived"): return _no("Nothing to pack them into.")
+			if has_flag("samples_saved") or has_flag("samples_wrong"): return _no("The case is full.")
+			return _grant("samples_saved" if arg == "priority" else "samples_wrong", "")
+		"freezer_off":
+			if has_flag("freezer_off"): return _no("The freezer's already off.")
+			return _grant("freezer_off", "")
+		"battery_latch":
+			if has_flag("battery_out"): return _no("The latch is already open.")
+			if not has_flag("freezer_off"): return _fail("F5")
+			return _grant("battery_out", "")
 		"load_battery":
-			if not has_flag("battery_out"): return _no("Disconnect the lab battery before we lift it.")
-			return _grant("battery_loaded", "Together, you and Aaron load the heavy battery. Collect the cart with E.")
+			if not has_flag("battery_out"): return _no("It's still latched in.")
+			return _grant("battery_loaded", "")
 		"take_cart":
-			if not has_flag("battery_loaded"): return _no("Too heavy for one person. Ask Aaron to help load the cart.")
-			if has_flag("battery_taken"): return _no("The cart is already with you.")
+			if not has_flag("battery_loaded"): return _no("The cart's empty.")
+			if has_flag("battery_taken"): return _no("You've already got the cart.")
+			if carrying != "": return _no("Put down what you're holding first.")
 			carrying = "battery cart"
-			return _grant("battery_taken", "Cart collected. Bring it to the emergency socket in the shuttle bay.")
+			return _grant("battery_taken", "")
+		"set_selector":
+			selector = clampi(int(arg), 0, 2)
+			version += 1
+			return {"ok": true, "line": ""}
 		"connect_battery":
-			if powered(): return _no("The shuttle bay already has power.")
-			if carrying != "battery cart": return _no("Bring the loaded lab battery cart to this socket.")
+			if powered(): return _no("The bay already has power.")
+			if carrying != "battery cart": return _no("Nothing to plug in. The battery is still in the lab.")
+			if selector != int(puzzle.selector):
+				version += 1
+				return {"ok": false, "line": "Pop. The breaker trips. Wrong setting for this battery."}
 			carrying = ""
-			return _grant("battery_connected", "Emergency supply connected. The docking controls are awake.")
+			return _grant("battery_connected", "")
+		"take_splint":
+			if has_flag("splint_taken"): return _no("You already took the splint kit.")
+			if carrying != "": return _no("Your hands are full.")
+			carrying = "splint"
+			return _grant("splint_taken", "")
+		"apply_splint":
+			if carrying != "splint": return _no("You need the splint kit from the medbay.")
+			if not dhan_alive(): return _no("It's too late for that.")
+			carrying = ""
+			vitality = minf(100.0, vitality + SPLINT_BOOST)
+			return _grant("dhan_treated", "")
+		"carry_dhan":
+			if not powered(): return _no("Not yet. The shuttle can't leave until the clamps have power.")
+			if not dhan_alive() or has_flag("dhan_aboard"): return _no("")
+			return _grant("dhan_aboard", "")
 		"release":
-			if not powered(): return _no("Docking controls have no power. Restore Engineering or connect the lab battery.")
-			return _grant("clamps", "Docking clamps released. Dhan and Aaron are boarding; join them at the shuttle.")
+			if not powered(): return _no("Docking controls have no power.")
+			if has_flag("clamps"): return _no("The clamps are already open.")
+			return _grant("clamps", "")
+		"aaron_aboard":
+			if not has_flag("clamps"): return _no("")
+			return _grant("aaron_aboard", "")
 		"launch":
-			if not has_flag("clamps"): return _no("Release the docking clamps before boarding.")
-			return _grant("departed", "Three crew aboard. Destination: Earth.")
-		_: return _no("That action isn't available. " + objective())
-	version += 1
-	journal.append(line)
-	return {"ok": true, "line": line}
+			if not has_flag("clamps"): return _fail("F3")
+			if dhan_alive() and not has_flag("dhan_aboard"): return _no("Not without Dhan.")
+			if not has_flag("aaron_aboard"): return _fail("F4")
+			return _grant("departed", "")
+	return _no("That isn't possible right now.")
 
 func _grant(key: String, line: String) -> Dictionary:
-	if has_flag(key): return _no("Already done. " + objective())
+	if has_flag(key): return _no("Already done.")
 	flags[key] = true
 	version += 1
-	journal.append(line)
 	return {"ok": true, "line": line}
+
+func _fail(id: String) -> Dictionary:
+	fails[id] = true
+	return {"ok": false, "fail": id, "line": FAILS[id]}
 
 func _no(line: String) -> Dictionary:
 	return {"ok": false, "line": line}
+
+# --- What the player said: codes and letters, however speech-to-text spelled them ---
+
+const _DIGITS := {"one": 1, "won": 1, "two": 2, "to": 2, "too": 2, "three": 3, "tree": 3,
+	"free": 3, "six": 6, "sicks": 6, "nine": 9, "nein": 9}
+
+## "E-6", "e6", "e six", "eat six", "error six", "the six one" -> 6. 0 when none found.
+static func parse_code(message: String) -> int:
+	var m := message.to_lower()
+	var re := RegEx.new()
+	re.compile("\\b(?:e|ee|eat|easy|error|code|fault)\\s*[-:#]?\\s*(3|6|9|three|tree|free|six|sicks|nine|nein)\\b")
+	var hit := re.search(m)
+	if hit == null:
+		re.compile("\\b(?:e|ee)(3|6|9)\\b")
+		hit = re.search(m)
+	if hit == null:
+		# A bare number only counts in a message that's about the code, and never
+		# when it's a switch number ("it says aux 3").
+		if parse_aux(message) > 0: return 0
+		if not (m.contains("code") or m.contains("display") or m.contains("screen") or m.contains("says") or m.contains("reads") or m.contains("fault")):
+			return 0
+		re.compile("\\b(3|6|9|three|six|nine)\\b")
+		hit = re.search(m)
+		if hit == null: return 0
+	var word := hit.get_string(1)
+	return int(word) if word.is_valid_int() else int(_DIGITS.get(word, 0))
+
+## "aux two", "AUX-2", "ox 2", "auxiliary two", "branch two" -> 2. 0 when none found.
+static func parse_aux(message: String) -> int:
+	var m := message.to_lower()
+	var re := RegEx.new()
+	re.compile("\\b(?:aux|ox|awks|auks|auxiliary|branch)\\s*[-:#]?\\s*(1|2|3|one|won|two|to|too|three|tree)\\b")
+	var hit := re.search(m)
+	if hit == null:
+		re.compile("\\baux(1|2|3)\\b")
+		hit = re.search(m)
+	if hit == null: return 0
+	var word := hit.get_string(1)
+	return int(word) if word.is_valid_int() else int(_DIGITS.get(word, 0))
+
+## "box B", "fuse bee", "the C box", "letter a" -> "B"/"C"/"A". "" when none found.
+static func parse_box(message: String) -> String:
+	var m := message.to_lower()
+	var letters := {"a": "A", "ay": "A", "eh": "A", "b": "B", "bee": "B", "be": "B", "c": "C", "see": "C", "sea": "C", "cee": "C"}
+	var re := RegEx.new()
+	re.compile("\\b(?:box|fuse|letter|crate|bin)\\s*[-:#]?\\s*(a|ay|eh|b|bee|be|c|see|sea|cee)\\b")
+	var hit := re.search(m)
+	if hit == null:
+		re.compile("\\b(b|c|bee|cee)\\s+(?:box|fuse)\\b")  # not "a": "a fuse" is just English
+		hit = re.search(m)
+	if hit == null: return ""
+	return str(letters.get(hit.get_string(1), ""))

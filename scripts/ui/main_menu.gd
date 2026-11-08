@@ -467,24 +467,23 @@ func _add_back_button(vbox: VBoxContainer) -> void:
 func _build_how_panel() -> void:
 	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(560, 342))
 	var body := UiStyle.label(
-		"BRANCHING ESCAPE · DESIGN PROTOTYPE\n\n"
-		+ "Work with Aaron and Dhan to get the shuttle home.\n"
-		+ "The original opening film plays before this new mission.\n\n"
-		+ "1   Ask Aaron to hold the jammed cabin locker, then push it.\n"
-		+ "2   Inspect launch status in the junction.\n"
-		+ "3   Repair Engineering, or divert the lab battery.\n"
-		+ "4   Consider saving the samples before cutting cooling.\n"
-		+ "5   Release the clamps and board with your crew.\n\n"
-		+ "Crew radio uses a labeled offline interpreter by default.\n"
-		+ "Live Gemini + voice can be enabled inside a conversation.\n"
-		+ "No countdown. Explore, talk, and choose your approach.",
+		"Your ship was hit on the way home from Mars. Kien is gone. Dhan is hurt.\n"
+		+ "The shuttle can still get you home, if you can get it working.\n\n"
+		+ "Nobody will tell you the steps. Look around, try things, and talk:\n"
+		+ "Aaron and Dhan understand whatever you say, in your own words,\n"
+		+ "and they can help, but each only knows part of the answer.\n"
+		+ "M.A.R.V.I.S., the ship's computer, knows the facts. Ask it.\n\n"
+		+ "Choices matter. Dhan won't wait forever. Some mistakes are funny.\n"
+		+ "There are five endings.\n\n"
+		+ "Talk: press E next to someone, or radio them. Speak (Chrome/Edge)\n"
+		+ "or type. Hold E for heavy jobs.",
 		11)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(body)
-	var keys := UiStyle.label("WASD move   E use   1 / 2 radio   F light   Tab map   Esc pause", 10, UiStyle.AMBER)
+	var keys := UiStyle.label("WASD move  E use  1/2/3 Aaron/Dhan/ship  F light  Tab map  Esc pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
-	var pad := UiStyle.label("CONTROLLER: stick move   A use   LB / RB radio   Y light   X talk   Back map   Start pause", 9, UiStyle.AMBER)
+	var pad := UiStyle.label("PAD: stick move  A use  LB/RB/L3 radio  Y light  X talk  Back map  Start pause", 9, UiStyle.AMBER)
 	pad.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(pad)
 	_add_back_button(vbox)
@@ -524,7 +523,7 @@ func _refresh_settings_labels() -> void:
 		return
 	_settings_buttons["sound"].set_label("SOUND: %s" % ("OFF" if Settings.muted else "ON"))
 	_settings_buttons["shake"].set_label("REDUCED SHAKE & FLASH: %s" % ("ON" if Settings.reduced_shake else "OFF"))
-	_settings_buttons["echo"].set_label("ECHO LIVE REPLIES: %s" % ("ON" if Settings.companion_enabled else "OFF"))
+	_settings_buttons["echo"].set_label("CREW LIVE AI: %s" % ("ON" if Settings.companion_enabled else "OFF"))
 	_settings_buttons["chat"].set_label("CREW CHAT: %s" % ("VOICE" if Settings.voice_chat else "TEXT"))
 	_settings_buttons["vibration"].set_label("CONTROLLER VIBRATION: %s" % ("ON" if Settings.vibration else "OFF"))
 	_refresh_controller_line()

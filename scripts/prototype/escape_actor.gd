@@ -20,6 +20,10 @@ var facing := Vector2.DOWN
 const BUBBLE_WIDTH := 190.0
 var name_label: Label
 var cargo: Sprite2D
+## stand · pinned (under the locker) · straining (lifting) · sit · carried · dead
+var pose := "stand"
+const WALK_SPEED := 125.0
+var speed := WALK_SPEED
 
 func _ready() -> void:
 	add_to_group("interactable")
@@ -67,17 +71,13 @@ func set_cargo(carrying: bool) -> void:
 	cargo.visible = carrying
 
 func can_interact(_player) -> bool:
-	# While Aaron is holding the locker he stands between you and it, so he is
-	# not an E target then: E pushes the locker instead of opening his chat.
-	if actor_id == "mara" and mission.state.has_flag("locker_ready") and not mission.state.has_flag("locker_clear"):
-		return false
-	return mission.active and not mission.ending
+	return mission.actor_interactable(actor_id)
 
 func get_prompt() -> String:
-	return "Talk to " + display_name
+	return mission.actor_prompt(actor_id)
 
 func interact(_player) -> void:
-	mission.open_chat(actor_id)
+	mission.interact_actor(actor_id)
 
 func say(line: String) -> void:
 	bubble.text = line
@@ -92,14 +92,21 @@ func go_to(point: Vector2, callback: Callable = Callable()) -> void:
 	arrived = callback
 	path = mission.find_path(position, point)
 	if path.is_empty():
+		if position.distance_to(point) < 24.0:
+			# Already there: finish the task right away.
+			position = point
+			arrived = Callable()
+			if callback.is_valid(): callback.call()
+			return
 		arrived = Callable()
-		mission.announce("SHIP", "Route obstructed. Clear the jammed locker from the hallway first.")
-		return
+		mission.announce(display_name.split(" · ")[0], "I can't get there from here.")
 
 func _process(delta: float) -> void:
 	if not mission.active or mission.ending: return
 	bubble_left = maxf(0.0, bubble_left - delta)
 	bubble.visible = bubble_left > 0.0
+	_apply_pose()
+	if pose in ["pinned", "sit", "dead"]: return
 	if following and path.is_empty() and position.distance_to(mission.player.position) > 75:
 		path = mission.find_path(position, mission.player.position + Vector2(35, 20))
 	if not path.is_empty():
@@ -118,6 +125,37 @@ func _process(delta: float) -> void:
 				callback.call()
 	else:
 		sprite.frame = 5
+
+## The same walk sheet, turned or squashed for each pose.
+func _apply_pose() -> void:
+	match pose:
+		"pinned":
+			sprite.rotation = -PI / 2.0
+			sprite.position = Vector2(4, -10)
+			sprite.scale = Vector2.ONE
+			sprite.frame = 5
+			sprite.modulate = Color.WHITE
+		"dead":
+			sprite.rotation = -PI / 2.0
+			sprite.position = Vector2(0, -8)
+			sprite.scale = Vector2.ONE
+			sprite.frame = 5
+			sprite.modulate = Color(0.55, 0.55, 0.62)
+		"sit":
+			sprite.rotation = 0.0
+			sprite.position = Vector2(0, -20)
+			sprite.scale = Vector2(1.0, 0.78)
+			sprite.frame = 5
+			sprite.modulate = Color.WHITE
+		"straining":
+			sprite.rotation = 0.06 * sin(Time.get_ticks_msec() / 60.0)
+			sprite.position = Vector2(0, -26)
+			sprite.scale = Vector2.ONE
+		_:
+			sprite.rotation = 0.0
+			sprite.position = Vector2(0, -26 if pose != "carried" else -30)
+			sprite.scale = Vector2.ONE
+			sprite.modulate = Color.WHITE
 
 func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0, Vector2(1, 0.35))

@@ -1,0 +1,116 @@
+{
+ "crew": {
+  "ivo": {
+   "cargo": false,
+   "facing": [
+    -1.0,
+    0.0
+   ],
+   "following": false,
+   "light_on": false,
+   "path": [],
+   "pose": "sit",
+   "position": [
+    1404.83508300781,
+    694.378723144531
+   ],
+   "task": "",
+   "visible": true
+  },
+  "mara": {
+   "cargo": false,
+   "facing": [
+    -1.0,
+    0.0
+   ],
+   "following": true,
+   "light_on": false,
+   "path": [],
+   "pose": "stand",
+   "position": [
+    1388.80004882812,
+    640.0
+   ],
+   "task": "",
+   "visible": true
+  }
+ },
+ "elapsed": 5.16540557575757,
+ "flashlight": false,
+ "history": {
+  "ivo": [
+   {
+    "role": "npc",
+    "text": "Agh! Okay. Okay. Leg. Locker. Leg's under the locker."
+   }
+  ],
+  "mara": [
+   {
+    "role": "player",
+    "text": "Lift that thing off him!"
+   },
+   {
+    "role": "npc",
+    "text": "On it. Get ready to pull him."
+   }
+  ]
+ },
+ "map": "escape-v2",
+ "memory_notes": {
+  "ivo": [
+   "Johnny promised not to leave him."
+  ],
+  "mara": []
+ },
+ "player": {
+  "position": [
+   1440.0,
+   691.200012207031
+  ]
+ },
+ "said": [
+  "aftershock_dhan",
+  "marvis_summary"
+ ],
+ "schema": 2.0,
+ "state": {
+  "carrying": "fuse_B",
+  "fails": [
+   "F1"
+  ],
+  "flags": {
+   "dhan_free": true,
+   "isolated": true,
+   "locker_clear": true
+  },
+  "fuse_at_cabinet": "",
+  "fuse_task": "",
+  "journal": [
+   "M.A.R.V.I.S.: Shuttle is intact. Its docking clamps have no power."
+  ],
+  "learned": [
+   "m_clamps"
+  ],
+  "promises": {
+   "freezer_question": "We have to."
+  },
+  "puzzle": {
+   "aux": 2.0,
+   "code": 9.0,
+   "fuse_for": {
+    "3": "A",
+    "6": "B",
+    "9": "C"
+   },
+   "selector": 2.0,
+   "toggle_for": {
+    "1": 1.0,
+    "2": 2.0,
+    "3": 0.0
+   }
+  },
+  "selector": 0.0,
+  "version": 3.0,
+  "vitality": 71.25
+ }
+}

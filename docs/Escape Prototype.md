@@ -1,86 +1,72 @@
-# Branching escape prototype
+# The escape: build notes
 
-This is a playable design experiment, not a replacement for the team's final
-story or art direction. **Start Game now opens this prototype after the existing
-opening film.** The film, soundtrack, skip behavior and intro script are unchanged.
-The surviving crew match the film: Johnny (white suit), Aaron (amber suit),
-and Dhan (purple suit). Kien is lost in the breach and is not a playable crewmate.
-The radio API keeps its original `mara`/`ivo` IDs for compatibility; their displayed
-identities are Aaron and Dhan respectively.
+What Start Game plays after the opening film. The design (story, routes, numbers,
+lines) is in [Game Design.md](Game%20Design.md); this page is for running, testing
+and changing it. **Spoilers below**: it's written for the team, not players.
+
+The radio API keeps the original crew ids: `mara` is Aaron, `ivo` is Dhan.
 
 ## Play locally
 
-Open this project in Godot **4.7.2**, press F5, and select Start Game. To skip the
-film while iterating, open `scenes/escape_prototype.tscn` and run the current scene
-(F6). Restarting the prototype also skips the film.
+Open the project in Godot **4.7.2**, press F5, Start Game. To skip the film while
+iterating, run `scenes/escape_prototype.tscn` directly (F6).
 
-- WASD / arrows: move.
-- E: use the nearest object or talk to a nearby crewmate.
-- 1: Aaron's helmet radio. 2: Dhan's helmet radio.
-- Tab: labeled deck map with live crew positions.
-- Esc: close a conversation/panel, or pause the mission.
-- M: mute while walking.
+| Key | Does |
+|---|---|
+| WASD | Move |
+| E | Use / talk. **Hold** for heavy jobs (pulling Dhan, the isolator, the battery latch, the splint) |
+| 1 / 2 / 3 | Radio Aaron / Dhan / M.A.R.V.I.S. (controller: LB / RB / L3) |
+| Space | Talk again in voice chat (web, Chrome/Edge) |
+| F | Flashlight (the ship is dark until the bay has power) |
+| Tab | Deck map and the log of what you've learned |
+| Esc | Close a panel, step back from a machine, pause |
 
-No countdown. The existing player, suits, floor/wall tiles, consoles, crate,
-navigation-core art, pod, Earth backdrop and sound effects are reused.
+Inside a machine close-up: click parts, or WASD to move the highlight and E to press.
 
-## Suggested walkthroughs
+**Settings · CREW LIVE AI** turns live replies off: the crew then use the scripted
+interpreter (`offline_response` in `escape_mission.gd`), which handles every story step.
 
-### Shared opening
+## Walkthroughs (spoilers)
 
-1. Walk toward the jammed locker on the right of the cabin.
-2. Open Aaron's radio (1), ask him to help hold the locker, and watch him move.
-3. Close the radio; push the locker with E while he holds it.
-4. Enter the junction and inspect LAUNCH STATUS.
-5. Choose a route. You can change your plan until isolating Engineering or
-   disconnecting the laboratory battery commits equipment to the chosen route.
+Puzzle answers change every run (`Rules.new_puzzle`). Read them off the screen and
+ask Dhan, the way a player would.
 
-### Engineering: normal power, research preserved
+**Opening.** The aftershock pins Dhan. Ask Aaron to lift the locker (any wording:
+"get it off him"). Stand by Dhan; when Aaron lifts, hold E on Dhan for 2 s. Aaron
+can only hold it ~6 s. Then use the junction terminal (or radio 3, "status"): the
+crew react on their own and lay out both routes.
 
-Go north. Use CIRCUIT CUTOFF, collect SPARE FUSE, then use DISTRIBUTION to fit it.
-Use DISTRIBUTION again to test; the breaker trips safely and identifies the short.
-At AUX BRANCH, confirm sacrificing the damaged cabin-lighting branch. Restart
-DISTRIBUTION. The cabin darkens and the shuttle bay's floor lights illuminate.
+**Engineering.** In Engineering, hold E on the ISOLATOR. Open the cabinet and read the
+fault code (E-3/E-6/E-9) to Dhan: he names the fuse box. Get it from Storage yourself,
+or tell Aaron "get the fuse from box B" and he leaves it by the cabinet. Seat it, TEST:
+the display shows `SHORT: AUX-n`. Tell Dhan the AUX number, he says which toggle. Open
+the AUX guard, flip it, RESTART.
 
-### Battery: emergency power, research lost
+**Battery.** Optional first: ask Aaron about saving the samples, he offers the case;
+ask him to fetch it, then pack the "K + A PRIORITY" rack in the freezer close-up.
+Lift the freezer guard and hold POWER off (this commits). Hold E on the battery latch.
+Ask Aaron to lift it with you; press E on his "three!". Take the cart to the bay
+socket, ask Dhan which setting, set the knob, CONNECT.
 
-Go south. At EMERGENCY BATTERY, read and confirm the cooling-loss consequence.
-Stand by SERVICE CART and ask Aaron to help lift/load the battery. He walks to
-the cart; it only loads if you remain nearby. Collect the cart with E, bring it
-east to the bay and connect it at EMERGENCY SOCKET.
+**Medbay** (any time). Take the splint kit from the medical cabinet, hold E on Dhan.
 
-### Battery with priority samples saved
+**Launch.** Ask Aaron to help carry Dhan. Take the pilot seat (E on the shuttle).
+Tell Aaron to release the clamps; launch once he's aboard.
 
-Before disconnecting power, ask Dhan to fetch the insulated sample case. He walks
-to the shuttle, visibly carries the case to the lab and reports delivery. Use
-SAMPLE CASE or SAMPLE FREEZER to pack the priority rack. Then follow the battery
-route. The remaining samples are lost, while the priority rack comes home.
+**Fails.** Touch the live cabinet (slot/TEST/RESTART) before isolating · press the
+outer airlock in the suit room · pull the battery latch while the freezer runs ·
+LAUNCH with clamps on · LAUNCH before Aaron boards.
 
-### Shared departure
+**Launch and ending film.** LAUNCH runs `_launch()` in `escape_mission.gd` (sirens,
+doors seal, hatch, drop; ~5 s), then `scripts/ui/outro_film.gd` (~70 s with credits; E
+skips), then the stats card. The film's lines per ending are `DIALOGUE` in that file;
+the credits come from `data/credits.json` (**fill in your names there**).
 
-Use DOCKING CLAMPS once power is restored. Both crewmates walk to the shuttle.
-Wait for them to arrive, then use BOARD SHUTTLE and confirm departure. Three
-ending variants reflect the power route and sample decision. The prototype does
-not submit scores to the existing leaderboard.
+**Endings.** Engineering, Dhan fine → Everyone home · battery + priority rack → What
+he left us · battery only → We kept each other · Dhan at stage 3-4 → Barely · Dhan's
+condition ran out → Two came home. Tune times in `escape_state.gd` (`DRAIN` etc.).
 
-## Conversation modes
-
-**Default: OFFLINE scripted intent prototype.** No API keys or server needed.
-This is a bounded local phrase interpreter, not a language model. It recognizes
-common phrasings of hold/help, lift/load, fetch the case, follow and wait, plus
-state-aware questions about the plan, research and crew. It is intentionally
-labeled; arbitrary natural language is not promised in offline mode.
-
-**Optional live Gemini + ElevenLabs:** enable Live Gemini + voice inside a crew
-conversation. The updated backend adds `POST /escape/talk`; it interprets the
-request and returns a short response plus an allowlisted action proposal.
-Godot checks the action against the current situation and mission version.
-Route choices, power disconnection and launch remain explicit physical actions
-with confirmation for irreversible consequences. Failed or stale live requests
-cannot grant progress. A failed provider/endpoint falls back to the labeled local
-interpreter; stale-state responses are discarded.
-
-For local live testing, use Python 3.10+ with OpenSSL/scrypt support:
+## Live AI and voice
 
 ```sh
 export GEMINI_API_KEY=...
@@ -88,49 +74,57 @@ export ELEVENLABS_API_KEY=...
 python3 server/companion_server.py
 ```
 
-Launch Godot with `B2E_BACKEND=http://127.0.0.1:8787` in its environment. With no
-override, the existing hosted API address is used. This work does **not** deploy
-the backend or modify the hosted game. Updating the server requires both
-`server/companion_server.py` and `server/escape_dialogue.py` alongside the existing
-server modules. Aaron and Dhan each have their own ElevenLabs voice
-(`AARON_VOICE_ID`, `DHAN_VOICE_ID`; `JOHNNY_VOICE_ID` is reserved for the player).
+Launch Godot with `B2E_BACKEND=http://127.0.0.1:8787` to use it; otherwise the hosted
+API is used. **The hosted backend needs `server/escape_dialogue.py` and
+`server/save_games.py` from this version** (new actions, instructions and save format).
+Until it's updated, crew replies fall back to the scripted interpreter and cloud saves
+of the new format are refused (local saves still work).
 
-**Speech input:** the radio's Speak button uses browser SpeechRecognition when
-available in a web export. It is unavailable in the native Godot build; type or
-use OS dictation there. Browser microphone access is requested only after a
-click. Transcripts are editable and require Enter/Send before any action occurs.
-Support varies by browser and recognition can use the browser vendor's online
-speech service. Denial or unsupported browsers retain typed input. The browser
-microphone path is implemented but has not been verified in an exported build
-because matching web export templates are not installed on this machine.
+How the AI is kept honest (section 9 of the design doc): the game sends each crewmate
+only the facts it should know; Dhan gets a fault code's meaning only when the player's
+message contains that code; the game re-checks every action, and `check_reply()` replaces
+any line where Dhan names a box, switch or setting he wasn't told about. M.A.R.V.I.S.
+never uses the AI at all: `escape_marvis.gd` matches the question to a fixed list and
+answers with template sentences.
 
-## Validation
+**Pre-recorded lines.** Every scripted line and M.A.R.V.I.S. sentence lives in
+`data/escape_lines.json`. Without audio files the game shows the text only. To voice them,
+on the server (where the ElevenLabs key is):
+
+```sh
+set -a; . /etc/back2earth/companion.env; set +a
+python3 tools/record_escape_lines.py
+```
+
+Commit the new `assets/voice/escape/*.mp3` and open the project once so Godot imports
+them. Set `MARVIS_VOICE_ID` for a separate ship voice. Aaron's count of three uses
+separate clips (`count_one/two/three`), timed by the game, so the window stays fair.
+
+**Speech input** uses browser SpeechRecognition in the web build (Chrome/Edge). Native
+builds and other browsers type instead.
+
+## Tests
 
 ```sh
 godot --headless --path . res://tests/escape_runner.tscn
-python3 -m unittest server/test_escape_dialogue.py server/test_companion_server.py
+python3 -m unittest server/test_escape_dialogue.py server/test_companion_server.py server/test_game_db.py
 ```
 
-The Godot runner plays all three endings, exercises actual NPC pathfinding and
-local conversation actions, checks irreversible decisions and invalid ordering,
-reloads between routes, and verifies the original intro's handoff.
-Run it with a graphical renderer and `-- --visual` to save QA screenshots under
-`/tmp/back2earth-*.png`.
+The Godot runner checks the rules, code/letter parsing, Dhan's condition numbers against
+the design table, every ending, M.A.R.V.I.S.'s query matching, and plays the opening, the
+engineering route, both battery routes, Dhan's death, every fail, the AI guardrails and a
+save round trip, then the film handoff. `-- --visual` (with a renderer) saves screenshots
+to `/tmp/back2earth-*.png`; `-- --fixture` rewrites `server/fixtures/checkpoint_v2.json`,
+the real save the Python save check is tested against. Change the save format in three
+places together: `escape_state.gd` (lists), `SaveGame.compatible()` and
+`server/save_games.py`.
 
-The old `tests/test_runner.gd` currently fails to parse because it still calls
-`get_drift(true)` after the original gravity script changed to a zero-argument
-method. This predates this prototype; the old mission and its tests are retained.
+## Files
 
-## Files and scope
-
-- `scripts/prototype/escape_state.gd`: authoritative branch rules and outcomes.
-- `escape_mission.gd`: map, props, crew tasks and scene orchestration.
-- `escape_actor.gd`: reused astronaut art and grid-based crew movement.
-- `escape_ui.gd`, `escape_radio.gd`, `escape_map.gd`: interface and conversations.
-- `escape_prop.gd`: reused interactable protocol and visual feedback.
-- `scenes/main.tscn`: original mission, still runnable directly.
-
-Current design shortcuts: the battery cart is represented by a carried crate
-sprite, the lab hardware uses existing console art, and endings are illustrated
-cards rather than new cinematics. Movement and explicit object interactions are
-fully playable; this prototype is intended to evaluate pacing and cooperation.
+- `scripts/prototype/escape_state.gd`: rules, puzzle answers, Dhan's clock, fails, endings, parsing.
+- `escape_mission.gd`: scene: props, crew tasks, holds, scripted lines, nudges, AI context, saves.
+- `escape_marvis.gd`: the ship computer.
+- `escape_closeup.gd`: the machine close-up control. `escape_ui.gd`: HUD, chat, close-ups, fail card, map, endings.
+- `escape_radio.gd`: live replies, voice, memory. `escape_actor.gd`: crew movement and poses.
+- `data/escape_lines.json`: every pre-written line. `tools/make_escape_map.py`: the map and story spots.
+- `scenes/main.tscn`: the original gravity mission, still runnable directly.

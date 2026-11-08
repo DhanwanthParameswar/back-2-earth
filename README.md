@@ -1,10 +1,12 @@
 # Back2Earth
 
-> **New playable design prototype:** Start Game now opens the branching crew escape
-> after the unchanged opening film. Engineering and battery routes, optional sample
-> rescue, crew cooperation and three endings are implemented. See
-> [Escape Prototype](docs/Escape%20Prototype.md) for controls, walkthroughs and live
-> AI setup. The older mission and its documentation below are retained for reference.
+> **What Start Game plays:** the escape in [Game Design](docs/Game%20Design.md), after the
+> unchanged opening film. Free Dhan, power the shuttle bay by repairing Engineering (Dhan
+> talks you through it) or taking the lab battery (losing Kien's samples), keep Dhan alive,
+> and launch: five endings, five fails, M.A.R.V.I.S. the ship computer. See
+> [Escape Prototype](docs/Escape%20Prototype.md) for controls, walkthroughs (spoilers), live
+> AI, voice recording and tests. The older gravity mission and its documentation below are
+> kept for reference only.
 
 *Your spaceship is being pulled toward a black hole. Use its failing gravity to navigate wreckage, work with a damaged AI companion, and launch the last escape pod home.*
 
