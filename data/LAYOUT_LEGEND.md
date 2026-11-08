@@ -5,8 +5,9 @@ The game builds walls, doors, and objects from it at startup.
 
 | Char | Meaning | Notes |
 |---|---|---|
-| `#` | Wall | Blocks player and debris |
-| `w` | Side window | Wall you can see the black hole through (one frame per group) |
+| `~` | Open space | Outside the hull. Blocks everything, drawn as nothing: the starfield shows through. Shape the ship with it |
+| `#` | Wall | Blocks player and debris. A wall with `~` below it draws the hull's side (red stripe) |
+| `w` | Side window | Wall you can see through to space (one frame per group) |
 | `W` | Space window | Wall with glass showing the looping nebula video; put it in the 2-row back wall |
 | `.` | Floor | |
 | `@` | Player start | Exactly one |
@@ -25,12 +26,18 @@ The game builds walls, doors, and objects from it at startup.
 | `x` | Debris | Slides with each pull; −10 s on contact |
 | `M` | Crewmate (NPC) | Greets the player out loud; E opens a chat (AI reply + voice). Solid at her feet, so leave a free tile beside her |
 
-Rooms are split by the columns of doors `1`, `2`, `3`
-(left of `1` = cockpit, `1`–`2` = engineering, `2`–`3` = cargo, right of `3` = pod bay).
+Rooms can be any shape. They're found by walking the floor: everything you can
+reach from `@` without crossing a door is the cockpit; beyond door `1` is
+engineering, beyond `2` cargo, beyond `3` the pod bay (door `K` stays inside cargo).
+
+The current map is the ship from the opening film, nose on the right: cockpit in
+the nose, engineering in the widest section, cargo with the sled shaft in the top
+fin and the core compartment in the bottom fin, pod bay in the tail.
+`docs/map_preview.png` shows it (`python3 tools/preview_layout.py`).
 
 3/4 view notes:
-- The top two rows are both walls on purpose: that makes a 2-tile-tall back
-  wall face, like a Stardew interior. Keep at least two wall rows on top.
+- Keep the top edge of each room two walls thick: that makes a 2-tile-tall back
+  wall face, like a Stardew interior.
 - Any wall with floor directly below it shows its front face automatically.
 - Each connected group of `W` (or `w`) cells becomes ONE window with one frame,
   so a 7x2 block of `W` is a single wide pane. Each `W` group plays its own

@@ -387,7 +387,7 @@ def sounds() -> None:
 
 
 def main() -> None:
-    floor_tile(); wall_tiles(); rail_tile(); door_tiles()
+    # Tiles now come from tools/make_ship_tiles.py (the opening film's look).
     console("terminal", "blue", "blue")
     console("power_console", "orange", "orange")
     console("clamp_console", "yellow", "orange")

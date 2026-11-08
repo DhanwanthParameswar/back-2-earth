@@ -23,15 +23,41 @@ def load(rel: str) -> Image.Image:
 def main(skin: str = "classic") -> None:
     rows = [r for r in (ROOT / "data/ship_layout.txt").read_text().split("\n") if r]
     w, h = max(len(r) for r in rows), len(rows)
-    rows = [r.ljust(w, "#") for r in rows]
+    rows = [r.ljust(w, "~") for r in rows]
 
     def cell(c: int, r: int) -> str:
-        return rows[r][c] if 0 <= r < h and 0 <= c < w else "#"
+        return rows[r][c] if 0 <= r < h and 0 <= c < w else "~"
 
-    im = Image.new("RGBA", (w * T, h * T), (2, 2, 8, 255))
+    # Space outside the hull: stars (like the game's Starfield) and the black hole off the nose.
+    im = Image.new("RGBA", (w * T, h * T), (5, 6, 20, 255))
+    import random
+    rnd = random.Random(3)
+    for _ in range(w * h // 3):
+        x, y = rnd.randrange(w * T), rnd.randrange(h * T)
+        b = rnd.choice((90, 140, 200, 255))
+        im.putpixel((x, y), (b, b, min(255, b + 20), 255))
+    # Nose = rightmost hull column (ShipBuilder.nose_point); the hole sits 190 px past it.
+    # The preview canvas is widened so it shows (the game's camera may look that far too).
+    hull_cols = [c for c in range(w) if any(cell(c, r) != "~" for r in range(h))]
+    nose_c = max(hull_cols)
+    nose_rows = [r for r in range(h) if cell(nose_c, r) != "~"]
+    nose = ((nose_c + 1) * T, (nose_rows[0] + nose_rows[-1] + 1) * T // 2)
+    extra = 320
+    wide = Image.new("RGBA", (im.width + extra, im.height), (5, 6, 20, 255))
+    wide.alpha_composite(im)
+    for _ in range(extra * h * T // 3000):
+        x, y = im.width + rnd.randrange(extra), rnd.randrange(h * T)
+        b = rnd.choice((90, 140, 200, 255))
+        wide.putpixel((x, y), (b, b, min(255, b + 20), 255))
+    im = wide
+    bh_path = A / "backdrops/black_hole_space.png"
+    if bh_path.exists():
+        bh = Image.open(bh_path).convert("RGBA")
+        hx, hy = nose[0] + 190, nose[1]
+        im.alpha_composite(bh, (hx - 400, hy - bh.height // 2))
     SOLID_ALL = "#wW"
     tiles = {k: load(f"tiles/{k}.png") for k in
-             ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "rail", "door_closed"]}
+             ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "rail", "door_closed", "hull"]}
     floor = tiles["floor"]
 
     # Space windows (W): a still of the nebula video behind the glass.
@@ -51,10 +77,12 @@ def main(skin: str = "classic") -> None:
     for r in range(h):
         for c in range(w):
             ch = cell(c, r)
-            if ch in "wW":
-                continue  # glass (frames drawn below)
+            if ch in "wW~":
+                continue  # glass (frames drawn below) or open space
             if ch == "#":
-                if cell(c, r + 1) not in SOLID_ALL:
+                if cell(c, r + 1) == "~":
+                    key = "hull"
+                elif cell(c, r + 1) not in SOLID_ALL:
                     key = "wall_face" if cell(c, r - 1) == "#" else "wall_face_single"
                 elif cell(c, r + 1) == "#" and cell(c, r + 2) not in SOLID_ALL:
                     key = "wall_face_upper"
@@ -77,7 +105,7 @@ def main(skin: str = "classic") -> None:
     for c in sorted({c for r in range(h) for c in range(w) if cell(c, r) == "x"}):
         x = c * T + 16
         for r in range(h):
-            if cell(c, r) not in "#wW|CS":
+            if cell(c, r) not in "#wW|CS~":
                 for side in (-11, 11):
                     d.rectangle([x + side - 1, r * T, x + side, r * T + T - 1], fill=(160, 0, 50, 255))
     # Window frames, one pane per group (mirrors ShipBuilder._draw_window_frame).
@@ -112,6 +140,10 @@ def main(skin: str = "classic") -> None:
             if ch == "S":
                 plate = load("sprites/plate.png")
                 im.alpha_composite(plate, (cx - 16, cy - 16))
+            if ch == "M":  # the crewmate (Aaron), hazard suit, facing the player
+                sheet = load("sprites/astronaut_hazard.png")
+                mate = sheet.crop((5 * fw, 0, 6 * fw, sheet.height)).transpose(Image.FLIP_LEFT_RIGHT)
+                props.append((cy + 10, mate, cx, ch))
             if ch in names or ch == "@":
                 spr = player if ch == "@" else load(f"sprites/{names[ch]}.png")
                 base = cy + drop[ch]

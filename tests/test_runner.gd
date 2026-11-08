@@ -184,7 +184,16 @@ func _test_crewmate() -> void:
 		await get_tree().process_frame
 		return
 	_check(ship.room_at(mate.global_position) == "cockpit", "crewmate stands in the cockpit")
-	_check(mate.global_position.x < 64 and mate.global_position.y < 144, "crewmate is in the cockpit's top-left corner")
+	_check(mate.global_position.distance_to(ship.player_start) < 6 * 32, "crewmate stands near the player start")
+	var rooms_ok := true
+	for o in GameState.OBJECTIVES:
+		var node = ship.get_node_or_null("Console_%s" % o["id"])
+		if node != null and ship.room_at(node.global_position) != o["room"]:
+			rooms_ok = false
+	_check(rooms_ok, "each console sits in its objective's room (rooms found through the doors)")
+	_check(ship.room_at(ship.get_node("NavigationCore").global_position) == "cargo", "the core compartment counts as cargo")
+	_check(ship.room_at(ship.get_node("EscapePod").global_position) == "pod_bay", "the escape pod is in the pod bay")
+	_check(ship.cell(0, 0) == ShipBuilder.VOID and ship.wall_kind(5, 17) == "hull", "outside the hull is open space; its bottom edge draws the hull side")
 	_check(mate.can_interact(player), "crewmate can be talked to while playing")
 	var chat = main.get_node("NpcChat")
 	mate.interact(player)
