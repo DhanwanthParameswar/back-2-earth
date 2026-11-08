@@ -31,6 +31,8 @@ func _ready() -> void:
 	name_label.size.x = 96
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.add_theme_font_size_override("font_size", 9)
+	name_label.add_theme_color_override("font_outline_color", Color("050a19"))
+	name_label.add_theme_constant_override("outline_size", 4)
 	name_label.modulate = tint
 	add_child(name_label)
 	# Speech bubble: navy box with a border in the crewmate's color, above the head.

@@ -1,4 +1,5 @@
 extends Control
+const UiStyle = preload("res://scripts/ui/ui_style.gd")
 
 var mission
 
@@ -16,6 +17,6 @@ func _draw() -> void:
 		var color: Color = mission.COLORS[key]
 		draw_rect(rect, Color(color, 0.15))
 		draw_rect(rect, color, false, 1)
-		draw_string(ThemeDB.fallback_font, rect.position + Vector2(4, 13), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, color)
+		draw_string(UiStyle.font(), rect.position + Vector2(4, 13), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, color)
 	for actor in mission.crew.values(): draw_circle(actor.position * scale_factor, 3, actor.tint)
 	draw_circle(mission.player.position * scale_factor, 4, Color.WHITE)

@@ -2,17 +2,20 @@ extends Control
 ## The opening story (36.8 s). Owner: D.
 ##
 ## Plays when a run is started from the main menu, then hands over to gameplay
-## ("RESTORE EMERGENCY POWER"). The film is the team's final cut with voices
-## (Back2EarthPregameScene.mp4, 4K, kept out of the repo for size), converted to
-## the game's size: a silent 640x360 Theora video plus its sound as an Ogg file,
-## played side by side. Johnny wears the classic suit in it, so the player does
-## too (Settings.PLAYER_SKIN). See README "Opening story" to swap in a new cut.
+## ("RESTORE EMERGENCY POWER"). The picture is drawn live by intro_film.gd (a
+## port of tools/make_intro.py, crisp at any size, timed to the team's final
+## cut), and the sound is the final cut's track with the voices
+## (assets/audio/intro.ogg). The film follows the sound's clock so they stay in
+## sync. If the film's art is missing, the old video (intro.ogv) plays instead.
+## Johnny wears the classic suit in it, so the player does too
+## (Settings.PLAYER_SKIN). See README "Opening story".
 ##
 ## E / Enter / Space / Esc / click skips, after a short grace period so the key
 ## that started the game doesn't skip it too. M still toggles sound.
 
 signal finished
 
+const IntroFilm = preload("res://scripts/ui/intro_film.gd")
 const VIDEO_PATH := "res://assets/video/intro.ogv"
 const AUDIO_PATH := "res://assets/audio/intro.ogg"
 ## Film length in seconds. If the video never reports that it finished, the
@@ -23,6 +26,7 @@ const SKIP_GRACE := 0.5
 const HINT_DELAY := 1.0
 const SKIP_ACTIONS := ["confirm", "interact", "pause", "ui_accept", "ui_cancel"]
 
+var _film: Control = null
 var _video: VideoStreamPlayer = null
 var _audio: AudioStreamPlayer = null
 var _hint: Label
@@ -61,8 +65,18 @@ func play() -> void:
 	if _started:
 		return
 	_started = true
+	_film = IntroFilm.new()
+	_film.size = size
+	add_child(_film)
+	move_child(_film, 1)  # above the black backing, below the skip hint
+	if _film.is_ready():
+		_length = _film.length()
+		_play_audio()
+		return
+	_film.queue_free()
+	_film = null
 	if not ResourceLoader.exists(VIDEO_PATH):
-		push_warning("Intro video missing (%s); starting the run without it." % VIDEO_PATH)
+		push_warning("Intro film and video missing; starting the run without them.")
 		_finish.call_deferred()
 		return
 
@@ -76,12 +90,23 @@ func play() -> void:
 	move_child(_video, 1)  # above the black backing, below the skip hint
 	_video.play()
 	_length = maxf(LENGTH, _video.get_stream_length())
+	_play_audio()
 
+
+func _play_audio() -> void:
 	if ResourceLoader.exists(AUDIO_PATH):
 		_audio = AudioStreamPlayer.new()
 		_audio.stream = load(AUDIO_PATH)
 		add_child(_audio)
 		_audio.play()
+
+
+## Seconds into the film: the sound's clock while it plays (keeps lips and
+## captions on the voices), otherwise our own.
+func _film_time() -> float:
+	if _audio != null and _audio.playing:
+		return _audio.get_playback_position() + AudioServer.get_time_since_last_mix()
+	return _t
 
 
 ## The picture can end a hair before the sound; let the last moment of audio
@@ -107,6 +132,15 @@ func _process(delta: float) -> void:
 		return
 	_t += delta
 	_hint.visible = _t >= HINT_DELAY
+	if _film != null:
+		var ft := _film_time()
+		_film.set_time(ft)
+		# The picture ends a hair before the sound: let the last of it play out.
+		var audio_left := 0.0
+		if _audio != null and _audio.playing and _audio.stream != null:
+			audio_left = _audio.stream.get_length() - _audio.get_playback_position()
+		if _t >= _length and audio_left <= 0.0:
+			_finish()
 	if _t >= _length + SAFETY_MARGIN:
 		_finish()
 

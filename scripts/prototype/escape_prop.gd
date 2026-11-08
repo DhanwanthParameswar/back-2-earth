@@ -22,6 +22,8 @@ func _ready() -> void:
 	caption.size = Vector2(144, 16)
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.add_theme_font_size_override("font_size", 9)
+	caption.add_theme_color_override("font_outline_color", Color("050a19"))
+	caption.add_theme_constant_override("outline_size", 4)
 	caption.modulate = accent
 	add_child(caption)
 

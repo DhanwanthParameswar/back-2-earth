@@ -251,8 +251,13 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 
 ## Main menu
 
-- `scenes/menu.tscn` + `scripts/ui/main_menu.gd` is the project's main scene. The title and the five buttons are **painted into** `assets/video/menu_loop.ogv`, which loops every 12 s. The script places invisible buttons exactly over the painted ones (`HOTSPOTS`, in 640×360 px). If the video is redrawn, re-measure those rects: take the 1920×1080 frame and divide the pixel coordinates by 3.
-- **Press effect:** while a button is held, it's covered with the background color and its face is redrawn lower by the depth of its 3D strip, slightly darker, so it looks pushed in. The face images come from `tools/extract_menu_buttons.py` (`assets/ui/menu_btn_<id>.png`). The action fires on release. There is no hover or selection outline by design.
+- `scenes/menu.tscn` + `scripts/ui/main_menu.gd` is the project's main scene. Everything on it is drawn live by `scripts/ui/menu_backdrop.gd` and fills any window shape (the menu switches the window to "expand" while open):
+  - **Sky:** `scripts/ui/menu_sky.gdshader` generates the navy space, two pixel nebula bands and twinkling stars in code, so there are no edges to run out of.
+  - **Logo:** true pixel art from `tools/make_logo.py` (hand-drawn letters, plus a 48×24 world map). The Earth is `scripts/ui/menu_earth.gdshader`, a pixel sphere that spins once every 48 s.
+  - **Buttons:** pixel art from `tools/make_menu_art.py` (the five buttons and their pressed versions), drawn 3× with nearest filtering. Labels are rendered from the game font (Monocraft) at its native pixel size. Positions go to `data/menu_layout.json`, and the click areas follow them.
+  - **Floating sprites** (astronaut, debris, ship, planets): the original menu art's look, cleaned up by `tools/import_menu_sprites.py`. It cuts each piece from `art_source/menu_loop_1080p.ogv`, snaps it onto a true 1-menu-pixel grid, and reduces it to a small palette, which removes the AI smudges and stray pixels.
+  - Every piece uses nearest filtering, so each art pixel is a crisp square. The logo and buttons stay centered, the astronaut group sticks to the right edge, the ship and CREDITS to the bottom-left, and the speaker to the bottom-right.
+- **Press effect:** hovering lifts and brightens a button. While held, it swaps to its pressed image (the face sunk onto its 3D strip). The action fires on release.
 - **Keys:** Enter/E presses START GAME and M presses the speaker, both with the same sink animation. Esc closes a panel. Panel buttons and suit cards sink the same way when clicked.
 - **Buttons:**
   - START GAME fades out and loads the game.
@@ -278,14 +283,13 @@ The crew: **Johnny** (the player, classic suit), **Aaron** (pulls Johnny to safe
 | 0:24–0:27 | Outside: the breached ship; Kien tumbles away |
 | 0:27–0:37 | Aaron pulls Johnny through the bulkhead; MAIN POWER OFFLINE; Johnny: "That was a close one! We need to fix power first. Then find Dhan." Fade to black |
 
-- **In the game:** `assets/video/intro.ogv` (640×360 Theora, silent) plus `assets/audio/intro.ogg` (the cut's sound, voices included), played side by side by `scripts/ui/intro_cutscene.gd`. If the video is missing, the run starts straight away.
-- **Swapping in a new cut:** export from your editor at any size/frame rate (the original was 4K/120 fps, ~99 MB, too big for the repo, so it isn't in it), then:
-  ```bash
-  ffmpeg -i Back2EarthPregameScene.mp4 -an -vf "fps=30,scale=640:360:flags=area" -c:v libtheora -q:v 7 -g 60 assets/video/intro.ogv
-  ffmpeg -i Back2EarthPregameScene.mp4 -vn -c:a libvorbis -q:a 4 assets/audio/intro.ogg
-  ```
-  If the new cut runs longer, also raise `LENGTH` in `intro_cutscene.gd` (it's only a safety net; the video ending normally hands over to gameplay).
-- **Base footage:** `python3 tools/make_intro.py` re-renders the silent pixel-art film the cut was edited from (timeline, captions, monitor text and the distance figure are constants at the top), into `art_source/intro_base/`, which is git-ignored. It never overwrites the game's copy.
+- **In the game:** the picture is drawn live by `scripts/ui/intro_film.gd`, a line-by-line Godot port of `tools/make_intro.py`'s shots. It draws the same 320×180 pixel art into a viewport, scaled up with nearest filtering, so it stays crisp at any window size (the old 640×360 video was blurry). The sound is `assets/audio/intro.ogg` (the cut's track, voices included), and the picture follows the sound's clock so they stay in sync. `scripts/ui/intro_cutscene.gd` runs both and handles skipping.
+  - `assets/intro/` holds the pieces `make_intro.py` draws once (backgrounds, ships, planets, crew frames, masks), and `data/intro_film.json` holds everything it picks at random (stars, air, debris, sparks, camera shake). Both come from `python3 tools/make_intro.py --export-godot`; re-run it after changing the film there.
+  - `data/intro_edit_map.json` is the team's final-cut timing: for each frame of the cut, which frame of the original render it shows (longer year card, a frame nudge on the dashboard, 1.4 s trimmed from the outside shot). `python3 tools/align_intro_edit.py` recovers it from `assets/video/intro.ogv`.
+  - Checked frame by frame against the original render: no pixel off by more than 8/255 (tint rounding only).
+  - If the film's files are missing, the old video `assets/video/intro.ogv` plays instead; if that's missing too, the run starts straight away.
+- **Changing the film:** edit `tools/make_intro.py` (timeline, captions, monitor text and the distance figure are constants at the top), port any new drawing code to `intro_film.gd`, then run `--export-godot`. A new voice track goes in `assets/audio/intro.ogg`; if its timing changes, re-cut the video and run `tools/align_intro_edit.py` to refresh the frame map.
+- **Base footage:** `python3 tools/make_intro.py` still renders the silent film as video into `art_source/intro_base/` (git-ignored) for editing; it never overwrites the game's copy.
 
 ## Video
 

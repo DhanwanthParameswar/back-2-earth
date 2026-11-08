@@ -1,56 +1,58 @@
 extends Control
 ## Title screen (scenes/menu.tscn, the project's main scene). Owner: D.
 ##
-## The title and the five buttons are painted into a looping video. Invisible
-## click areas sit exactly over the painted buttons. While a button is held it
-## looks pushed in: the button is covered with background color and its face
-## (cut from the video, assets/ui/menu_btn_<id>.png) is drawn lower by the
-## depth of its 3D strip, slightly darker. The action fires on release.
+## The art is drawn live by menu_backdrop.gd: a sky generated in code, the
+## pixel-art logo with a spinning Earth, drifting pixel-art astronaut and
+## debris, and pixel-art buttons. Invisible click areas sit over the buttons.
+## Hovering lifts a button; while held it shows its pressed image (face sunk
+## onto its 3D strip). Fires on release. Fills any window shape.
 ## START GAME loads the branching escape prototype (existing opening -> run).
 ## Keys: Enter/E = Start Game, M = sound, Esc = close a panel.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const PressButton = preload("res://scripts/ui/press_button.gd")
-const MENU_VIDEO := "res://assets/video/menu_loop.ogv"
+const MenuBackdrop = preload("res://scripts/ui/menu_backdrop.gd")
 const GAME_SCENE := "res://scenes/escape_prototype.tscn"
 const CREDITS_PATH := "res://data/credits.json"
 
-## Painted buttons in 640x360 menu px (1080p source / 3). `rect` covers the
-## face plus its 3D strip; `depth` is the strip height; `bg` is the space color
-## right behind the button. Re-measure with tools/extract_menu_buttons.py if
-## the menu video is redrawn.
+## Menu buttons on the 640x360 grid. The real spots come from
+## data/menu_layout.json (tools/make_menu_art.py); these rects are only used
+## if the art is missing. `depth` is the 3D strip height (2 art px).
 const HOTSPOTS := [
-	{"id": "start", "rect": Rect2(204, 173, 230, 45), "depth": 6, "bg": Color("0b0b2e"), "label": "START GAME"},
-	{"id": "how", "rect": Rect2(202, 228, 233, 43), "depth": 7, "bg": Color("0b0a2d"), "label": "HOW TO PLAY"},
-	{"id": "settings", "rect": Rect2(202, 280, 233, 44), "depth": 7, "bg": Color("0c0c30"), "label": "SETTINGS"},
-	{"id": "credits", "rect": Rect2(10, 321, 74, 29), "depth": 3, "bg": Color("0a0b2d"), "label": "CREDITS"},
-	{"id": "sound", "rect": Rect2(588, 315, 40, 34), "depth": 3, "bg": Color("0b0c2e"), "label": "SOUND"},
+	{"id": "start", "rect": Rect2(203, 166, 234, 51), "depth": 6, "label": "START GAME"},
+	{"id": "how", "rect": Rect2(203, 223, 234, 51), "depth": 6, "label": "HOW TO PLAY"},
+	{"id": "settings", "rect": Rect2(203, 280, 234, 51), "depth": 6, "label": "SETTINGS"},
+	{"id": "credits", "rect": Rect2(10, 305, 153, 45), "depth": 6, "label": "CREDITS"},
+	{"id": "sound", "rect": Rect2(585, 311, 45, 39), "depth": 6, "label": "SOUND"},
 ]
 ## How long a keyboard shortcut shows the pushed-in look before acting.
 const KEY_PRESS_TIME := 0.12
 
 var open_panel := ""  # "", "how", "settings", or "credits"
 
-var _video: VideoStreamPlayer = null
-var _press_overlays := {}    # id -> Control (shown while that button is held)
+var _backdrop: MenuBackdrop = null
 var _mute_slash: MuteSlash
 var _fade: ColorRect
 var _panels := {}            # id -> Control
 var _settings_buttons := {}  # setting key -> PressButton
+var _hotspots := {}          # id -> Control (click area over a painted button)
+var _panel_boxes := {}       # id -> PanelContainer (re-centered on resize)
 var _leaving := false
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	size = Vector2(640, 360)
+	# The menu fills any window shape (the sky is drawn in code); gameplay and
+	# the opening film set their own aspect when they start.
+	get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	get_tree().paused = false
 	GameState.new_run()  # nothing ticks while we're on the menu
 
-	var has_video := _build_background()
-	_build_hotspots(not has_video)
+	var has_art := _build_background()
+	_build_hotspots(not has_art)
 
 	_mute_slash = MuteSlash.new()
-	_mute_slash.target = HOTSPOTS[4]["rect"]
+	_mute_slash.target = _spot_rect(HOTSPOTS[4])
 	_mute_slash.size = size
 	add_child(_mute_slash)
 
@@ -67,7 +69,35 @@ func _ready() -> void:
 	add_child(_fade)
 	create_tween().tween_property(_fade, "color:a", 0.0, 0.4)
 
+	get_viewport().size_changed.connect(_relayout)
+	_relayout()
 	Sfx.start_ambient()
+
+
+func _exit_tree() -> void:
+	get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+
+
+## Fit the menu to the current window: art, click areas, panels, fade.
+func _relayout() -> void:
+	var sz := get_viewport_rect().size
+	if _backdrop != null:
+		_backdrop.relayout(sz)
+	for spot in HOTSPOTS:
+		var id: String = spot["id"]
+		var shift := MenuBackdrop.anchor_offset(MenuBackdrop.anchor_for(id), sz)
+		var r := _spot_rect(spot)
+		_hotspots[id].position = r.position + shift
+		if id == "sound":
+			_mute_slash.target = Rect2(r.position + shift, r.size)
+	_mute_slash.size = sz
+	_mute_slash.queue_redraw()
+	_fade.size = sz
+	for id in _panels:
+		_panels[id].size = sz
+		_panels[id].get_child(0).size = sz  # the dim layer
+		var box: PanelContainer = _panel_boxes[id]
+		box.position = ((sz - box.size) / 2.0).round()
 
 
 # --- Actions ----------------------------------------------------------------------
@@ -114,15 +144,15 @@ func _close_panel(play_sound := true) -> void:
 
 ## Pushed-in look on/off for one painted button.
 func set_pressed_look(id: String, held: bool) -> void:
-	if _press_overlays.has(id):
-		_press_overlays[id].visible = held
+	if _backdrop != null:
+		_backdrop.set_pressed(id, held)
 	if id == "sound":
 		_mute_slash.pressed_offset = int(HOTSPOTS[4]["depth"]) if held else 0
 		_mute_slash.queue_redraw()
 
 
 func is_pressed_look(id: String) -> bool:
-	return _press_overlays.has(id) and _press_overlays[id].visible
+	return _backdrop != null and _backdrop.is_pressed(id)
 
 
 func _on_hotspot_down(id: String) -> void:
@@ -177,44 +207,44 @@ static func _any(event: InputEvent, actions: Array) -> bool:
 
 # --- Background and painted buttons --------------------------------------------------------
 
-## Returns true if the video is playing (false = plain fallback menu).
+## Returns true if the live menu art loaded (false = plain fallback menu).
 func _build_background() -> bool:
+	_backdrop = MenuBackdrop.new()
+	_backdrop.name = "Backdrop"
+	add_child(_backdrop)
+	if _backdrop.is_ready():
+		return true
+	push_warning("Menu art missing (assets/menu/); showing a plain menu.")
+	_backdrop.queue_free()
+	_backdrop = null
 	var bg := ColorRect.new()
 	bg.color = UiStyle.NAVY_DEEP
-	bg.size = size
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
-	if not ResourceLoader.exists(MENU_VIDEO):
-		push_warning("Menu video missing (%s); showing a plain menu." % MENU_VIDEO)
-		var title := UiStyle.label("BACK2EARTH", 34, UiStyle.CYAN)
-		title.position = Vector2(0, 70)
-		title.size = Vector2(640, 40)
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		add_child(title)
-		return false
-	_video = VideoStreamPlayer.new()
-	_video.stream = load(MENU_VIDEO)
-	_video.expand = true
-	_video.size = size
-	_video.volume_db = -80.0
-	_video.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_video.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR  # 720p art on a 640x360 canvas
-	_video.finished.connect(_on_video_finished)
-	add_child(_video)
-	_video.play()
-	return true
+	var title := UiStyle.label("BACK2EARTH", 34, UiStyle.CYAN)
+	title.position = Vector2(0, 70)
+	title.size = Vector2(640, 40)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(title)
+	return false
 
 
-func _on_video_finished() -> void:
-	_video.play()  # seamless 12 s loop
+## A button's spot on the 640x360 grid: from the art layout when it loaded.
+func _spot_rect(spot: Dictionary) -> Rect2:
+	if _backdrop != null:
+		var r := _backdrop.button_home_rect(spot["id"])
+		if r.size != Vector2.ZERO:
+			return r
+	return spot["rect"]
 
 
 func _build_hotspots(fallback: bool) -> void:
 	for spot in HOTSPOTS:
 		var id: String = spot["id"]
-		var r: Rect2 = spot["rect"]
+		var r: Rect2 = _spot_rect(spot)
 		if fallback:
-			# No video: draw the buttons ourselves (they press the same way).
+			# No art: draw the buttons ourselves (they press the same way).
 			var pb := PressButton.new()
 			pb.name = "Hotspot_%s" % id
 			pb.position = r.position
@@ -223,9 +253,9 @@ func _build_hotspots(fallback: bool) -> void:
 			pb.pressed.connect(activate.bind(id))
 			pb.add_to_group("menu_hotspot")
 			add_child(pb)
+			_hotspots[id] = pb
 			continue
 
-		_press_overlays[id] = _make_press_overlay(spot)
 		var b := Button.new()
 		b.name = "Hotspot_%s" % id
 		b.position = r.position
@@ -236,42 +266,12 @@ func _build_hotspots(fallback: bool) -> void:
 			b.add_theme_stylebox_override(state, StyleBoxEmpty.new())
 		b.button_down.connect(_on_hotspot_down.bind(id))
 		b.button_up.connect(_on_hotspot_up.bind(id))
+		b.mouse_entered.connect(_backdrop.set_hover.bind(id, true))
+		b.mouse_exited.connect(_backdrop.set_hover.bind(id, false))
 		b.pressed.connect(activate.bind(id))  # on release, inside the button
 		b.add_to_group("menu_hotspot")
 		add_child(b)
-
-
-## Background patch over the whole button + its face redrawn lower and darker.
-func _make_press_overlay(spot: Dictionary) -> Control:
-	var r: Rect2 = spot["rect"]
-	var depth := float(spot["depth"])
-	var overlay := Control.new()
-	overlay.name = "Press_%s" % spot["id"]
-	overlay.position = r.position
-	overlay.size = r.size
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	overlay.visible = false
-	add_child(overlay)
-
-	var patch := ColorRect.new()
-	patch.color = spot["bg"]
-	patch.size = r.size
-	patch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	overlay.add_child(patch)
-
-	var path := "res://assets/ui/menu_btn_%s.png" % spot["id"]
-	if ResourceLoader.exists(path):
-		var face := TextureRect.new()
-		face.texture = load(path)
-		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		face.stretch_mode = TextureRect.STRETCH_SCALE
-		face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-		face.position = Vector2(0, depth)
-		face.size = Vector2(r.size.x, r.size.y - depth)
-		face.modulate = Color(0.85, 0.85, 0.85)
-		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		overlay.add_child(face)
-	return overlay
+		_hotspots[id] = b
 
 
 # --- Panels --------------------------------------------------------------------------
@@ -305,6 +305,7 @@ func _make_panel(id: String, title_text: String, panel_size: Vector2) -> VBoxCon
 	vbox.add_child(title)
 
 	_panels[id] = root
+	_panel_boxes[id] = panel
 	return vbox
 
 
@@ -330,7 +331,7 @@ func _add_back_button(vbox: VBoxContainer) -> void:
 
 
 func _build_how_panel() -> void:
-	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(440, 318))
+	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(530, 326))
 	var body := UiStyle.label(
 		"BRANCHING ESCAPE · DESIGN PROTOTYPE\n\n"
 		+ "Work with Mara and Ivo to get the shuttle home.\n"
@@ -353,7 +354,7 @@ func _build_how_panel() -> void:
 
 
 func _build_settings_panel() -> void:
-	var vbox := _make_panel("settings", "SETTINGS", Vector2(330, 262))
+	var vbox := _make_panel("settings", "SETTINGS", Vector2(380, 262))
 	_settings_buttons["sound"] = _add_button(vbox, "", Settings.toggle_mute)
 	_settings_buttons["shake"] = _add_button(vbox, "", Settings.toggle_reduced_shake)
 	_settings_buttons["echo"] = _add_button(vbox, "", Settings.toggle_companion)
@@ -380,7 +381,7 @@ func _refresh_settings_labels() -> void:
 
 
 func _build_credits_panel() -> void:
-	var vbox := _make_panel("credits", "CREDITS", Vector2(440, 306))
+	var vbox := _make_panel("credits", "CREDITS", Vector2(530, 326))
 	var data := _load_credits()
 	var sub := UiStyle.label(str(data.get("subtitle", "")), 11, UiStyle.MUTED)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

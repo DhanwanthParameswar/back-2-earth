@@ -5,7 +5,7 @@ const Radio = preload("res://scripts/prototype/escape_radio.gd")
 const Map = preload("res://scripts/prototype/escape_map.gd")
 var mission
 var root: Control
-## The one HUD bar (bottom): "ROOM · objective" on the left, radio/map keys on the right.
+## The one HUD bar (bottom): "ROOM · objective" on top, radio/map keys on a small row under it.
 var bar: Panel
 var objective: Label
 var keys: Label
@@ -29,7 +29,7 @@ var pause_was_active := false
 var content_width := 490.0
 
 const HINT_SECONDS := 15.0
-const BAR_HEIGHT := 24.0
+const BAR_HEIGHT := 36.0
 
 func _ready() -> void:
 	layer = 10
@@ -41,12 +41,11 @@ func _ready() -> void:
 	bar.size = Vector2(624, BAR_HEIGHT)
 	bar.add_theme_stylebox_override("panel", Style.box(Color("0b1526", 0.92), Color("34506a"), 1))
 	root.add_child(bar)
-	objective = _label(bar, "", Vector2(10, 4), 11, Style.TEXT)
+	objective = _label(bar, "", Vector2(10, 3), 11, Style.TEXT)
 	objective.clip_text = true
 	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	keys = _label(bar, "WASD move   E use / talk   1 Mara   2 Ivo   Tab map   Esc pause", Vector2(0, 5), 10, Style.MUTED)
-	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	keys.size = Vector2(330, 16)
+	keys = _label(bar, "WASD move   E use / talk   1 Mara   2 Ivo   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
+	keys.clip_text = true
 	toast = _outlined(root, 10, Style.TEXT)
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint = _outlined(root, 9, Style.MUTED)
@@ -101,8 +100,8 @@ func _layout() -> void:
 	var s := get_viewport().get_visible_rect().size
 	bar.position = Vector2(8, s.y - BAR_HEIGHT - 6)
 	bar.size.x = s.x - 16
-	keys.position.x = bar.size.x - keys.size.x - 10
-	objective.size = Vector2(maxf(100.0, bar.size.x - keys.size.x - 30), 16)
+	objective.size = Vector2(bar.size.x - 20, 16)
+	keys.size = Vector2(bar.size.x - 20, 14)
 	toast.position = Vector2(14, bar.position.y - 34)
 	toast.size = Vector2(s.x - 28, 30)
 	toast.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -115,7 +114,7 @@ func _place_modal() -> void:
 		return
 	var s := get_viewport().get_visible_rect().size
 	if mode == "chat":
-		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - 168.0)
+		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - 180.0)
 	elif mode != "":
 		modal.position.x = round((s.x - modal.custom_minimum_size.x) / 2.0)
 

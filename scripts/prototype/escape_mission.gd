@@ -2,6 +2,7 @@ extends Node2D
 ## Self-contained, reversible design prototype. The original mission is untouched.
 
 const Rules = preload("res://scripts/prototype/escape_state.gd")
+const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const Actor = preload("res://scripts/prototype/escape_actor.gd")
 const Prop = preload("res://scripts/prototype/escape_prop.gd")
 const Interface = preload("res://scripts/prototype/escape_ui.gd")
@@ -309,6 +310,11 @@ func _set_wide(on: bool) -> void:
 	if win != null:
 		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND if on else Window.CONTENT_SCALE_ASPECT_KEEP
 
+## A floor sign centered on x (world px).
+func _sign(font: Font, text: String, center_x: float, y: float, color: Color) -> void:
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	draw_string(font, Vector2(round(center_x - w / 2.0), y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
+
 func prop_done(id: String) -> bool:
 	var mapping := {"locker": "locker_clear", "terminal": "assessed", "isolate": "isolated", "fuse": "fuse_taken", "cabinet": "engineering_power", "aux": "aux_off", "freezer": "samples_saved", "battery": "battery_out", "cart": "battery_loaded", "case": "samples_saved", "socket": "battery_connected", "release": "clamps"}
 	return state.has_flag(mapping.get(id, ""))
@@ -421,15 +427,16 @@ func _draw() -> void:
 		var color: Color = COLORS[key]
 		draw_rect(rect, Color(color, 0.07))
 		draw_rect(rect.grow(-3), Color(color, 0.4), false, 2)
-		draw_string(ThemeDB.fallback_font, rect.position + Vector2(18, 25), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
+		draw_string(UiStyle.font(), rect.position + Vector2(18, 25), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
 		if key == "CABIN" and state.has_flag("aux_off"): draw_rect(rect, Color(0, 0, 0, 0.45))
 	for cell in walls:
 		var rect := Rect2(Vector2(cell * 32), Vector2(32, 32))
 		draw_texture_rect(face_tex if floors.has(cell + Vector2i.DOWN) else wall_tex, rect, false)
 	# Floor direction markers are environmental signage rather than quest arrows.
-	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(468, 338), "ENGINEERING  ^", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, COLORS.ENGINEERING)
-	draw_string(font, Vector2(465, 563), "LABORATORY  v", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, COLORS.LABORATORY)
-	draw_string(font, Vector2(615, 465), "BAY >", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, COLORS["SHUTTLE BAY"])
+	var font := UiStyle.font()
+	# Centered on each doorway so they stay clear of the room names.
+	_sign(font, "ENGINEERING ^", 544, 342, COLORS.ENGINEERING)
+	_sign(font, "LABORATORY v", 544, 563, COLORS.LABORATORY)
+	_sign(font, "BAY >", 662, 465, COLORS["SHUTTLE BAY"])
 	if state.powered():
 		for x in range(765, 1120, 32): draw_rect(Rect2(x, 545, 12, 3), Color("87d5b3"))

@@ -9,6 +9,15 @@ const CYAN_BRIGHT := Color("3df0ff")
 const TEXT := Color("fff1e8")
 const MUTED := Color("9aa0c0")
 const AMBER := Color("ffa300")
+## Every Control uses this font (project setting gui/theme/custom_font).
+## Monocraft (SIL OFL 1.1, see assets/fonts/Monocraft-OFL.txt), imported with
+## no antialiasing so the pixel letters stay sharp.
+const FONT_PATH := "res://assets/fonts/Monocraft.ttf"
+
+
+## The game font, for code that draws text itself (draw_string).
+static func font() -> Font:
+	return load(FONT_PATH) if ResourceLoader.exists(FONT_PATH) else ThemeDB.fallback_font
 
 
 static func box(bg: Color, border: Color, border_width := 2) -> StyleBoxFlat:
