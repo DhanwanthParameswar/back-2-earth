@@ -13,7 +13,7 @@ cabin and the breach off behind them. The film ends with them in the hallway
 on the safe side, facing a locker that the impact threw across it; gameplay
 starts right there. Past the locker the hallway runs on aft to everything
 else: the story rooms (junction, engineering, laboratory, shuttle bay) and
-rooms that are just there to explore (crew quarters, galley, ...).
+rooms that are just there to explore (flight deck, galley, ...).
 
 Coordinates are tiles (32 px). Decor/anchor positions are the bottom-centre
 point of the thing, in tiles (fractions allowed).
@@ -35,7 +35,7 @@ W, H = 66, 40
 
 # name: (floor rect x, y, w, h), floor style, colour, sealed (visible but not walkable)
 ROOMS = {
-    "CREW QUARTERS": ((2, 14, 10, 13), "carpet", "bc9c83", False),
+    "FLIGHT DECK": ((2, 14, 10, 13), "deck", "9bd0ff", False),
     "CORRIDOR": ((14, 19, 35, 3), "deck", "8fa1c4", False),
     "JUNCTION": ((26, 19, 10, 9), "deck", "81c5d9", False),
     "GALLEY": ((15, 8, 8, 9), "galley", "e6c27a", False),
@@ -57,7 +57,7 @@ ROOM_ORDER = list(ROOMS)
 # the jammed locker is cleared) | bulkhead (sealed barrier, drawn as the film's slab)
 DOORS = [
     (41, 19, 2, 3, "locker"),      # the locker thrown across the hallway (jammed)
-    (12, 20, 2, 2, "door"),        # corridor -> crew quarters
+    (12, 20, 2, 2, "door"),        # corridor -> flight deck
     (12, 8, 3, 2, "door"),         # galley -> storage
     (18, 17, 2, 2, "door"),        # corridor -> galley
     (30, 17, 2, 2, "door"),        # junction -> engineering
@@ -70,21 +70,20 @@ DOORS = [
     (49, 19, 2, 3, "bulkhead"),    # the sealed barrier from the film
 ]
 # Wall cells that are windows (only top walls show; two rows make a tall pane).
-WINDOWS = [(9, 12, 2, 2), (19, 6, 2, 2), (37, 6, 7, 2), (4, 4, 2, 2)]
+WINDOWS = [(3, 12, 8, 2), (19, 6, 2, 2), (37, 6, 7, 2), (4, 4, 2, 2)]
 # Where the hull is torn open beyond the barrier (open to space).
 TORN = [(52, 17, 3, 2)]
 
 # Decor: (sprite, x, y, layer). layer: obj (solid, y-sorted), soft (y-sorted, walk
 # through), floor (decal under everything), wall (decal on a wall face).
 DECOR = [
-    # Crew quarters: four bunks (Johnny, Aaron, Dhan, and Kien's, still made up), lockers, a table.
-    ("bunk_blue", 2.5, 16.0, "obj"), ("bunk_red", 2.5, 18.6, "obj"), ("bunk_green", 2.5, 21.2, "obj"),
-    ("bunk_kien", 2.5, 23.8, "obj"), ("photo_wall", 3.6, 13.5, "wall"),
-    ("locker", 5.0, 15.7, "obj"), ("locker_open", 6.0, 15.7, "obj"), ("locker", 7.0, 15.7, "obj"),
-    ("poster_earth", 8.2, 13.5, "wall"), ("guitar", 11.4, 15.6, "soft"),
-    ("rug", 7.4, 22.4, "floor"), ("table", 7.4, 21.3, "obj"), ("stool", 6.2, 21.6, "soft"),
-    ("stool", 8.6, 21.6, "soft"), ("duffel", 10.6, 26.6, "soft"), ("papers", 5.2, 25.4, "floor"),
-    ("plant", 11.4, 26.8, "obj"),
+    # Flight deck: the cockpit window, two helm stations, the nav table, crew seats behind.
+    ("helm_console", 4.7, 15.7, "obj"), ("helm_console", 9.0, 15.7, "obj"),
+    ("pilot_chair", 4.7, 17.4, "soft"), ("pilot_chair", 9.0, 17.4, "soft"),
+    ("rug", 6.9, 22.6, "floor"), ("nav_table", 6.9, 21.8, "obj"),
+    ("server_rack", 2.5, 21.0, "obj"), ("scanner", 2.9, 24.0, "obj"),
+    ("seats", 7.0, 26.4, "soft"), ("photo_wall", 11.4, 13.5, "wall"),
+    ("plant", 11.4, 26.8, "obj"), ("papers", 9.8, 23.8, "floor"), ("cable", 4.2, 19.6, "floor"),
     # Storage closet.
     ("shelf", 5.5, 6.9, "obj"), ("shelf", 9.0, 6.9, "obj"), ("tool_board", 7.2, 5.4, "wall"),
     ("crates", 4.6, 10.9, "obj"), ("barrel", 6.0, 10.9, "obj"), ("crates", 11.2, 10.9, "obj"),

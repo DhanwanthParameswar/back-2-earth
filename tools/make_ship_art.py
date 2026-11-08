@@ -446,6 +446,60 @@ def _fallen_locker(a):  # gameplay: the locker the impact threw across the hallw
     a.hline(1, 16, 0, STEEL_LL)
 
 
+@prop("helm_console", 44, 22)
+def _helm_console(a):  # flight deck: the long console under the cockpit window
+    a.box(0, 8, 44, 14, STEEL)
+    a.box(0, 4, 44, 6, STEEL_L)                       # sloped top
+    for x, c in ((3, CYAN), (17, GREEN), (31, AMBER)):  # three screens
+        a.rect(x, 0, 11, 7, STEEL_D)
+        a.rect(x + 1, 1, 9, 5, (8, 30, 40))
+        a.hline(x + 2, x + 7, 3, c)
+        a.dot(x + 3, 2, c)
+    for x in range(3, 42, 3):                          # button rows
+        a.dot(x, 12, (GREEN, AMBER, RED, CYAN)[(x // 3) % 4])
+        a.dot(x + 1, 15, STEEL_LL)
+    a.rect(19, 16, 6, 3, STEEL_D)                      # throttle
+    a.rect(21, 14, 2, 3, RED)
+    a.rect(0, 20, 44, 2, STEEL_D)
+
+
+@prop("pilot_chair", 16, 20)
+def _pilot_chair(a):  # seen from behind, facing the console
+    a.box(1, 0, 14, 12, (41, 60, 120))
+    a.rect(2, 1, 12, 2, (61, 90, 160))
+    a.rect(6, 4, 4, 6, (30, 44, 96))                   # headrest seam
+    a.box(0, 10, 16, 5, STEEL)                         # armrests and seat
+    a.rect(6, 15, 4, 3, STEEL_D)                       # post
+    a.rect(3, 18, 10, 2, STEEL_D)                      # base
+
+
+@prop("nav_table", 32, 24)
+def _nav_table(a):  # holographic route table: Mars to Earth, like the film's dashboard
+    a.box(2, 12, 28, 12, STEEL)
+    a.rect(0, 10, 32, 4, STEEL_L)
+    a.rect(1, 10, 30, 1, STEEL_LL)
+    for i in range(16):                                # the route, projected above it
+        x = 4 + i * 24 // 15
+        y = 8 - round(5 * math.sin(i / 15 * math.pi))
+        a.dot(x, y, (CYAN[0], CYAN[1], CYAN[2], 200) if i < 14 else (60, 140, 160, 200))
+    a.disc(4, 8, 1.5, (200, 80, 44))                   # Mars
+    a.disc(28, 7, 2.0, BLUE)                           # Earth
+    a.rect(25, 3, 3, 3, WHITE)                         # the ship, almost home
+    a.rect(6, 16, 20, 2, (8, 30, 40))
+    a.hline(7, 18, 16, CYAN)
+
+
+@prop("route_map", 30, 14, solid=False)
+def _route_map(a):  # wall screen: DISTANCE TO EARTH
+    a.rect(0, 0, 30, 14, STEEL)
+    a.rect(1, 1, 28, 12, (4, 12, 18))
+    for i in range(12):
+        a.dot(3 + i * 2, 9 - round(4 * math.sin(i / 11 * math.pi)), CYAN)
+    a.dot(3, 9, (200, 80, 44))
+    a.rect(26, 7, 2, 2, BLUE)
+    a.text(3, 2, "EARTH", (90, 170, 190))
+
+
 @prop("table", 24, 16)
 def _table(a):
     a.box(0, 0, 24, 12, BROWN)
