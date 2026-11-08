@@ -4,7 +4,8 @@ extends Node2D
 ## frames, the film's sealed barrier and the torn hull past it, room signs,
 ## floor and wall decals. Furniture becomes y-sorted sprites in the world
 ## (build_decor). Lighting: dim emergency light until the shuttle bay has power,
-## red alarm lamps in the corridor, a pulsing reactor. Art: tools/make_ship_art.py.
+## rotating red alarm beacons in the corridor (escape_alarm.gd), a pulsing reactor.
+## Art: tools/make_ship_art.py.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const ART := "res://assets/ship/"
@@ -117,6 +118,18 @@ func _is_floorish(ch: String) -> bool:
 	return ch in [".", "D", "L", "s", "B"]
 
 
+## A plain wall with its front face showing (floor below it, not the barrier).
+func is_wall_face(x: int, y: int) -> bool:
+	var below := _ch(x, y + 1)
+	return _ch(x, y) == "#" and _is_floorish(below) and below != "B"
+
+
+## Where the rotating alarm beacons hang: every third wall face along the far end
+## of the corridor, near the barrier (escape_alarm.gd makes them spin and flash).
+func is_alarm_cell(x: int, y: int) -> bool:
+	return x >= 34 and x % 3 == 0 and is_wall_face(x, y) and _room_at_cell(x, y + 1).get("name", "") == "CORRIDOR"
+
+
 func _room_at_cell(x: int, y: int) -> Dictionary:
 	if y < 0 or y >= mission._room_grid.size() or x < 0 or x >= mission._room_grid[y].length():
 		return {}
@@ -201,7 +214,7 @@ func _draw_wall(x: int, y: int, ch: String, r: Rect2) -> void:
 			draw_texture_rect(tex("window"), r, false)
 		else:
 			var kind: String = FACE_KINDS[_hash(x, y) % FACE_KINDS.size()]
-			if room.get("name", "") == "CORRIDOR" and x >= 34 and x % 3 == 0:
+			if is_alarm_cell(x, y):
 				kind = "alarm"
 			draw_texture_rect(tex("wall_face_" + kind), r, false, tint)
 	elif (below == "#" or below == "w") and _is_floorish(below2) and below2 != "B":
@@ -290,7 +303,7 @@ func _draw_signs() -> void:
 		draw_string(font, p, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(room.color))
 
 
-## Things that move every frame: alarm lamps, the reactor glow, the flickering
+## Things that move every frame: the reactor glow, the flickering
 ## MAIN POWER OFFLINE screen, the red wash past the barrier.
 class FX extends Node2D:
 	var ship
@@ -304,18 +317,8 @@ class FX extends Node2D:
 			return
 		var t: float = ship._t
 		var powered: bool = m.state.powered()
-		# Corridor alarm lamps: red pulses on the wall and floor below them.
+		# The corridor's rotating alarm beacons are escape_alarm.gd (above the dark).
 		var pulse := 0.5 + 0.5 * sin(t * TAU * 1.6)
-		for y in m.map_size.y:
-			for x in m.map_size.x:
-				if m.cell_char(Vector2i(x, y)) != "#" or x < 34 or x % 3 != 0:
-					continue
-				var room: Dictionary = ship._room_at_cell(x, y + 1)
-				if room.get("name", "") != "CORRIDOR" or not ship._is_floorish(m.cell_char(Vector2i(x, y + 1))):
-					continue
-				var c := Vector2(x * TILE + 16, y * TILE + 8)
-				draw_circle(c, 6 + 3 * pulse, Color(1, 0.1, 0.25, 0.25 + 0.2 * pulse))
-				draw_rect(Rect2(x * TILE - 8, (y + 1) * TILE, 48, 26), Color(1, 0.05, 0.2, 0.06 + 0.06 * pulse))
 		# The reactor breathes; brighter once power is restored.
 		for d in m.map_data.decor:
 			if d.sprite == "reactor":
