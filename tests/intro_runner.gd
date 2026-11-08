@@ -33,6 +33,12 @@ func _run() -> void:
 	var film = Film.new()
 	root.add_child(film)
 	check(film.is_ready(), "Intro art and timing load")
+	check(Film.MONITOR_LINES[1][1] == "REPAIR MISSION:", "Monitor uses singular REPAIR")
+	check(film._cabin_light(Film.T_IMPACT - 0.01)[0] == null, "Cabin lights remain on before the impact")
+	check(film._cabin_light(Film.T_IMPACT)[0] == Film.POWER_OUT_ROOM, "Main lights cut immediately at the impact")
+	check(film._cabin_light(Film.T_IMPACT + 1.0)[0] == Film.POWER_OUT_ROOM, "Cabin lights do not relight after the power failure")
+	for t in [19.5, 24.0, 33.8, 40.0]:
+		check(film._corridor_light(t)[0] == Film.POWER_OUT_ROOM, "Corridor remains unpowered at %s" % t)
 	check(film.length() > 39.8, "Intro leaves time for the crew to face the locker in the hallway")
 	check(Film.AHEAD_WAIT_X < Film.CORR_DOOR[0], "Dhan waits on the safe side of the barrier, at the locker")
 	var end := Film.LENGTH - 0.5
