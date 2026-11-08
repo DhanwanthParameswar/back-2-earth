@@ -483,7 +483,7 @@ func _build_how_panel() -> void:
 	var keys := UiStyle.label("WASD move  E use  1/2/3 Aaron/Dhan/ship  F light  Tab map  Esc pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
-	var pad := UiStyle.label("PAD: stick move  A use  LB/RB/L3 radio  Y light  X talk  Back map  Start pause", 9, UiStyle.AMBER)
+	var pad := UiStyle.label("PAD: stick move  A use  LB Aaron  RB Dhan  RT ship  X talk (mic)  Y light  LT tablet  Start pause", 9, UiStyle.AMBER)
 	pad.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(pad)
 	_add_back_button(vbox)
