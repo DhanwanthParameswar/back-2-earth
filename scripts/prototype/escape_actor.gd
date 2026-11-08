@@ -1,0 +1,100 @@
+extends Node2D
+## Existing astronaut art, with visible walking along the ship's floor grid.
+
+var mission
+var actor_id := "mara"
+var display_name := "MARA · RESEARCHER"
+var suit := "mint"
+var tint := Color("86e2b3")
+var sprite: Sprite2D
+var bubble: Label
+var path := PackedVector2Array()
+var arrived: Callable
+var following := false
+var walking_time := 0.0
+var bubble_left := 0.0
+var name_label: Label
+var cargo: Sprite2D
+
+func _ready() -> void:
+	add_to_group("interactable")
+	sprite = Sprite2D.new()
+	sprite.texture = load(Settings.skin_sheet_path(suit))
+	sprite.hframes = 6
+	sprite.frame = 5
+	sprite.position.y = -26
+	add_child(sprite)
+	name_label = Label.new()
+	name_label.text = display_name.split(" · ")[0]
+	name_label.position = Vector2(-48, 5)
+	name_label.size.x = 96
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.add_theme_font_size_override("font_size", 9)
+	name_label.modulate = tint
+	add_child(name_label)
+	bubble = Label.new()
+	bubble.position = Vector2(-85, -85)
+	bubble.size = Vector2(170, 35)
+	bubble.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bubble.add_theme_font_size_override("font_size", 10)
+	bubble.add_theme_color_override("font_shadow_color", Color.BLACK)
+	bubble.add_theme_constant_override("shadow_offset_x", 1)
+	bubble.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(bubble)
+	cargo = Sprite2D.new()
+	cargo.texture = load("res://assets/sprites/core.png")
+	cargo.scale = Vector2(0.8, 0.8)
+	cargo.position = Vector2(15, -15)
+	cargo.visible = false
+	add_child(cargo)
+
+func set_cargo(carrying: bool) -> void:
+	cargo.visible = carrying
+
+func can_interact(_player) -> bool:
+	return mission.active and not mission.ending
+
+func get_prompt() -> String:
+	return "Talk to " + display_name
+
+func interact(_player) -> void:
+	mission.open_chat(actor_id)
+
+func say(line: String) -> void:
+	bubble.text = line
+	bubble_left = 5.0
+
+func go_to(point: Vector2, callback: Callable = Callable()) -> void:
+	following = false
+	arrived = callback
+	path = mission.find_path(position, point)
+	if path.is_empty():
+		arrived = Callable()
+		mission.announce("SHIP", "Route obstructed. Clear the cabin doorway first.")
+		return
+
+func _process(delta: float) -> void:
+	if not mission.active or mission.ending: return
+	bubble_left = maxf(0.0, bubble_left - delta)
+	bubble.visible = bubble_left > 0.0
+	if following and path.is_empty() and position.distance_to(mission.player.position) > 75:
+		path = mission.find_path(position, mission.player.position + Vector2(35, 20))
+	if not path.is_empty():
+		var direction := position.direction_to(path[0])
+		position = position.move_toward(path[0], delta * 125.0)
+		walking_time += delta * 9.0
+		sprite.frame = int(walking_time) % 6
+		if absf(direction.x) > 0.1: sprite.flip_h = direction.x < 0
+		if position.distance_to(path[0]) < 1:
+			path.remove_at(0)
+			if path.is_empty() and arrived.is_valid():
+				var callback := arrived
+				arrived = Callable()
+				callback.call()
+	else:
+		sprite.frame = 5
+
+func _draw() -> void:
+	draw_set_transform(Vector2.ZERO, 0, Vector2(1, 0.35))
+	draw_circle(Vector2.ZERO, 12, Color(0, 0, 0, 0.35))

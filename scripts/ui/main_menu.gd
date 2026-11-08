@@ -6,13 +6,13 @@ extends Control
 ## looks pushed in: the button is covered with background color and its face
 ## (cut from the video, assets/ui/menu_btn_<id>.png) is drawn lower by the
 ## depth of its 3D strip, slightly darker. The action fires on release.
-## START GAME loads scenes/main.tscn (opening story -> run).
+## START GAME loads the branching escape prototype (existing opening -> run).
 ## Keys: Enter/E = Start Game, M = sound, Esc = close a panel.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const PressButton = preload("res://scripts/ui/press_button.gd")
 const MENU_VIDEO := "res://assets/video/menu_loop.ogv"
-const GAME_SCENE := "res://scenes/main.tscn"
+const GAME_SCENE := "res://scenes/escape_prototype.tscn"
 const CREDITS_PATH := "res://data/credits.json"
 
 ## Painted buttons in 640x360 menu px (1080p source / 3). `rect` covers the
@@ -332,21 +332,21 @@ func _add_back_button(vbox: VBoxContainer) -> void:
 func _build_how_panel() -> void:
 	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(440, 318))
 	var body := UiStyle.label(
-		"Your ship is tumbling toward a black hole. ECHO, its damaged AI, is still talking.\n"
-		+ "Reach the escape pod before the 6:00 evacuation window closes.\n\n"
-		+ "1   Restore emergency power at the cockpit terminal.\n"
-		+ "2   Restore main power in Engineering.\n"
-		+ "3   Wait for a DOWN surge: it slides the cargo sled onto the plate.\n"
-		+ "     Then grab the navigation core.\n"
-		+ "4   Release the pod clamp and board the pod.\n\n"
-		+ "Amber arrow = surge coming.   Red arrow = pulling.\n"
-		+ "A pull drags you: walk against it or let it carry you, but mind the walls.\n"
-		+ "Red lanes carry debris. Each hit costs 10 seconds.\n"
-		+ "Press H to ask ECHO for help.",
+		"BRANCHING ESCAPE · DESIGN PROTOTYPE\n\n"
+		+ "Work with Mara and Ivo to get the shuttle home.\n"
+		+ "The original opening film plays before this new mission.\n\n"
+		+ "1   Ask Mara to hold the jammed cabin locker, then push it.\n"
+		+ "2   Inspect launch status in the junction.\n"
+		+ "3   Repair Engineering, or divert the lab battery.\n"
+		+ "4   Consider saving the samples before cutting cooling.\n"
+		+ "5   Release the clamps and board with your crew.\n\n"
+		+ "Crew radio uses a labeled offline interpreter by default.\n"
+		+ "Live Gemini + voice can be enabled inside a conversation.\n"
+		+ "No countdown. Explore, talk, and choose your approach.",
 		11)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(body)
-	var keys := UiStyle.label("WASD / arrows  move    E  interact    H  ECHO    Esc  pause", 10, UiStyle.AMBER)
+	var keys := UiStyle.label("WASD move   E use   1 / 2 radio   Tab map   Esc pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
 	_add_back_button(vbox)

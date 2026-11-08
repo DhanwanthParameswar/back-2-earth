@@ -53,6 +53,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import game_db
+import escape_dialogue
 
 HOST = os.environ.get("COMPANION_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COMPANION_PORT", "8787"))
@@ -571,7 +572,7 @@ class Handler(BaseHTTPRequestHandler):
     }
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path not in ("/companion", "/npc/talk") and self.path not in self.GAME_POSTS:
+        if self.path not in ("/companion", "/npc/talk", "/escape/talk") and self.path not in self.GAME_POSTS:
             self._send(404, {"error": "not_found"})
             return
         data, err = self._read_json()
@@ -581,6 +582,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in self.GAME_POSTS:
             bucket, call = self.GAME_POSTS[self.path]
             self._game(bucket, lambda: call(self, data))
+            return
+        if self.path == "/escape/talk":
+            if self._limited("npc"):
+                return
+            voice_id = os.environ.get("PILOT_VOICE_ID", NPC_VOICE_ID) if isinstance(data, dict) and data.get("npc_id") == "ivo" else NPC_VOICE_ID
+            self._send(*escape_dialogue.reply(data, generate_text, MOCK, AUDIO.register if ELEVEN_API_KEY else None, voice_id))
             return
         if self.path == "/companion":
             snapshot, reason = validate_snapshot(data)

@@ -1,5 +1,11 @@
 # Back2Earth
 
+> **New playable design prototype:** Start Game now opens the branching crew escape
+> after the unchanged opening film. Engineering and battery routes, optional sample
+> rescue, crew cooperation and three endings are implemented. See
+> [Escape Prototype](docs/Escape%20Prototype.md) for controls, walkthroughs and live
+> AI setup. The older mission and its documentation below are retained for reference.
+
 *Your spaceship is being pulled toward a black hole. Use its failing gravity to navigate wreckage, work with a damaged AI companion, and launch the last escape pod home.*
 
 UBhacks 2026 · Godot 4 · GDScript · top-down 2D · retro pixel art
