@@ -41,8 +41,6 @@ var _heard_sure := true  # the browser was confident, or it heard words the game
 ##  - it gives several guesses; we take the one with the most game words (names, codes),
 ##  - known mishearings of the names become the names ("dawn" -> "Dhan"),
 ##  - a low-confidence guess with no game words in it is thrown away, not sent.
-const HINT_PHRASES := ["Aaron", "Dhan", "Kien", "MARVIS", "Johnny", "box A", "box B", "box C", "fuse",
-	"E3", "E6", "E9", "aux 1", "aux 2", "aux 3", "locker", "battery", "shuttle", "medbay", "splint", "sample case"]
 const LOW_CONFIDENCE := 0.45
 const NAME_FIXES := {
 	"Dhan": "dawn|dahn|dhaan|don|dan|dun|thon",
@@ -283,10 +281,6 @@ func listen() -> void:
 		recognition.interimResults = true;
 		recognition.continuous = false;
 		recognition.maxAlternatives = 4;
-		// Hint the game's words where the browser supports it (newer Chrome).
-		try {
-			if (window.SpeechRecognitionPhrase) recognition.phrases = %s.map(p => new SpeechRecognitionPhrase(p, 5.0));
-		} catch(e) {}
 		recognition.onresult = e => {
 			// Every guess the browser has, as [{t: text, c: confidence}], best first.
 			let alts = [], done = false;
@@ -303,7 +297,22 @@ func listen() -> void:
 			for (let i = 0; i < e.results.length; i++) if (e.results[i].isFinal) done = true;
 			window.b2eSpeechResult(JSON.stringify(alts), done);
 		};
-		recognition.onerror = e => window.b2eSpeechError(e.error);
+		recognition.onerror = e => {
+			// A mic track this browser's recognition won't take: try again with the default mic.
+			if (window.b2eMicTrack && (e.error === 'audio-capture' || e.error === 'not-allowed' || e.error === 'bad-grammar' || e.error === 'language-not-supported')) {
+				window.b2eMicTrack.stop(); window.b2eMicTrack = null;
+				recognition.onend = null;
+				const retry = new Recognition();
+				retry.lang = 'en-US'; retry.interimResults = true; retry.continuous = false; retry.maxAlternatives = 4;
+				retry.onresult = recognition.onresult;
+				retry.onerror = e2 => window.b2eSpeechError(e2.error);
+				retry.onend = () => { window.b2eRecognition = null; if (window.b2eSpeechEnd) window.b2eSpeechEnd(); };
+				window.b2eRecognition = retry;
+				try { retry.start(); } catch(e3) { window.b2eSpeechError(String(e3)); }
+				return;
+			}
+			window.b2eSpeechError(e.error);
+		};
 		recognition.onend = () => {
 			window.b2eRecognition = null;
 			if (window.b2eMicTrack) { window.b2eMicTrack.stop(); window.b2eMicTrack = null; }
@@ -317,7 +326,7 @@ func listen() -> void:
 				.then(stream => { window.b2eMicTrack = stream.getAudioTracks()[0]; if (window.b2eRecognition === recognition) begin(window.b2eMicTrack); else window.b2eMicTrack.stop(); })
 				.catch(() => begin(null));
 		} else begin(null);
-	""" % JSON.stringify(HINT_PHRASES), true)
+	""", true)
 	_set_listening(true)
 
 ## The crew's names, fixed where the browser misheard them ("hey dawn" -> "hey Dhan").
