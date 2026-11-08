@@ -192,9 +192,20 @@ func _test_dark_and_fuse() -> void:
 	check(storage.has_point(fuse_pos), "Spare fuse is in the storage room")
 	check(dark.is_dark(), "No power: the ship is dark")
 	check(absf(dark.BASE_RADIUS * 2.0 - 6.0 * 32.0) < 1.0, "Without a flashlight you see about 6 x 6 tiles")
-	check(dark.occluder_count > 20, "Walls cast shadows (light can't pass through walls)")
-	check(mission.locker_visual.light_mask == dark.LAYER_SEE_THROUGH and dark._glow.shadow_item_cull_mask & dark.LAYER_SEE_THROUGH == 0 and dark._glow.range_item_cull_mask & dark.LAYER_SEE_THROUGH != 0, "Exception: the jammed locker is lit when in reach, even through its wall")
-	check(dark.DARK_TINT.v < 0.03, "Unlit areas are black (nothing shows beyond your light)")
+	for i in 3: await get_tree().process_frame
+	var src: Vector2i = dark._cell(mission.player.position + Vector2(0, -8))
+	var walls_lit := 0
+	var leaks := 0
+	for cell in dark.lit.keys():
+		if dark.is_opaque(cell): walls_lit += 1
+		elif not dark.line_of_sight(src, cell): leaks += 1
+	check(walls_lit > 0, "Walls within your light are visible")
+	check(leaks == 0, "No lit floor has a wall between it and you (can't see through walls)")
+	check(dark.is_opaque(Vector2i(-5, -5)) and "D" in dark.OPAQUE, "Doorways and outside the ship stop light")
+	var locker_lit := false
+	for c in mission._locker_cells(): locker_lit = locker_lit or dark.light_of(c) > 0.2
+	check(locker_lit, "The jammed locker shows when your light reaches it")
+	check(dark.DARK_COLOR.v < 0.03, "Unlit areas are black (nothing shows beyond your light)")
 	# Your flashlight: D then W swings the beam from right to up.
 	dark.facing = Vector2.RIGHT
 	dark.toggle_flashlight()
