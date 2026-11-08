@@ -272,6 +272,15 @@ Cloudflare proxies all three DNS records (orange cloud), with SSL mode **Full (s
 - Every setting is saved in `user://settings.cfg`.
 - **Fallback:** if the video is missing, the menu still works and shows labeled buttons.
 
+## Ship map (what Start Game plays)
+
+The escape prototype's ship is data, not code: `tools/make_escape_map.py` holds the rooms, doors, windows, furniture and the named spots the story uses (where the locker sits, where Aaron holds it, where the crew boards...), and writes `data/escape_map.json` plus `docs/escape_map_preview.png`. It also checks that every story step is reachable and that the jammed locker really blocks the cabin. `scripts/prototype/escape_ship.gd` draws it; `escape_mission.gd` reads the spots with `anchor("name")`.
+
+- **Rooms:** CABIN (start: bunks, lockers, Kien's made-up bunk) → the film's CORRIDOR (MAIN POWER OFFLINE screen, emergency panel, sealed barrier with the breach and the forward FLIGHT DECK visible beyond it) → JUNCTION (launch terminal) with ENGINEERING north, LABORATORY south, SHUTTLE BAY east. To explore: GALLEY, STORAGE, OBSERVATION lounge, MEDBAY, HYDROPONICS, SUIT ROOM (airlock).
+- **Art:** `tools/make_ship_art.py` draws every floor, wall, piece of furniture and gameplay prop in the film's palette (`assets/ship/`, contact sheet `docs/ship_art.png`).
+- **Lighting:** dim emergency light until the shuttle bay has power, red alarm lamps by the barrier, a pulsing reactor.
+- **Editing:** move or add things in the tables in `make_escape_map.py`, rerun it (`python3 tools/make_escape_map.py`), then run the prototype tests.
+
 ## Opening story
 
 The team's 36.8-second cut (with voices) plays as soon as a run starts from the main menu, then cuts to gameplay with the first objective, **RESTORE EMERGENCY POWER**. Restarts (R) skip it. E, Enter, Space, Esc, or a click skips it (after half a second, so the Start key doesn't skip it too).

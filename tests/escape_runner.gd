@@ -32,18 +32,31 @@ func _run() -> void:
 		await get_tree().process_frame
 		mission.ui.radio.live_enabled = false  # tests use the offline interpreter, never the network
 		check(mission.active, "Scene enters gameplay: " + branch)
-		check(not mission.find_path(Vector2(175, 470), Vector2(570, 470)).size(), "Closed cabin blocks navigation")
-		mission.player.position = Vector2(300, 470)
+		if branch == "engineering":
+			var film_cast: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/intro_film.json")).cast
+			check(mission.crew.mara.display_name == "AARON · RESEARCHER", "Cabin companion is Aaron from the intro")
+			check(mission.crew.ivo.display_name == "DHAN · PILOT", "Forward companion is Dhan from the intro")
+			check(mission.crew.mara.suit == film_cast.survivor, "Aaron wears his surviving crewmate suit from the intro")
+			check(mission.crew.ivo.suit == film_cast.ahead, "Dhan wears his forward crewmate suit from the intro")
+			check(mission.offline_response("mara", "What's your name?").line.begins_with("I'm Aaron."), "Offline Aaron knows his name")
+			check(mission.offline_response("ivo", "Who are you?").line.begins_with("I'm Dhan."), "Offline Dhan knows his name")
+			var radio = mission.ui.radio
+			radio.pending_id = "mara"
+			radio.pending_version = mission.state.version
+			radio._on_reply(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify({"npc_id": "mara", "state_version": mission.state.version, "line": "The survivor is with Mara and Ivo.", "action": "none", "source": "live"}).to_utf8_buffer())
+			check(radio.histories.mara[-1].text == "The survivor is with Aaron and Dhan.", "Older hosted dialogue uses current crew names without changing other words")
+		check(not mission.find_path(mission.anchor("player_start"), mission.anchor("junction")).size(), "Closed cabin blocks navigation")
+		mission.player.position = mission.anchor("locker_push")
 		var response: Dictionary = mission.offline_response("mara", "Could you grab the other side and help me?")
 		check(response.action == "help_locker", "Natural locker request understood")
 		check(mission.offline_response("mara", "Don't help with the locker").action == "none", "Negation cannot start a task")
 		mission.act_on_dialogue("mara", response.action)
 		await _settle(mission)
-		check(mission.state.has_flag("locker_ready"), "Mara arrives and holds locker")
+		check(mission.state.has_flag("locker_ready"), "Aaron arrives and holds locker")
 		mission.perform("push_locker")
 		check(mission.state.has_flag("locker_clear"), "Cooperation clears cabin")
-		check(not mission.find_path(Vector2(175, 470), Vector2(570, 470)).is_empty(), "Open cabin has traversable route")
-		mission.player.position = Vector2(520, 460)
+		check(not mission.find_path(mission.anchor("player_start"), mission.anchor("junction")).is_empty(), "Open cabin has traversable route")
+		mission.player.position = mission.anchor("junction")
 		mission.player.snap_camera()
 		mission.perform("assess")
 		mission.ui.show_routes()
@@ -70,18 +83,18 @@ func _run() -> void:
 				check(response.action == "fetch_case", "Sample-case delegation understood")
 				mission.act_on_dialogue("ivo", response.action)
 				await _settle(mission)
-				check(mission.state.has_flag("case_arrived"), "Ivo retrieves and delivers case")
+				check(mission.state.has_flag("case_arrived"), "Dhan retrieves and delivers case")
 				mission.perform("pack_samples")
 				check(mission.state.has_flag("samples_saved"), "Samples packed while cooling is on")
 			mission.perform("disconnect_battery")
 			check(not mission.perform("choose_engineering").ok, "Battery removal locks route")
 			check(not mission.perform("pack_samples").ok, "Cannot recover samples after cooling loss")
-			mission.player.position = Vector2(580, 790)
+			mission.player.position = mission.props.cart.position + Vector2(10, 10)
 			mission.player.snap_camera()
 			mission.open_chat("mara")
 			mission.ui._send("Can you help lift the battery onto the cart?")
 			await _settle(mission)
-			check(mission.state.has_flag("battery_loaded"), "Mara visibly loads battery after conversation")
+			check(mission.state.has_flag("battery_loaded"), "Aaron visibly loads battery after conversation")
 			await _capture("lab")
 			mission.ui.close()
 			mission.perform("take_cart")
@@ -92,7 +105,7 @@ func _run() -> void:
 		check(not mission.perform("launch").ok, "Cannot leave while crew still boarding")
 		await _settle(mission)
 		check(mission.crew_ready(), "Both crew reach shuttle through actual map")
-		mission.player.position = Vector2(1000, 490)
+		mission.player.position = mission.anchor("board_aaron") + Vector2(-30, 0)
 		mission.player.snap_camera()
 		mission.ui.show_map()
 		await _capture("map")
@@ -121,8 +134,8 @@ func _run() -> void:
 	print("ESCAPE PROTOTYPE: %d checks, %d failures" % [checks, failures])
 	get_tree().quit(1 if failures else 0)
 
-## The bug players hit: asking Mara for the locker from the starting spot did nothing.
-## Now she walks over and waits; when you arrive she holds it and E pushes it.
+## The bug players hit: asking Aaron for the locker from the starting spot did nothing.
+## Now he walks over and waits; when you arrive he holds it and E pushes it.
 func _test_ask_from_afar() -> void:
 	var mission = Mission.new()
 	Settings.intro_pending = false
@@ -133,24 +146,24 @@ func _test_ask_from_afar() -> void:
 	var start: Vector2 = mission.crew.mara.position
 	mission.ui.open_chat("mara")
 	mission.ui._send("Could you grab the other side and help me?")
-	check(mission.crew.mara.path.size() > 0, "Asked from the start position, Mara sets off for the locker")
+	check(mission.crew.mara.path.size() > 0, "Asked from the start position, Aaron sets off for the locker")
 	await _settle(mission)
-	check(mission.crew.mara.position.distance_to(start) > 10, "Mara actually walks over")
+	check(mission.crew.mara.position.distance_to(start) > 10, "Aaron actually walks over")
 	check(not mission.state.has_flag("locker_ready"), "She waits for the player before holding it")
 	await get_tree().create_timer(1.7).timeout
-	check(not mission.ui.is_open(), "Chat closes by itself once she starts a task")
-	mission.player.position = Vector2(290, 455)  # coming from the left: Mara is between you and the locker
+	check(not mission.ui.is_open(), "Chat closes by itself once he starts a task")
+	mission.player.position = mission.anchor("locker_push") + Vector2(-12, 0)  # coming from the cabin side
 	await get_tree().create_timer(0.6).timeout
-	check(mission.state.has_flag("locker_ready"), "Walking up to the locker: Mara takes hold")
-	check(not mission.state.has_flag("locker_clear"), "Mara does not move the locker by herself")
+	check(mission.state.has_flag("locker_ready"), "Walking up to the locker: Aaron takes hold")
+	check(not mission.state.has_flag("locker_clear"), "Aaron does not move the locker by herself")
 	mission.player._update_target()
 	var target = mission.player.current_target
-	check(target != null and "prop_id" in target and target.prop_id == "locker", "With Mara holding, E targets the locker (not Mara's chat)")
+	check(target != null and "prop_id" in target and target.prop_id == "locker", "With Aaron holding, E targets the locker (not Aaron's chat)")
 	if target != null: target.interact(mission.player)  # the player presses E
 	check(mission.state.has_flag("locker_clear"), "Pressing E pushes the locker clear")
 	await get_tree().create_timer(0.8).timeout  # the slide animation
-	check(mission.locker_visual.position.distance_to(Vector2(368, 444)) > 20, "The locker visibly slides out of the doorway")
-	check(not mission.find_path(mission.player.position, Vector2(570, 470)).is_empty(), "You can walk right into the junction")
+	check(mission.locker_visual.position.distance_to(mission.anchor("locker_visual")) > 20, "The locker visibly slides out of the doorway")
+	check(not mission.find_path(mission.player.position, mission.anchor("junction")).is_empty(), "You can walk right into the junction")
 	mission.queue_free()
 	await get_tree().process_frame
 

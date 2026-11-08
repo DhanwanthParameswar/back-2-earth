@@ -11,6 +11,8 @@ config/icon="res://assets/icon.png"
 config/description="Escape a ship falling into a black hole. Gravity surges, debris, and a damaged AI named ECHO."
 run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.02, 0.02, 0.05, 1)
 
 [autoload]
 

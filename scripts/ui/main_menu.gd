@@ -67,11 +67,18 @@ func _ready() -> void:
 	_fade.size = size
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fade)
-	create_tween().tween_property(_fade, "color:a", 0.0, 0.4)
+	var fade_in := create_tween()
+	fade_in.tween_property(_fade, "color:a", 0.0, 0.4)
+	if OS.has_feature("web"):
+		fade_in.finished.connect(_notify_web_ready)
 
 	get_viewport().size_changed.connect(_relayout)
 	_relayout()
 	Sfx.start_ambient()
+
+
+func _notify_web_ready() -> void:
+	JavaScriptBridge.eval("if (typeof window.back2earthReady === 'function') window.back2earthReady();", true)
 
 
 func _exit_tree() -> void:
@@ -334,9 +341,9 @@ func _build_how_panel() -> void:
 	var vbox := _make_panel("how", "HOW TO PLAY", Vector2(530, 326))
 	var body := UiStyle.label(
 		"BRANCHING ESCAPE · DESIGN PROTOTYPE\n\n"
-		+ "Work with Mara and Ivo to get the shuttle home.\n"
+		+ "Work with Aaron and Dhan to get the shuttle home.\n"
 		+ "The original opening film plays before this new mission.\n\n"
-		+ "1   Ask Mara to hold the jammed cabin locker, then push it.\n"
+		+ "1   Ask Aaron to hold the jammed cabin locker, then push it.\n"
 		+ "2   Inspect launch status in the junction.\n"
 		+ "3   Repair Engineering, or divert the lab battery.\n"
 		+ "4   Consider saving the samples before cutting cooling.\n"

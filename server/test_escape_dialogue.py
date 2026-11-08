@@ -28,6 +28,24 @@ class EscapeDialogueTests(unittest.TestCase):
         self.assertEqual(data["npc_id"], "mara")
         self.assertEqual(data["source"], "live")
 
+    def test_live_personas_match_intro_names(self):
+        for npc_id, name in (("mara", "Aaron"), ("ivo", "Dhan")):
+            with self.subTest(npc_id=npc_id):
+                prompts = []
+
+                def generate(system, *args):
+                    prompts.append(system)
+                    return json.dumps({"line": f"I'm {name}.", "action": "none"})
+
+                request = {**VALID, "npc_id": npc_id, "message": "What's your name?", "available_actions": {"none": "Answer"}}
+                code, data = dialogue.reply(request, generate, False, None, "voice")
+                self.assertEqual(code, 200)
+                self.assertEqual(data["line"], f"I'm {name}.")
+                self.assertTrue(prompts[0].startswith(f"You are {name},"))
+                self.assertIn(f'-> "{name}.', prompts[0])
+                self.assertNotIn("Mara", prompts[0])
+                self.assertNotIn("Ivo", prompts[0])
+
     def test_unavailable_or_invented_actions_fail_closed(self):
         for action in ("launch", "disconnect_battery", "fetch_case", "delete_ship", None):
             with self.subTest(action=action):

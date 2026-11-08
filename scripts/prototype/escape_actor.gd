@@ -3,9 +3,9 @@ extends Node2D
 
 var mission
 var actor_id := "mara"
-var display_name := "MARA · RESEARCHER"
-var suit := "mint"
-var tint := Color("86e2b3")
+var display_name := "AARON · RESEARCHER"
+var suit := "hazard"
+var tint := Color("e0ad65")
 var sprite: Sprite2D
 var bubble: Label
 var path := PackedVector2Array()
@@ -63,8 +63,8 @@ func set_cargo(carrying: bool) -> void:
 	cargo.visible = carrying
 
 func can_interact(_player) -> bool:
-	# While Mara is holding the locker she stands between you and it, so she is
-	# not an E target then: E pushes the locker instead of opening her chat.
+	# While Aaron is holding the locker he stands between you and it, so he is
+	# not an E target then: E pushes the locker instead of opening his chat.
 	if actor_id == "mara" and mission.state.has_flag("locker_ready") and not mission.state.has_flag("locker_clear"):
 		return false
 	return mission.active and not mission.ending

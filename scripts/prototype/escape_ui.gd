@@ -44,12 +44,12 @@ func _ready() -> void:
 	objective = _label(bar, "", Vector2(10, 3), 11, Style.TEXT)
 	objective.clip_text = true
 	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	keys = _label(bar, "WASD move   E use / talk   1 Mara   2 Ivo   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
+	keys = _label(bar, "WASD move   E use / talk   1 Aaron   2 Dhan   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
 	keys.clip_text = true
 	toast = _outlined(root, 10, Style.TEXT)
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint = _outlined(root, 9, Style.MUTED)
-	hint.text = "Mara and Ivo are on your helmet radio. Ask about the situation, or ask them to help."
+	hint.text = "Aaron and Dhan are on your helmet radio. Ask about the situation, or ask them to help."
 	hint.visible = false
 	float_prompt = _outlined(root, 10, Style.CYAN_BRIGHT)
 	float_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -241,7 +241,7 @@ func open_chat(id: String) -> void:
 
 func _greeting(id: String) -> String:
 	if not mission.state.has_flag("locker_clear"):
-		return "I can hold that locker while you push. We need both of us." if id == "mara" else "I'm checking the forward section. Can you and Mara clear the cabin doorway?"
+		return "I can hold that locker while you push. We need both of us." if id == "mara" else "I'm checking the forward section. Can you and Aaron clear the cabin doorway?"
 	if mission.state.has_flag("clamps"): return "We're boarding. All three of us are going home."
 	return ("I'm with you. " if id == "mara" else "Shuttle's intact. We just need the clamps released. ") + mission.state.objective()
 
@@ -257,7 +257,7 @@ func _answer(data: Dictionary) -> void:
 	chat_reply.text = data.line  # the reply lives in the chat box only (no speech bubble)
 	if data.get("started", false):
 		# They're on their way: close the chat shortly so you can see them move.
-		show_caption("MARA" if chat_id == "mara" else "IVO", data.line)
+		show_caption("AARON" if chat_id == "mara" else "DHAN", data.line)
 		var asked := chat_id
 		get_tree().create_timer(1.5).timeout.connect(func():
 			if mode == "chat" and chat_id == asked: close())
@@ -273,7 +273,7 @@ func show_routes() -> void:
 	_button("B · Divert the lab battery — faster, costs sample cooling", func():
 		mission.perform("choose_battery")
 		close())
-	_text("You can ask Ivo about an insulated case before disconnecting the freezer.", 10, Style.MUTED)
+	_text("You can ask Dhan about an insulated case before disconnecting the freezer.", 10, Style.MUTED)
 	_button("Keep looking / talk to the crew", close)
 
 func confirm_action(title: String, description: String, action: String) -> void:
@@ -290,7 +290,7 @@ func show_map() -> void:
 	map.mission = mission
 	map.custom_minimum_size = Vector2(490, 218)
 	content.add_child(map)
-	_text("White: you    Mint: Mara    Amber: Ivo    Engineering north / Lab south / Shuttle east", 9, Style.MUTED)
+	_text("White: you    Amber: Aaron    Purple: Dhan    Engineering north / Lab south / Shuttle east", 9, Style.MUTED)
 	_button("Close [Tab / Esc]", close)
 	modal.position.y = 15
 
@@ -315,9 +315,9 @@ func show_ending() -> void:
 	earth.custom_minimum_size = Vector2(490, 100)
 	content.add_child(earth)
 	_text(mission.state.ending(), 14, Style.CYAN_BRIGHT)
-	var detail := "The lab remains powered aboard Wayfarer, ready for a recovery mission. All three crew made it home." if mission.state.route == "engineering" else "The priority samples survived in the insulated case. All three crew made it home." if mission.state.has_flag("samples_saved") else "The research was lost. Johnny, Mara and Ivo all made it home."
+	var detail := "The lab remains powered aboard Wayfarer, ready for a recovery mission. All three crew made it home." if mission.state.route == "engineering" else "The priority samples survived in the insulated case. All three crew made it home." if mission.state.has_flag("samples_saved") else "The research was lost. Johnny, Aaron and Dhan all made it home."
 	_text(detail)
-	_text('MARA: "Next expedition, we pack a bigger case."' if mission.state.has_flag("samples_saved") else 'IVO: "Three seats occupied. That was the important part."', 10, Style.MUTED)
+	_text('AARON: "Next expedition, we pack a bigger case."' if mission.state.has_flag("samples_saved") else 'DHAN: "Three seats occupied. That was the important part."', 10, Style.MUTED)
 	var row := HBoxContainer.new()
 	content.add_child(row)
 	_button("Try another route", func(): get_tree().reload_current_scene(), row)

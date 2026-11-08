@@ -14,7 +14,7 @@ func objective() -> String:
 	if has_flag("departed"): return "Back to Earth"
 	if has_flag("clamps"): return "Everyone is ready. Board the shuttle."
 	if powered(): return "Release the docking clamps in the shuttle bay."
-	if not has_flag("locker_clear"): return "Work with Mara to clear the cabin doorway."
+	if not has_flag("locker_clear"): return "Work with Aaron to clear the cabin doorway."
 	if not has_flag("assessed"): return "Inspect the launch terminal in the junction."
 	if route == "engineering":
 		if not has_flag("isolated"): return "Isolate the damaged engineering circuit."
@@ -25,7 +25,7 @@ func objective() -> String:
 		return "Restart the distribution cabinet."
 	if route == "battery":
 		if not has_flag("battery_out"): return "Decide what to save, then disconnect the lab battery."
-		if not has_flag("battery_loaded"): return "Ask Mara to help load the battery onto the cart."
+		if not has_flag("battery_loaded"): return "Ask Aaron to help load the battery onto the cart."
 		if not has_flag("battery_taken"): return "Collect the loaded battery cart."
 		return "Connect the battery at the shuttle bay's emergency socket."
 	return "Choose a plan: repair Engineering or use the Laboratory battery."
@@ -44,9 +44,9 @@ func apply(action: String) -> Dictionary:
 	match action:
 		"help_locker":
 			if has_flag("locker_clear"): return _no("The doorway is already clear. I'll stay with you.")
-			return _grant("locker_ready", "Mara is holding the locker. Push it with E.")
+			return _grant("locker_ready", "Aaron is holding the locker. Push it with E.")
 		"push_locker":
-			if not has_flag("locker_ready"): return _no("It catches at the top. Mara could hold it while you push.")
+			if not has_flag("locker_ready"): return _no("It catches at the top. Aaron could hold it while you push.")
 			return _grant("locker_clear", "Together, you slide the locker clear. The junction is open.")
 		"assess":
 			if not has_flag("locker_clear"): return _no("Clear the cabin doorway first.")
@@ -58,7 +58,7 @@ func apply(action: String) -> Dictionary:
 			if powered() or has_flag("isolated") or has_flag("battery_out"):
 				return _no("We've committed equipment to this route. " + objective())
 			route = wanted
-			line = "Engineering route agreed. Mara will read diagnostics while you repair the supply." if wanted == "engineering" else "Battery route agreed. Cooling stays on until you explicitly disconnect it. Ask about saving the samples."
+			line = "Engineering route agreed. Aaron will read diagnostics while you repair the supply." if wanted == "engineering" else "Battery route agreed. Cooling stays on until you explicitly disconnect it. Ask about saving the samples."
 		"isolate":
 			if route != "engineering": return _no("Agree on the Engineering repair at the junction terminal first.")
 			return _grant("isolated", "Circuit isolated. The cabinet is safe to work on.")
@@ -81,20 +81,20 @@ func apply(action: String) -> Dictionary:
 		"fetch_case":
 			if not has_flag("assessed"): return _no("Check the shuttle's condition at the junction terminal first.")
 			if has_flag("battery_out"): return _no("Cooling has already stopped; the samples are no longer viable.")
-			return _grant("case_requested", "Ivo is fetching the insulated case from the shuttle. Meet him at the lab freezer.")
-		"case_arrived": return _grant("case_arrived", "Ivo delivered the case beside the lab freezer. Pack the priority rack before disconnecting power.")
+			return _grant("case_requested", "Dhan is fetching the insulated case from the shuttle. Meet him at the lab freezer.")
+		"case_arrived": return _grant("case_arrived", "Dhan delivered the case beside the lab freezer. Pack the priority rack before disconnecting power.")
 		"pack_samples":
 			if has_flag("battery_out"): return _no("The samples were lost when cooling stopped. We can still get everyone home.")
-			if not has_flag("case_arrived"): return _no("Ask Ivo to fetch the insulated sample case first.")
+			if not has_flag("case_arrived"): return _no("Ask Dhan to fetch the insulated sample case first.")
 			return _grant("samples_saved", "Priority rack secured in the insulated case. The remaining samples must stay behind.")
 		"disconnect_battery":
 			if route != "battery": return _no("Agree on the battery route at the junction terminal first.")
-			return _grant("battery_out", "Freezer shut down. Battery released. Mara can help load it onto the cart.")
+			return _grant("battery_out", "Freezer shut down. Battery released. Aaron can help load it onto the cart.")
 		"load_battery":
 			if not has_flag("battery_out"): return _no("Disconnect the lab battery before we lift it.")
-			return _grant("battery_loaded", "Together, you and Mara load the heavy battery. Collect the cart with E.")
+			return _grant("battery_loaded", "Together, you and Aaron load the heavy battery. Collect the cart with E.")
 		"take_cart":
-			if not has_flag("battery_loaded"): return _no("Too heavy for one person. Ask Mara to help load the cart.")
+			if not has_flag("battery_loaded"): return _no("Too heavy for one person. Ask Aaron to help load the cart.")
 			if has_flag("battery_taken"): return _no("The cart is already with you.")
 			carrying = "battery cart"
 			return _grant("battery_taken", "Cart collected. Bring it to the emergency socket in the shuttle bay.")
@@ -105,7 +105,7 @@ func apply(action: String) -> Dictionary:
 			return _grant("battery_connected", "Emergency supply connected. The docking controls are awake.")
 		"release":
 			if not powered(): return _no("Docking controls have no power. Restore Engineering or connect the lab battery.")
-			return _grant("clamps", "Docking clamps released. Ivo and Mara are boarding; join them at the shuttle.")
+			return _grant("clamps", "Docking clamps released. Dhan and Aaron are boarding; join them at the shuttle.")
 		"launch":
 			if not has_flag("clamps"): return _no("Release the docking clamps before boarding.")
 			return _grant("departed", "Three crew aboard. Destination: Earth.")
