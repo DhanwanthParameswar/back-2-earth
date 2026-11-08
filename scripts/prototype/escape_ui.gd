@@ -30,6 +30,7 @@ var toast_time := 0.0
 var hint_time := -1.0
 var pause_was_active := false
 var content_width := 490.0
+var _quick_replies := false   # the text chat shows ready-made lines (controller)
 
 const HINT_SECONDS := 15.0
 const BAR_HEIGHT := 36.0
@@ -47,13 +48,14 @@ func _ready() -> void:
 	objective = _label(bar, "", Vector2(10, 3), 11, Style.TEXT)
 	objective.clip_text = true
 	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	keys = _label(bar, "WASD move   E use / talk   1 Aaron   2 Dhan   F light   Tab map   Esc pause", Vector2(10, 19), 9, Style.MUTED)
+	keys = _label(bar, "", Vector2(10, 19), 9, Style.MUTED)
 	keys.clip_text = true
 	toast = _outlined(root, 10, Style.TEXT)
 	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint = _outlined(root, 9, Style.MUTED)
-	hint.text = "It's dark: press F for your flashlight.   Aaron and Dhan are on the radio (1 / 2)."
 	hint.visible = false
+	_refresh_hints()
+	Settings.input_device_changed.connect(_on_device_changed)
 	float_prompt = _outlined(root, 10, Style.CYAN_BRIGHT)
 	float_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	float_prompt.size = Vector2(160, 14)
@@ -122,7 +124,7 @@ func _place_modal() -> void:
 		return
 	var s := get_viewport().get_visible_rect().size
 	if mode == "chat":
-		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - 180.0)
+		modal.position = Vector2(round((s.x - 500.0) / 2.0), s.y - (206.0 if _quick_replies else 180.0))
 	elif mode != "":
 		modal.position.x = round((s.x - modal.custom_minimum_size.x) / 2.0)
 
@@ -133,9 +135,31 @@ func update_hud() -> void:
 	if mission.state.carrying != "": text += "   [" + mission.state.carrying.to_upper() + "]"
 	objective.text = text
 
+## Key hints for whatever the player is using: keyboard or a controller.
+func _refresh_hints() -> void:
+	var b := Settings.button_label
+	keys.text = "%s move   %s use / talk   %s Aaron   %s Dhan   %s light   %s map   %s pause" % [
+		b.call("move"), b.call("interact"), b.call("radio_1"), b.call("radio_2"), b.call("flashlight"),
+		b.call("deck_map"), b.call("pause")]
+	hint.text = "It's dark: press %s for your flashlight.   Aaron and Dhan are on the radio (%s / %s)." % [
+		b.call("flashlight"), b.call("radio_1"), b.call("radio_2")]
+
+func _on_device_changed() -> void:
+	_refresh_hints()
+	if Settings.using_controller and is_open():
+		_focus_first_button()
+
+## Give the first button in an open panel keyboard/controller focus.
+func _focus_first_button() -> void:
+	if content == null or not is_instance_valid(content): return
+	for b in content.find_children("*", "Button", true, false):
+		if b.is_visible_in_tree():
+			b.grab_focus()
+			return
+
 func _process(delta: float) -> void:
 	toast_time -= delta
-	toast.visible = toast_time > 0.0 and not mission.ending
+	toast.visible = toast_time > 0.0 and not mission.ending and mode != "chat"  # the chat box shows it
 	toast.modulate.a = clampf(toast_time / 0.5, 0.0, 1.0)
 	if hint_time < 0.0 and mission.active:
 		hint_time = HINT_SECONDS  # the mission just started
@@ -151,7 +175,8 @@ func _update_float_prompt() -> void:
 	if target == null or not is_instance_valid(target) or not mission.active or mission.ending or is_open():
 		float_prompt.visible = false
 		return
-	float_prompt.text = "[E] Talk" if "actor_id" in target else "[E] " + str(target.get_prompt())
+	var key := "[%s] " % Settings.button_label("interact")
+	float_prompt.text = key + "Talk" if "actor_id" in target else key + str(target.get_prompt())
 	var at: Vector2 = target.get_global_transform_with_canvas().origin
 	float_prompt.position = Vector2(round(at.x - float_prompt.size.x / 2.0), round(at.y + 22.0))
 	float_prompt.visible = true
@@ -181,6 +206,8 @@ func _panel(title: String, new_mode: String) -> void:
 	modal.position = Vector2(345, 65) if new_mode == "chat" else Vector2(55, 67)
 	modal.show()
 	_place_modal()
+	if Settings.using_controller:
+		_focus_first_button.call_deferred()
 
 func _text(text: String, size := 11, color := Style.TEXT) -> Label:
 	var label := Style.label(text, size, color)
@@ -211,6 +238,7 @@ func close(stop_voice := true) -> void:
 		child.queue_free()
 	modal.hide()
 	mode = ""
+	_quick_replies = false
 	mission.player.current_target = null
 	mission.player.camera.offset = Vector2.ZERO
 
@@ -245,7 +273,17 @@ func open_chat(id: String) -> void:
 	chat_input.add_theme_stylebox_override("focus", Style.box(Style.NAVY_DEEP, Style.CYAN))
 	chat_input.text_submitted.connect(_send)
 	content.add_child(chat_input)
-	var keys_hint := "[Enter] send      [Esc] close"
+	# No keyboard in hand: offer ready-made lines that fit what the crew can do now.
+	_quick_replies = Settings.using_controller
+	if _quick_replies:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		content.add_child(row)
+		for line in _suggestions(id):
+			var b := _button(line, _send.bind(line), row)
+			b.add_theme_font_size_override("font_size", 9)
+		modal.custom_minimum_size.y = 150
+	var keys_hint := ("[A] say it      [B] close" if _quick_replies else "[Enter] send      [Esc] close")
 	if Settings.voice_chat:
 		keys_hint += "      (voice chat needs Chrome or Edge, so type here instead)"
 	content.add_child(Style.label(keys_hint, 9, Style.MUTED))
@@ -253,7 +291,10 @@ func open_chat(id: String) -> void:
 		mission.crew[id].bubble_left = 0.0  # hide any bubble; the box shows the conversation
 	modal.show()
 	_place_modal()
-	chat_input.grab_focus()
+	if _quick_replies:
+		_focus_first_button.call_deferred()
+	else:
+		chat_input.grab_focus()
 
 ## Voice version of the chat box: same look, no text field. Your words show
 ## live as you speak; when you stop, it sends; the reply appears and is spoken;
@@ -275,7 +316,7 @@ func _open_voice_chat(id: String) -> void:
 	chat_reply = _text(str(history[-1].text) if not history.is_empty() else _greeting(id), 12)
 	chat_reply.custom_minimum_size.y = 30
 	voice_status = _text("", 10, Style.CYAN_BRIGHT)
-	content.add_child(Style.label("[Space] talk      [Esc] close", 9, Style.MUTED))
+	content.add_child(Style.label("[%s] talk      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")], 9, Style.MUTED))
 	modal.show()
 	_place_modal()
 	radio.listen()
@@ -288,7 +329,7 @@ func _on_listening_changed(on: bool) -> void:
 	if on:
 		voice_status.text = "● LISTENING... speak now"
 	elif not radio.busy and voice_status.text.begins_with("●"):
-		voice_status.text = "Press Space to talk"
+		voice_status.text = "Press %s to talk" % Settings.button_label("talk")
 
 func _on_speech_partial(text: String) -> void:
 	if _voice_open():
@@ -309,6 +350,19 @@ func _on_voice_finished() -> void:
 	if _voice_open() and not radio.busy and not radio.listening:
 		voice_status.text = ""
 		radio.listen()
+
+## Ready-made lines for the chat (for controller players): the task this crewmate
+## can do right now first, then the everyday ones.
+func _suggestions(id: String) -> Array[String]:
+	var acts: Dictionary = mission.available_actions(id)
+	var out: Array[String] = []
+	if acts.has("help_locker"): out.append("Hold the locker while I push?")
+	if acts.has("load_battery"): out.append("Help me lift the battery.")
+	if acts.has("fetch_case"): out.append("Fetch the sample case?")
+	if acts.has("light_up"): out.append("Point your light ahead.")
+	out.append("Follow me." if acts.has("follow") else "What now?")
+	out.append("What should we do?")
+	return out.slice(0, 3)
 
 func _greeting(id: String) -> String:
 	if not mission.state.has_flag("locker_clear"):
@@ -381,7 +435,9 @@ func show_pause() -> void:
 	_panel("MISSION PAUSED", "pause")
 	pause_was_active = mission.active
 	mission.active = false
-	_text("WASD / arrows move · E interact · 1 / 2 crew radio · Tab deck plan. No countdown; take time to discuss your plan.")
+	var b := Settings.button_label
+	_text("%s move · %s interact · %s / %s crew radio · %s flashlight · %s deck plan. No countdown; take time to discuss your plan." % [
+		b.call("move"), b.call("interact"), b.call("radio_1"), b.call("radio_2"), b.call("flashlight"), b.call("deck_map")])
 	var history: Array[String] = mission.state.journal
 	_text("RECENT EVENTS\n" + "\n".join(history.slice(maxi(0, history.size() - 3))), 10, Style.MUTED)
 	_button("Resume", close)
@@ -408,11 +464,13 @@ func show_ending() -> void:
 
 func _input(event: InputEvent) -> void:
 	if not modal.visible: return
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_SPACE and _voice_open():
-			if not radio.listening and not radio.busy: radio.listen()
-			get_viewport().set_input_as_handled()
-			return
-		if event.physical_keycode == KEY_ESCAPE or (event.physical_keycode == KEY_TAB and mode == "map"):
-			if mode != "ending": close()
-			get_viewport().set_input_as_handled()
+	if not event.is_pressed() or event.is_echo(): return
+	# Keyboard and controller share actions (scripts/core/input_setup.gd).
+	if event.is_action_pressed("talk") and _voice_open():
+		if not radio.listening and not radio.busy: radio.listen()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("back") or (event.is_action_pressed("pause") and not event is InputEventKey) \
+			or (event.is_action_pressed("deck_map") and mode == "map"):
+		if mode != "ending": close()
+		get_viewport().set_input_as_handled()

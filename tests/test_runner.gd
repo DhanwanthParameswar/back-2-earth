@@ -369,6 +369,7 @@ func _test_intro() -> void:
 	_check(hud.get_node_or_null("IntroCutscene") == intro, "starting again while it plays does nothing")
 	if intro != null:
 		intro.skip()
+		await intro.finished
 	_check(GameState.phase == GameState.Phase.PLAYING, "skipping (or the story ending) starts the run")
 	_check(main.get_node("HUD/ObjectiveCard").visible, "gameplay opens on the objective card")
 	_check(GameState.get_canonical()["text"] == "Restore emergency power", "first objective is to restore emergency power")

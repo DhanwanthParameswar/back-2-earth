@@ -3,6 +3,9 @@ extends Node
 ## Owner: D (presentation). Saved to user://settings.cfg.
 
 signal changed
+## Fired when the player switches between keyboard/mouse and a controller, so
+## on-screen hints can show the right buttons.
+signal input_device_changed
 
 const InputSetup = preload("res://scripts/core/input_setup.gd")
 const SAVE_PATH := "user://settings.cfg"
@@ -17,6 +20,10 @@ var companion_enabled := true
 ## false = type in the chat box (text). Voice falls back to text where the
 ## browser has no speech recognition (Firefox, desktop builds).
 var voice_chat := true
+## Controller rumble (scripts/core/haptics.gd).
+var vibration := true
+## True while the last thing the player touched was a controller (not saved).
+var using_controller := false
 ## The /companion backend. Default matches server/companion_server.py.
 var companion_url := "http://127.0.0.1:8787/companion"
 ## The hosted backend (server/companion_server.py behind Cloudflare). Crewmate
@@ -138,6 +145,36 @@ func toggle_voice_chat() -> void:
 	changed.emit()
 
 
+func toggle_vibration() -> void:
+	vibration = not vibration
+	_save()
+	changed.emit()
+
+
+## Name of the connected controller, or "" when there is none.
+func controller_name() -> String:
+	var pads := Input.get_connected_joypads()
+	return Input.get_joy_name(pads[0]) if not pads.is_empty() else ""
+
+
+## The button to show in a hint for an action, for whatever the player is using.
+func button_label(action: String) -> String:
+	if using_controller:
+		return {"interact": "A", "confirm": "A", "back": "B", "talk": "X", "flashlight": "Y",
+			"radio_1": "LB", "radio_2": "RB", "deck_map": "BACK", "pause": "START", "move": "L-STICK"}.get(action, "?")
+	return {"interact": "E", "confirm": "ENTER", "back": "ESC", "talk": "SPACE", "flashlight": "F",
+		"radio_1": "1", "radio_2": "2", "deck_map": "TAB", "pause": "ESC", "move": "WASD"}.get(action, "?")
+
+
+## Notice which device the player is using (keys/mouse vs a controller).
+func _input(event: InputEvent) -> void:
+	var pad := event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.4)
+	var keys := event is InputEventKey or event is InputEventMouseButton
+	if (pad and not using_controller) or (keys and using_controller):
+		using_controller = pad
+		input_device_changed.emit()
+
+
 func toggle_companion() -> void:
 	companion_enabled = not companion_enabled
 	_save()
@@ -172,6 +209,7 @@ func _load() -> void:
 	companion_enabled = bool(cfg.get_value("companion", "enabled", companion_enabled))
 	companion_url = str(cfg.get_value("companion", "url", companion_url))
 	voice_chat = bool(cfg.get_value("companion", "voice_chat", voice_chat))
+	vibration = bool(cfg.get_value("controller", "vibration", vibration))
 	skin = PLAYER_SKIN  # ignore a suit saved back when there was a picker
 	account_name = str(cfg.get_value("account", "name", ""))
 	account_token = str(cfg.get_value("account", "token", ""))
@@ -186,6 +224,7 @@ func _save() -> void:
 	cfg.set_value("companion", "enabled", companion_enabled)
 	cfg.set_value("companion", "url", companion_url)
 	cfg.set_value("companion", "voice_chat", voice_chat)
+	cfg.set_value("controller", "vibration", vibration)
 	cfg.set_value("player", "skin", skin)
 	cfg.set_value("account", "name", account_name)
 	cfg.set_value("account", "token", account_token)

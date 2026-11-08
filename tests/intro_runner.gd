@@ -47,7 +47,33 @@ func _run() -> void:
 	for role in ["ahead", "survivor"]:
 		check(film._locker_look_x(role, end) > film._locker_look_x("player", end) + 30, "%s ends back toward the barrier" % role)
 	check(film._edit.size() > 1100 and film._edit[1099] == 1139 and film._edit[1100] == 1140, "New ending follows the original voice-timed cut without a jump")
-	print("INTRO: %d checks, %d failures" % [checks, failures])
 	film.queue_free()
 	await process_frame
+	await _test_transition(true)
+	await _test_transition(false)
+	print("INTRO: %d checks, %d failures" % [checks, failures])
 	quit(failures)
+
+
+func _test_transition(skipped: bool) -> void:
+	var intro = load("res://scripts/ui/intro_cutscene.gd").new()
+	root.add_child(intro)
+	intro.play()
+	var handoffs: Array = []
+	intro.finished.connect(func(): handoffs.append(intro._transition.color.a))
+	if skipped:
+		intro.skip()
+		intro.skip()  # a second press must not start a second handoff
+	else:
+		intro._audio.stop()
+		intro._audio.queue_free()
+		intro._audio = null
+		intro._length = 0.0  # shorten the film to exercise its natural-end path
+		intro._process(0.0)
+	check(handoffs.is_empty(), "Gameplay does not appear abruptly when the intro ends (skip=%s)" % skipped)
+	check(intro._finishing and intro._transition != null, "Ending creates the fade overlay (skip=%s)" % skipped)
+	await intro.finished
+	check(handoffs.size() == 1 and is_equal_approx(float(handoffs[0]), 1.0), "Gameplay starts exactly once under full black (skip=%s)" % skipped)
+	check(is_instance_valid(intro) and intro._transition.visible, "Overlay remains for the gameplay fade-in (skip=%s)" % skipped)
+	await intro.tree_exited
+	check(handoffs.size() == 1, "Transition finishes without a duplicate handoff (skip=%s)" % skipped)
