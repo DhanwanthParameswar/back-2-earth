@@ -13,6 +13,7 @@ var arrived: Callable
 var following := false
 var walking_time := 0.0
 var bubble_left := 0.0
+const BUBBLE_WIDTH := 190.0
 var name_label: Label
 var cargo: Sprite2D
 
@@ -32,15 +33,22 @@ func _ready() -> void:
 	name_label.add_theme_font_size_override("font_size", 9)
 	name_label.modulate = tint
 	add_child(name_label)
+	# Speech bubble: navy box with a border in the crewmate's color, above the head.
 	bubble = Label.new()
-	bubble.position = Vector2(-85, -85)
-	bubble.size = Vector2(170, 35)
 	bubble.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bubble.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	bubble.add_theme_font_size_override("font_size", 10)
-	bubble.add_theme_color_override("font_shadow_color", Color.BLACK)
-	bubble.add_theme_constant_override("shadow_offset_x", 1)
-	bubble.add_theme_constant_override("shadow_offset_y", 1)
+	bubble.custom_minimum_size = Vector2(BUBBLE_WIDTH, 0)
+	bubble.size = Vector2(BUBBLE_WIDTH, 0)
+	bubble.add_theme_font_size_override("font_size", 9)
+	bubble.add_theme_color_override("font_color", Color("fff1e8"))
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color("0b1233", 0.93)
+	box.border_color = tint
+	box.set_border_width_all(1)
+	box.set_content_margin_all(4)
+	bubble.add_theme_stylebox_override("normal", box)
+	bubble.z_index = 50
+	bubble.visible = false
 	add_child(bubble)
 	cargo = Sprite2D.new()
 	cargo.texture = load("res://assets/sprites/core.png")
@@ -63,7 +71,11 @@ func interact(_player) -> void:
 
 func say(line: String) -> void:
 	bubble.text = line
-	bubble_left = 5.0
+	bubble.size = Vector2(BUBBLE_WIDTH, 0)
+	bubble.reset_size()
+	# Bottom edge just above the head, however many lines the text wraps to.
+	bubble.position = Vector2(-BUBBLE_WIDTH / 2.0, -50.0 - bubble.get_combined_minimum_size().y)
+	bubble_left = 4.0 + minf(line.length() * 0.05, 8.0)  # longer lines stay up longer
 
 func go_to(point: Vector2, callback: Callable = Callable()) -> void:
 	following = false

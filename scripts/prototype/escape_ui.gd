@@ -5,13 +5,16 @@ const Radio = preload("res://scripts/prototype/escape_radio.gd")
 const Map = preload("res://scripts/prototype/escape_map.gd")
 var mission
 var root: Control
-var top: Panel
-var lower: Panel
-var heading: Label
+## The one HUD bar (bottom): "ROOM · objective" on the left, radio/map keys on the right.
+var bar: Panel
 var objective: Label
-var prompt: Label
-var caption: Label
-var footer: Label
+var keys: Label
+## Short line just above the bar: ship messages, or a crewmate who is off-screen.
+var toast: Label
+## Full key list, shown for the first seconds of the mission (always in the pause menu).
+var hint: Label
+## "[E] ..." under the name of the object or crewmate you are next to.
+var float_prompt: Label
 var modal: PanelContainer
 var content: VBoxContainer
 var radio
@@ -20,9 +23,13 @@ var chat_input: LineEdit
 var chat_reply: Label
 var chat_status: Label
 var mode := ""
-var caption_time := 0.0
+var toast_time := 0.0
+var hint_time := -1.0
 var pause_was_active := false
 var content_width := 490.0
+
+const HINT_SECONDS := 15.0
+const BAR_HEIGHT := 24.0
 
 func _ready() -> void:
 	layer = 10
@@ -30,25 +37,25 @@ func _ready() -> void:
 	root = Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-	top = Panel.new()
-	top.position = Vector2(8, 7)
-	top.size = Vector2(624, 54)
-	top.add_theme_stylebox_override("panel", Style.box(Color("0b1526"), Color("34506a"), 1))
-	root.add_child(top)
-	heading = _label(top, "", Vector2(10, 4), 10, Style.MUTED)
-	objective = _label(top, "", Vector2(10, 23), 12, Style.TEXT)
-	objective.size = Vector2(602, 26)
-	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lower = Panel.new()
-	lower.position = Vector2(8, 273)
-	lower.size = Vector2(624, 80)
-	lower.add_theme_stylebox_override("panel", Style.box(Color("0b1526"), Color("34506a"), 1))
-	root.add_child(lower)
-	prompt = _label(lower, "", Vector2(10, 4), 11, Style.CYAN_BRIGHT)
-	caption = _label(lower, "", Vector2(10, 23), 11, Style.TEXT)
-	caption.size = Vector2(600, 35)
-	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	footer = _label(lower, "WASD move   E use / talk   1 Mara   2 Ivo   Tab map   Esc pause", Vector2(10, 61), 9, Style.MUTED)
+	bar = Panel.new()
+	bar.size = Vector2(624, BAR_HEIGHT)
+	bar.add_theme_stylebox_override("panel", Style.box(Color("0b1526", 0.92), Color("34506a"), 1))
+	root.add_child(bar)
+	objective = _label(bar, "", Vector2(10, 4), 11, Style.TEXT)
+	objective.clip_text = true
+	objective.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	keys = _label(bar, "WASD move   E use / talk   1 Mara   2 Ivo   Tab map   Esc pause", Vector2(0, 5), 10, Style.MUTED)
+	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	keys.size = Vector2(330, 16)
+	toast = _outlined(root, 10, Style.TEXT)
+	toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint = _outlined(root, 9, Style.MUTED)
+	hint.text = "Mara and Ivo are on your helmet radio. Ask about the situation, or ask them to help."
+	hint.visible = false
+	float_prompt = _outlined(root, 10, Style.CYAN_BRIGHT)
+	float_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	float_prompt.size = Vector2(160, 14)
+	float_prompt.visible = false
 	modal = PanelContainer.new()
 	modal.position = Vector2(55, 67)
 	modal.size = Vector2(530, 270)
@@ -74,21 +81,33 @@ func _label(parent: Node, text: String, point: Vector2, font_size: int, color: C
 	parent.add_child(label)
 	return label
 
+## Text drawn straight over the ship, with a dark outline so it stays readable.
+func _outlined(parent: Node, font_size: int, color: Color) -> Label:
+	var label := Style.label("", font_size, color)
+	label.add_theme_color_override("font_outline_color", Color("050a19"))
+	label.add_theme_constant_override("outline_size", 4)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(label)
+	return label
+
 func is_open() -> bool:
 	return modal.visible
 
 ## Fit the HUD to the visible screen, which is wider than 640 on wide windows
-## (gameplay uses the "expand" aspect): bars span the width, the bottom bar
-## sits at the bottom, popups stay centered.
+## (gameplay uses the "expand" aspect): the bar spans the bottom, popups stay centered.
 func _layout() -> void:
 	if not is_inside_tree():
 		return  # the mission is closing
 	var s := get_viewport().get_visible_rect().size
-	top.size.x = s.x - 16
-	objective.size.x = s.x - 38
-	lower.position = Vector2(8, s.y - 87)
-	lower.size.x = s.x - 16
-	caption.size.x = s.x - 40
+	bar.position = Vector2(8, s.y - BAR_HEIGHT - 6)
+	bar.size.x = s.x - 16
+	keys.position.x = bar.size.x - keys.size.x - 10
+	objective.size = Vector2(maxf(100.0, bar.size.x - keys.size.x - 30), 16)
+	toast.position = Vector2(14, bar.position.y - 34)
+	toast.size = Vector2(s.x - 28, 30)
+	toast.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	hint.position = Vector2(14, bar.position.y - 50)
+	hint.size = Vector2(s.x - 28, 14)
 	_place_modal()
 
 func _place_modal() -> void:
@@ -101,21 +120,47 @@ func _place_modal() -> void:
 		modal.position.x = round((s.x - modal.custom_minimum_size.x) / 2.0)
 
 func update_hud() -> void:
-	if heading == null: return
-	heading.text = "WAYFARER / " + mission.room + "     ·     " + ("PLAN: " + mission.state.route.to_upper() if mission.state.route != "" else "CREW 3/3") + "     ·     DESIGN PROTOTYPE"
-	objective.text = mission.state.objective()
-	if mission.state.carrying != "": objective.text += "  [" + mission.state.carrying.to_upper() + "]"
-	var target = mission.player.current_target
-	prompt.text = "[E] " + target.get_prompt() if target != null and is_instance_valid(target) else "[1 / 2] Crew radio     [Tab] Ship map"
+	if objective == null: return
+	var text: String = mission.room + "   ·   " + mission.state.objective()
+	if mission.state.route != "": text += "   ·   PLAN: " + mission.state.route.to_upper()
+	if mission.state.carrying != "": text += "   [" + mission.state.carrying.to_upper() + "]"
+	objective.text = text
 
 func _process(delta: float) -> void:
-	caption_time -= delta
-	if caption_time <= 0 and not mission.ending:
-		caption.text = "Mara and Ivo are on your helmet radio. Ask about the situation, or ask them to help."
+	toast_time -= delta
+	toast.visible = toast_time > 0.0 and not mission.ending
+	toast.modulate.a = clampf(toast_time / 0.5, 0.0, 1.0)
+	if hint_time < 0.0 and mission.active:
+		hint_time = HINT_SECONDS  # the mission just started
+	if hint_time > 0.0:
+		hint_time = maxf(0.0, hint_time - delta)
+		hint.visible = hint_time > 0.0 and not is_open()
+		hint.modulate.a = clampf(hint_time / 1.0, 0.0, 1.0)
+	_update_float_prompt()
 
+## "[E] Talk" / "[E] JAMMED LOCKER" just under the target's own name label.
+func _update_float_prompt() -> void:
+	var target = mission.player.current_target if mission != null and mission.player != null else null
+	if target == null or not is_instance_valid(target) or not mission.active or mission.ending or is_open():
+		float_prompt.visible = false
+		return
+	float_prompt.text = "[E] Talk" if "actor_id" in target else "[E] " + str(target.get_prompt())
+	var at: Vector2 = target.get_global_transform_with_canvas().origin
+	float_prompt.position = Vector2(round(at.x - float_prompt.size.x / 2.0), round(at.y + 22.0))
+	float_prompt.visible = true
+
+## Crew lines show as speech bubbles over the crewmate (escape_actor.gd). This
+## line above the bar is for the ship, or for a crewmate who is off-screen.
 func show_caption(speaker: String, line: String) -> void:
-	caption.text = speaker + ": " + line
-	caption_time = 10.0
+	var id := "mara" if speaker == "MARA" else "ivo" if speaker == "IVO" else ""
+	if id != "" and mission.crew.has(id) and _on_screen(mission.crew[id]):
+		return
+	toast.text = speaker + ": " + line
+	toast_time = 4.0 + minf(line.length() * 0.05, 8.0)
+
+func _on_screen(node: Node2D) -> bool:
+	var at: Vector2 = node.get_global_transform_with_canvas().origin
+	return get_viewport().get_visible_rect().grow(-20.0).has_point(at)
 
 func _panel(title: String, new_mode: String) -> void:
 	close()
