@@ -24,6 +24,7 @@ func _run() -> void:
 	check(not rules.apply("push_locker").ok, "Locker requires cooperation")
 	check(not rules.apply("choose_battery").ok, "Must assess shuttle before choosing")
 	await _test_ask_from_afar()
+	await _test_dark_and_fuse()
 	for branch in ["engineering", "battery", "saved"]:
 		var mission = Mission.new()
 		Settings.intro_pending = false
@@ -168,6 +169,68 @@ func _test_ask_from_afar() -> void:
 	await get_tree().create_timer(0.8).timeout  # the slide animation
 	check(mission.locker_visual.position.distance_to(mission.anchor("locker_visual")) > 20, "The locker visibly slides out of the doorway")
 	check(not mission.find_path(mission.player.position, mission.anchor("junction")).is_empty(), "You can walk right into the junction")
+	check(not mission.find_path(mission.player.position, mission.props["fuse"].position + Vector2(0, 32)).is_empty(), "You can walk to the spare fuse in storage")
+	mission.queue_free()
+	await get_tree().process_frame
+
+## Spare fuse lives in STORAGE (not next to the cabinet); the ship is dark until
+## power is back, F gives a ~6x6-tile flashlight, and power brings the lights back.
+func _test_dark_and_fuse() -> void:
+	var mission = Mission.new()
+	Settings.intro_pending = false
+	add_child(mission)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	mission.ui.radio.live_enabled = false
+	var fuse_pos: Vector2 = mission.props["fuse"].position
+	var storage: Rect2
+	for room in mission.map_data.rooms:
+		if room.name == "STORAGE":
+			storage = Rect2(Vector2(room.rect[0], room.rect[1]) * 32.0, Vector2(room.rect[2], room.rect[3]) * 32.0)
+	check(storage.has_point(fuse_pos), "Spare fuse is in the storage room")
+	check(mission.darkness.is_dark(), "No power: the ship is dark")
+	check(absf(mission.darkness.BASE_RADIUS * 2.0 - 6.0 * 32.0) < 1.0, "Without a flashlight you see about 6 x 6 tiles")
+	await get_tree().process_frame
+	var far_actor = mission.crew.ivo
+	var near_dist: float = mission.player.position.distance_to(far_actor.position)
+	check(near_dist < 3.0 * 32.0 or far_actor.modulate.a < 0.5, "Crew outside your light are hidden in the dark")
+	mission.darkness.facing = Vector2.RIGHT
+	mission.darkness.toggle_flashlight()
+	for i in 40: await get_tree().process_frame
+	mission.darkness.facing = Vector2.UP  # D then W
+	await get_tree().process_frame
+	var mid: Array = mission.darkness._beams()
+	check(Vector2(mid[0].z, mid[0].w).dot(Vector2.UP) < 0.95, "Turning from right to up swings the beam (no instant snap)")
+	for i in 40: await get_tree().process_frame
+	mid = mission.darkness._beams()
+	check(Vector2(mid[0].z, mid[0].w).dot(Vector2.UP) > 0.99, "...and it settles pointing up")
+	mission.darkness.facing = Vector2.LEFT
+	for i in 60: await get_tree().process_frame
+	var beams: Array = mission.darkness._beams()
+	check(mission.darkness.flashlight and beams.size() == 1 and Vector2(beams[0].z, beams[0].w).dot(Vector2.LEFT) > 0.99, "F = a beam in the direction you face")
+	var origin := Vector2(beams[0].x, beams[0].y)
+	check(mission.darkness.light_at(origin + Vector2(-6.0 * 32.0, 0), beams) > 0.5, "The beam lights 6 tiles ahead")
+	check(mission.darkness.light_at(origin + Vector2(6.0 * 32.0, 0), beams) < 0.1, "...but not behind you")
+	mission.darkness.toggle_flashlight()
+	check(not mission.darkness.flashlight, "F again turns it off")
+	check(mission.available_actions("ivo").has("light_left"), "Crew offer flashlight actions while it's dark")
+	check(mission.offline_response("ivo", "point your light left").action == "light_left", "Asking Dhan to point his light left is understood")
+	mission.act_on_dialogue("ivo", "light_left")
+	check(mission.crew.ivo.light_dir == Vector2.LEFT and mission.darkness._beams().size() == 1, "Dhan's flashlight beam points left")
+	mission.player.position = mission.crew.ivo.position + Vector2(300, 0)
+	await get_tree().process_frame
+	check(not mission.crew.ivo.name_label.visible, "Dhan's name is hidden when you're far away")
+	mission.player.position = mission.crew.ivo.position + Vector2(30, 0)
+	await get_tree().process_frame
+	check(mission.crew.ivo.name_label.visible, "...and shows once you're close enough to press E")
+	check(not mission.props["fuse"].caption.visible, "Far objects' labels (SPARE FUSE) are hidden too")
+	mission.act_on_dialogue("ivo", "light_off")
+	check(mission.crew.ivo.light_dir == Vector2.ZERO, "...and turns off when asked")
+	mission.state.flags["engineering_power"] = true
+	await get_tree().create_timer(1.8).timeout
+	check(not mission.darkness.is_dark(), "Power restored: the lights come back")
+	check(mission.crew.ivo.modulate.a > 0.95, "With power, everyone is visible again")
+	check(not mission.available_actions("ivo").has("light_left"), "No flashlight actions once the lights are on")
 	mission.queue_free()
 	await get_tree().process_frame
 

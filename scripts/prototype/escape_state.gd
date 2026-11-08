@@ -18,7 +18,7 @@ func objective() -> String:
 	if not has_flag("assessed"): return "Inspect the launch terminal in the junction."
 	if route == "engineering":
 		if not has_flag("isolated"): return "Isolate the damaged engineering circuit."
-		if not has_flag("fuse_taken"): return "Collect a replacement fuse from the maintenance rack."
+		if not has_flag("fuse_taken"): return "Collect a replacement fuse from the storage room."
 		if not has_flag("fuse_installed"): return "Install the replacement in the distribution cabinet."
 		if not has_flag("fault_found"): return "Test the repaired supply at the distribution cabinet."
 		if not has_flag("aux_off"): return "Disconnect the shorted auxiliary branch."
@@ -70,7 +70,7 @@ func apply(action: String) -> Dictionary:
 		"cabinet":
 			if not has_flag("isolated"): return _no("Live circuit. Use the isolation switch first.")
 			if not has_flag("fuse_installed"):
-				if carrying != "fuse": return _no("The fuse is burned out. A replacement is on the maintenance rack.")
+				if carrying != "fuse": return _no("The fuse is burned out. There's a spare in the storage room.")
 				carrying = ""
 				return _grant("fuse_installed", "Replacement fitted. Test the supply at this cabinet.")
 			if not has_flag("aux_off"): return _grant("fault_found", "Breaker tripped safely. The cabin-lighting branch is shorted. Disconnect AUX at the adjacent panel.")
