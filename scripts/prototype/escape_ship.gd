@@ -4,7 +4,7 @@ extends Node2D
 ## frames, the film's sealed barrier and the torn hull past it, room signs,
 ## floor and wall decals. Furniture becomes y-sorted sprites in the world
 ## (build_decor). Lighting: dim emergency light until the shuttle bay has power,
-## rotating red alarm beacons in the corridor (escape_alarm.gd), a pulsing reactor.
+## rotating red alarm beacons spread around the ship (escape_alarm.gd), a pulsing reactor.
 ## Art: tools/make_ship_art.py.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
@@ -21,6 +21,12 @@ var _modulate: CanvasModulate
 var _t := 0.0
 var _stars: Array[Vector3] = []
 var _outside_crew: Sprite2D
+## Rotating alarm beacons: about one per this many tiles of a room's width ...
+const ALARM_WALL_PER_LAMP := 12.0
+## ... and never closer together than this (tiles).
+const ALARM_SPACING := 6.0
+var _alarm_cells := {}
+var _alarm_cells_ready := false
 
 
 func _ready() -> void:
@@ -124,10 +130,99 @@ func is_wall_face(x: int, y: int) -> bool:
 	return _ch(x, y) == "#" and _is_floorish(below) and below != "B"
 
 
-## Where the rotating alarm beacons hang: every third wall face along the far end
-## of the corridor, near the barrier (escape_alarm.gd makes them spin and flash).
+## Where the rotating alarm beacons hang (escape_alarm.gd makes them spin and flash).
 func is_alarm_cell(x: int, y: int) -> bool:
-	return x >= 34 and x % 3 == 0 and is_wall_face(x, y) and _room_at_cell(x, y + 1).get("name", "") == "CORRIDOR"
+	return alarm_cells().has(Vector2i(x, y))
+
+
+## The beacons' wall tiles (Vector2i -> true), worked out once from the map:
+## spread along the back wall of every open room, about one per ALARM_WALL_PER_LAMP
+## tiles of room width and at least ALARM_SPACING tiles apart, never on a door
+## frame, a wall screen or poster, or a room's name plate.
+func alarm_cells() -> Dictionary:
+	if not _alarm_cells_ready:
+		_alarm_cells_ready = true
+		_place_alarms()
+	return _alarm_cells
+
+
+func _place_alarms() -> void:
+	var blocked := _alarm_blocked_rects()
+	var placed: Array[Vector2i] = []
+	var size: Vector2i = mission.map_size
+	for room in mission.rooms:
+		if room.sealed:
+			continue
+		var candidates: Array[Vector2i] = []
+		for y in size.y:
+			for x in size.x:
+				if _alarm_spot_ok(x, y, room, blocked):
+					candidates.append(Vector2i(x, y))
+		if candidates.is_empty():
+			continue  # no plain back wall (the observation lounge is all window)
+		var rr: Array = room.rect
+		var left: float = float(rr[0])
+		var width: float = float(rr[2])
+		var count: int = maxi(1, roundi(width / ALARM_WALL_PER_LAMP))
+		# Each beacon gets an equal share of the room's width and hangs at the free
+		# wall tile nearest its share's middle (ties: furthest from other beacons).
+		var share: float = width / count
+		for i in count:
+			var target: float = left + (i + 0.5) * share
+			var best := Vector2i(-1, -1)
+			var best_d := INF
+			var best_gap := -1.0
+			for c in candidates:
+				var d := absf(c.x + 0.5 - target)
+				var gap := _gap(c, placed)
+				if d > maxf(share / 2.0, 2.0) or gap < ALARM_SPACING:
+					continue
+				if d < best_d - 0.01 or (absf(d - best_d) <= 0.01 and gap > best_gap):
+					best = c
+					best_d = d
+					best_gap = gap
+			if best.x >= 0:
+				placed.append(best)
+				_alarm_cells[best] = true
+
+
+func _alarm_spot_ok(x: int, y: int, room: Dictionary, blocked: Array[Rect2]) -> bool:
+	if _ch(x, y) != "#" or _ch(x, y + 1) != ".":
+		return false  # a plain wall with this room's floor right below
+	if _room_at_cell(x, y + 1).get("key", "") != room.key:
+		return false
+	if _ch(x - 1, y) == "D" or _ch(x + 1, y) == "D":
+		return false  # door frame
+	var r := Rect2(x * TILE, y * TILE, TILE, TILE)
+	for b in blocked:
+		if b.intersects(r):
+			return false
+	return true
+
+
+## Distance (tiles) from `c` to the nearest beacon already placed (INF if none).
+func _gap(c: Vector2i, placed: Array[Vector2i]) -> float:
+	var nearest := INF
+	for p in placed:
+		nearest = minf(nearest, Vector2(c - p).length())
+	return nearest
+
+
+## Wall decorations (screens, posters, boards) and the room name plates.
+func _alarm_blocked_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for d in mission.map_data.decor:
+		if d.layer == "wall":
+			var t := tex(d.sprite)
+			if t != null:
+				out.append(Rect2(d.pos[0] - t.get_width() / 2.0, d.pos[1] - t.get_height(), t.get_width(), t.get_height()).grow(4.0))
+	var font := UiStyle.font()
+	for room in mission.rooms:
+		var rr: Array = room.rect
+		var label: String = room.name
+		var plate := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 8)
+		out.append(Rect2(rr[0] * TILE + 5, rr[1] * TILE - 23, plate.x + 6, 12).grow(4.0))  # as _draw_signs
+	return out
 
 
 func _room_at_cell(x: int, y: int) -> Dictionary:
