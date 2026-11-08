@@ -25,6 +25,8 @@ const SAFETY_MARGIN := 1.5
 const SKIP_GRACE := 0.5
 const HINT_DELAY := 1.0
 const SKIP_ACTIONS := ["confirm", "interact", "pause", "ui_accept", "ui_cancel"]
+const FADE_OUT_TIME := 0.28
+const FADE_IN_TIME := 0.42
 
 var _film: Control = null
 var _video: VideoStreamPlayer = null
@@ -36,6 +38,8 @@ var _clock_start_usec := -1
 var _last_film_time := 0.0
 var _started := false
 var _done := false
+var _finishing := false
+var _transition: ColorRect
 
 
 func _ready() -> void:
@@ -142,7 +146,7 @@ func skip() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not is_running():
+	if not is_running() or _finishing:
 		return
 	if _clock_start_usec < 0:
 		return
@@ -162,7 +166,7 @@ func _process(_delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not is_running():
+	if not is_running() and not _finishing:
 		return
 	var pressed := false
 	if event is InputEventKey:
@@ -173,6 +177,8 @@ func _input(event: InputEvent) -> void:
 		return
 	# Swallow every press so the HUD, player and chat box stay asleep underneath.
 	get_viewport().set_input_as_handled()
+	if _finishing:
+		return
 	if event.is_action_pressed("toggle_mute"):
 		Settings.toggle_mute()
 		return
@@ -193,12 +199,38 @@ func _input(event: InputEvent) -> void:
 
 
 func _finish() -> void:
-	if _done:
+	if _done or _finishing:
 		return
+	_finishing = true
+	_hint.hide()
+	# A separate canvas layer covers the whole window, including the viewport
+	# resize when the cinematic hands over to the wider gameplay layout.
+	var layer := CanvasLayer.new()
+	layer.layer = 200
+	add_child(layer)
+	_transition = ColorRect.new()
+	_transition.color = Color(0, 0, 0, 0)
+	_transition.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(_transition)
+	_transition.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var fade_out := create_tween().set_parallel(true)
+	fade_out.tween_property(_transition, "color:a", 1.0, FADE_OUT_TIME).set_trans(Tween.TRANS_SINE)
+	if _audio != null and _audio.playing:
+		fade_out.tween_property(_audio, "volume_db", -60.0, FADE_OUT_TIME)
+	await fade_out.finished
 	_done = true
 	if _video != null:
 		_video.stop()
 	if _audio != null:
 		_audio.stop()
+	for child in get_children():
+		if child is CanvasItem:
+			child.hide()
 	finished.emit()
+	# Gameplay's camera and HUD lay themselves out while the screen is black.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var fade_in := create_tween()
+	fade_in.tween_property(_transition, "color:a", 0.0, FADE_IN_TIME).set_trans(Tween.TRANS_SINE)
+	await fade_in.finished
 	queue_free()
