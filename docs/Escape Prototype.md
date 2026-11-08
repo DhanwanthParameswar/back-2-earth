@@ -3,8 +3,10 @@
 This is a playable design experiment, not a replacement for the team's final
 story or art direction. **Start Game now opens this prototype after the existing
 opening film.** The film, soundtrack, skip behavior and intro script are unchanged.
-The existing film still contains the earlier story; reconciling that footage with
-the new three-survivor concept is deliberately left for a later edit.
+The surviving crew match the film: Johnny (white suit), Aaron (amber suit),
+and Dhan (purple suit). Kien is lost in the breach and is not a playable crewmate.
+The radio API keeps its original `mara`/`ivo` IDs for compatibility; their displayed
+identities are Aaron and Dhan respectively.
 
 ## Play locally
 
@@ -14,7 +16,7 @@ film while iterating, open `scenes/escape_prototype.tscn` and run the current sc
 
 - WASD / arrows: move.
 - E: use the nearest object or talk to a nearby crewmate.
-- 1: Mara's helmet radio. 2: Ivo's helmet radio.
+- 1: Aaron's helmet radio. 2: Dhan's helmet radio.
 - Tab: labeled deck map with live crew positions.
 - Esc: close a conversation/panel, or pause the mission.
 - M: mute while walking.
@@ -27,8 +29,8 @@ navigation-core art, pod, Earth backdrop and sound effects are reused.
 ### Shared opening
 
 1. Walk toward the jammed locker on the right of the cabin.
-2. Open Mara's radio (1), ask her to help hold the locker, and watch her move.
-3. Close the radio; push the locker with E while she holds it.
+2. Open Aaron's radio (1), ask him to help hold the locker, and watch him move.
+3. Close the radio; push the locker with E while he holds it.
 4. Enter the junction and inspect LAUNCH STATUS.
 5. Choose a route. You can change your plan until isolating Engineering or
    disconnecting the laboratory battery commits equipment to the chosen route.
@@ -43,13 +45,13 @@ DISTRIBUTION. The cabin darkens and the shuttle bay's floor lights illuminate.
 ### Battery: emergency power, research lost
 
 Go south. At EMERGENCY BATTERY, read and confirm the cooling-loss consequence.
-Stand by SERVICE CART and ask Mara to help lift/load the battery. She walks to
+Stand by SERVICE CART and ask Aaron to help lift/load the battery. He walks to
 the cart; it only loads if you remain nearby. Collect the cart with E, bring it
 east to the bay and connect it at EMERGENCY SOCKET.
 
 ### Battery with priority samples saved
 
-Before disconnecting power, ask Ivo to fetch the insulated sample case. He walks
+Before disconnecting power, ask Dhan to fetch the insulated sample case. He walks
 to the shuttle, visibly carries the case to the lab and reports delivery. Use
 SAMPLE CASE or SAMPLE FREEZER to pack the priority rack. Then follow the battery
 route. The remaining samples are lost, while the priority rack comes home.
@@ -90,7 +92,7 @@ Launch Godot with `B2E_BACKEND=http://127.0.0.1:8787` in its environment. With n
 override, the existing hosted API address is used. This work does **not** deploy
 the backend or modify the hosted game. Updating the server requires both
 `server/companion_server.py` and `server/escape_dialogue.py` alongside the existing
-server modules. `PILOT_VOICE_ID` optionally gives Ivo a separate ElevenLabs voice;
+server modules. `PILOT_VOICE_ID` optionally gives Dhan a separate ElevenLabs voice;
 otherwise both NPCs use the existing configured voice.
 
 **Speech input:** the radio's Speak button uses browser SpeechRecognition when

@@ -1,5 +1,5 @@
 extends Control
-## The opening story (36.8 s). Owner: D.
+## The opening story (39.9 s). Owner: D.
 ##
 ## Plays when a run is started from the main menu, then hands over to gameplay
 ## ("RESTORE EMERGENCY POWER"). The picture is drawn live by intro_film.gd (a
@@ -20,7 +20,7 @@ const VIDEO_PATH := "res://assets/video/intro.ogv"
 const AUDIO_PATH := "res://assets/audio/intro.ogg"
 ## Film length in seconds. If the video never reports that it finished, the
 ## cutscene ends a moment after this anyway.
-const LENGTH := 36.8
+const LENGTH := 39.9
 const SAFETY_MARGIN := 1.5
 const SKIP_GRACE := 0.5
 const HINT_DELAY := 1.0

@@ -7,9 +7,10 @@ import json
 import math
 
 PERSONAS = {
-    "mara": "Mara, the researcher. Warm, observant, dry humor. Values living research samples but always puts crew safety first.",
-    "ivo": "Ivo, the pilot. Practical, protective, quietly funny. Prepares the shuttle and can fetch the insulated sample case.",
+    "mara": "Aaron, the researcher. Warm, observant, dry humor. Values living research samples but always puts crew safety first.",
+    "ivo": "Dhan, the pilot. Practical, protective, quietly funny. Prepares the shuttle and can fetch the insulated sample case.",
 }
+# Keep the public NPC IDs stable across existing web clients.
 ACTIONS = {"none", "follow", "wait", "help_locker", "load_battery", "fetch_case"}
 ROLE_ACTIONS = {"mara": ACTIONS - {"fetch_case"}, "ivo": {"none", "follow", "wait", "fetch_case"}}
 
@@ -56,11 +57,13 @@ def reply(data, generate, mock, audio_register, voice_id):
     if mock:
         # The client explicitly runs its local, state-aware scripted interpreter.
         return 200, {**base, "line": "Scripted prototype mode.", "action": "none", "source": "mock", "audio_url": None}
+    speaker_name = PERSONAS[request["npc_id"]].split(",", 1)[0]
     system = f"""You are {PERSONAS[request['npc_id']]}
-You, Johnny the engineer, and the other crewmate are escaping Wayfarer after an asteroid strike.
+The surviving crew are Johnny the engineer, Aaron the researcher, and Dhan the pilot.
+You are escaping Wayfarer after an asteroid strike. Kien was lost in the breach.
 The shuttle works but its docking clamps lack ship power. Engineering repair preserves the
 lab freezer; diverting the lab battery stops cooling and loses samples. Before disconnection,
-Ivo can deliver a portable case and Johnny can pack the priority rack, preserving only that rack.
+Dhan can deliver a portable case and Johnny can pack the priority rack, preserving only that rack.
 There is no black hole, missing crew, countdown, combat or additional equipment.
 Use only the supplied current facts and available_actions. Respect recent completed tasks.
 Return ONLY a JSON object: {{"line":"one or two spoken sentences, at most 55 words","action":"an available action ID"}}.
@@ -75,7 +78,7 @@ Stay on the mission. If the player asks something unrelated (math, trivia, small
 correct answer in a few words, then immediately point back to the current objective in one short
 sentence. Never refuse, lecture, joke about or tease the question, and never ramble. Examples:
   player: "2 + 2"            -> "Four. Now, let's get that locker open."
-  player: "what's your name" -> "Mara. Let's get that doorway clear."
+  player: "what's your name" -> "{speaker_name}. Let's get that doorway clear."
   player: "tell me a joke"   -> "Later, when we're home. First, the locker."
 If the player says something rude, harmful or inappropriate, don't repeat it; just bring them back
 to the objective. Keep lines short: one or two sentences.

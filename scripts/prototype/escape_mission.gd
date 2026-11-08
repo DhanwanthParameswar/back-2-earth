@@ -1,6 +1,7 @@
 extends Node2D
 ## Self-contained, reversible design prototype. The original mission is untouched.
 
+# NPC IDs mara/ivo remain stable for compatibility with the hosted radio API.
 const Rules = preload("res://scripts/prototype/escape_state.gd")
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const Actor = preload("res://scripts/prototype/escape_actor.gd")
@@ -8,15 +9,11 @@ const Prop = preload("res://scripts/prototype/escape_prop.gd")
 const Interface = preload("res://scripts/prototype/escape_ui.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Intro = preload("res://scripts/ui/intro_cutscene.gd")
+const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
 const TILE := 32
-const ROOMS := {
-	"CABIN": Rect2i(1, 10, 10, 8),
-	"JUNCTION": Rect2i(12, 10, 10, 8),
-	"ENGINEERING": Rect2i(12, 1, 10, 8),
-	"LABORATORY": Rect2i(12, 19, 10, 8),
-	"SHUTTLE BAY": Rect2i(23, 10, 13, 8),
-}
-const COLORS := {"CABIN": Color("bc9c83"), "JUNCTION": Color("81c5d9"), "ENGINEERING": Color("e0ad65"), "LABORATORY": Color("87d5b3"), "SHUTTLE BAY": Color("9bace8")}
+## The ship interior: rooms, walls, furniture and the spots the story uses all
+## come from data/escape_map.json (tools/make_escape_map.py). escape_ship.gd draws it.
+const MAP_PATH := "res://data/escape_map.json"
 
 var state = Rules.new()
 var player
@@ -28,35 +25,41 @@ var active := false
 var ending := false
 var elapsed := 0.0
 var room := "CABIN"
-var floors := {}
-var walls := {}
+var floors := {}           # walkable cells (Vector2i -> true)
+var walls := {}            # blocking cells next to floor (for collision)
 var nav := AStarGrid2D.new()
+var map_data := {}
+var map_size := Vector2i.ZERO
+var anchors := {}          # name -> Vector2 (px)
+var rooms := []            # [{name, color, ...}] from the map file
+var _room_grid: PackedStringArray
+var _room_by_key := {}
+var ship                   # escape_ship.gd: draws floors, walls, decor
 var locker_body: StaticBody2D
 var locker_visual: Sprite2D
 var carried_visual: Sprite2D
-var floor_tex: Texture2D
-var wall_tex: Texture2D
-var face_tex: Texture2D
 var _intro = null
 var _busy_actors := {}
 
 func _ready() -> void:
 	GameState.new_run()
 	add_to_group("ship")
-	floor_tex = load("res://assets/tiles/floor.png")
-	wall_tex = load("res://assets/tiles/wall.png")
-	face_tex = load("res://assets/tiles/wall_face_single.png")
+	_load_map()
+	ship = ShipMap.new()
+	ship.mission = self
+	add_child(ship)
 	_build_floor()
 	world = Node2D.new()
 	world.y_sort_enabled = true
 	add_child(world)
+	ship.build_decor(world)
 	_build_props()
-	_add_actor("mara", "MARA · RESEARCHER", "mint", Vector2(265, 475), Color("87d5b3"))
-	_add_actor("ivo", "IVO · PILOT", "hazard", Vector2(585, 475), Color("e0ad65"))
+	_add_actor("mara", "AARON · RESEARCHER", "hazard", anchor("aaron_start"), Color("e0ad65"))
+	_add_actor("ivo", "DHAN · PILOT", "nebula", anchor("dhan_start"), Color("b18ada"))
 	player = PlayerScene.instantiate()
-	player.position = Vector2(175, 480)
+	player.position = anchor("player_start")
 	world.add_child(player)
-	player.set_camera_limits(Rect2(0, 0, 1184, 896))
+	player.set_camera_limits(Rect2(Vector2.ZERO, Vector2(map_size * TILE)))
 	player.snap_camera()
 	carried_visual = Sprite2D.new()
 	carried_visual.texture = load("res://assets/sprites/crate.png")
@@ -86,38 +89,75 @@ func _begin() -> void:
 	active = true
 	GameState.begin_play()
 	Sfx.start_ambient()
-	announce("MARA", "You're okay. Good. That locker is caught at the top; I can hold it while you push.")
+	announce("AARON", "You're okay. Good. That locker is caught at the top; I can hold it while you push.")
 	refresh()
 
+func _load_map() -> void:
+	map_data = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH))
+	map_size = Vector2i(int(map_data.size[0]), int(map_data.size[1]))
+	for key in map_data.anchors:
+		anchors[key] = Vector2(map_data.anchors[key][0], map_data.anchors[key][1])
+	rooms = map_data.rooms
+	for r in rooms:
+		_room_by_key[r.key] = r
+	_room_grid = PackedStringArray(map_data.room_grid)
+
+## A named spot from the map file (px).
+func anchor(name: String) -> Vector2:
+	return anchors.get(name, Vector2.ZERO)
+
+func cell_char(c: Vector2i) -> String:
+	if c.x < 0 or c.y < 0 or c.x >= map_size.x or c.y >= map_size.y: return " "
+	return map_data.grid[c.y][c.x]
+
 func _build_floor() -> void:
-	for rect in ROOMS.values():
-		for y in range(rect.position.y, rect.end.y):
-			for x in range(rect.position.x, rect.end.x): floors[Vector2i(x, y)] = true
-	for cell in [Vector2i(11, 13), Vector2i(11, 14), Vector2i(16, 9), Vector2i(17, 9), Vector2i(16, 18), Vector2i(17, 18), Vector2i(22, 13), Vector2i(22, 14)]: floors[cell] = true
+	for y in map_size.y:
+		for x in map_size.x:
+			if cell_char(Vector2i(x, y)) in [".", "D", "L"]: floors[Vector2i(x, y)] = true
 	for cell in floors:
-		for offset in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-			if not floors.has(cell + offset): walls[cell + offset] = true
+		for dx in [-1, 0, 1]:
+			for dy in [-1, 0, 1]:
+				var n: Vector2i = cell + Vector2i(dx, dy)
+				if not floors.has(n): walls[n] = true
 	var body := StaticBody2D.new()
 	add_child(body)
 	for cell in walls:
-		var shape := RectangleShape2D.new()
-		shape.size = Vector2(32, 32)
-		var collision := CollisionShape2D.new()
-		collision.shape = shape
-		collision.position = Vector2(cell * 32) + Vector2(16, 16)
-		body.add_child(collision)
-	nav.region = Rect2i(0, 0, 38, 29)
-	nav.cell_size = Vector2(32, 32)
-	nav.offset = Vector2(16, 16)
+		_add_box(body, Rect2(Vector2(cell * TILE), Vector2(TILE, TILE)))
+	# Furniture is solid where it stands (its base), for the player and the crew.
+	var solids: Array[Rect2] = ship.solid_rects()
+	for r in solids:
+		_add_box(body, r)
+	nav.region = Rect2i(Vector2i.ZERO, map_size)
+	nav.cell_size = Vector2(TILE, TILE)
+	nav.offset = Vector2(TILE / 2.0, TILE / 2.0)
 	nav.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
 	nav.update()
-	for y in range(29):
-		for x in range(38): nav.set_point_solid(Vector2i(x, y), not floors.has(Vector2i(x, y)))
+	for y in map_size.y:
+		for x in map_size.x:
+			var c := Vector2i(x, y)
+			var centre := Vector2(c * TILE) + Vector2(16, 16)
+			var blocked := not floors.has(c)
+			for r in solids:
+				if r.has_point(centre): blocked = true
+			nav.set_point_solid(c, blocked)
 	_set_locker_nav(true)
 
+func _add_box(body: StaticBody2D, rect: Rect2) -> void:
+	var shape := RectangleShape2D.new()
+	shape.size = rect.size
+	var collision := CollisionShape2D.new()
+	collision.shape = shape
+	collision.position = rect.get_center()
+	body.add_child(collision)
+
+func _locker_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for c in floors:
+		if cell_char(c) == "L": cells.append(c)
+	return cells
+
 func _set_locker_nav(blocked: bool) -> void:
-	nav.set_point_solid(Vector2i(11, 13), blocked)
-	nav.set_point_solid(Vector2i(11, 14), blocked)
+	for c in _locker_cells(): nav.set_point_solid(c, blocked)
 
 func find_path(from: Vector2, to: Vector2) -> PackedVector2Array:
 	var start := Vector2i(from / 32)
@@ -128,46 +168,50 @@ func find_path(from: Vector2, to: Vector2) -> PackedVector2Array:
 	if not result.is_empty(): result[result.size() - 1] = to
 	return result
 
-func _add_prop(id: String, title: String, point: Vector2, texture: String, color: Color) -> void:
+func _add_prop(id: String, title: String, texture: String, color: Color, solid := true) -> void:
+	var info: Dictionary = map_data.props[id]
 	var prop = Prop.new()
 	prop.mission = self
 	prop.prop_id = id
 	prop.title = title
-	prop.texture_path = "res://assets/sprites/" + texture + ".png"
+	prop.texture_path = ("res://assets/ship/" + texture + ".png") if texture != "" else ""
 	prop.accent = color
-	prop.position = point
+	prop.solid = solid
+	prop.position = Vector2(info.pos[0], info.pos[1])
 	world.add_child(prop)
 	props[id] = prop
 
+func _prop_sprite(id: String) -> String:
+	return map_data.props[id].sprite
+
 func _build_props() -> void:
-	_add_prop("locker", "JAMMED LOCKER", Vector2(333, 449), "crate", Color("e0ad65"))
+	# The jammed locker: a solid block in the cabin doorway until it's pushed clear.
+	_add_prop("locker", "JAMMED LOCKER", "", Color("e0ad65"), false)
 	locker_body = StaticBody2D.new()
-	var shape := RectangleShape2D.new()
-	shape.size = Vector2(32, 64)
-	var collider := CollisionShape2D.new()
-	collider.shape = shape
-	collider.position = Vector2(368, 448)
-	locker_body.add_child(collider)
+	var bounds := Rect2()
+	for c in _locker_cells():
+		var r := Rect2(Vector2(c * TILE), Vector2(TILE, TILE))
+		bounds = r if bounds.size == Vector2.ZERO else bounds.merge(r)
+	_add_box(locker_body, bounds)
 	add_child(locker_body)
 	locker_visual = Sprite2D.new()
-	locker_visual.texture = load("res://assets/sprites/crate.png")
-	locker_visual.position = Vector2(368, 444)
-	locker_visual.scale = Vector2(1.2, 1.5)
+	locker_visual.texture = load("res://assets/ship/" + _prop_sprite("locker") + ".png")
+	locker_visual.offset = Vector2(0, -locker_visual.texture.get_height() / 2.0)
+	locker_visual.position = anchor("locker_visual")
 	world.add_child(locker_visual)
-	_add_prop("terminal", "LAUNCH STATUS", Vector2(535, 390), "terminal", Color("81c5d9"))
-	_add_prop("isolate", "CIRCUIT CUTOFF", Vector2(430, 155), "clamp_console", Color("e0ad65"))
-	_add_prop("fuse", "SPARE FUSE", Vector2(650, 155), "core", Color("e0ad65"))
-	_add_prop("cabinet", "DISTRIBUTION", Vector2(535, 155), "power_console", Color("e0ad65"))
-	_add_prop("aux", "AUX BRANCH", Vector2(610, 250), "terminal", Color("e0ad65"))
-	_add_prop("freezer", "SAMPLE FREEZER", Vector2(460, 715), "power_console", Color("87d5b3"))
-	_add_prop("battery", "EMERGENCY BATTERY", Vector2(635, 715), "crate", Color("87d5b3"))
-	_add_prop("cart", "SERVICE CART", Vector2(570, 815), "crate", Color("87d5b3"))
-	_add_prop("case", "SAMPLE CASE", Vector2(435, 815), "core", Color("87d5b3"))
+	_add_prop("terminal", "LAUNCH STATUS", _prop_sprite("terminal"), Color("81c5d9"))
+	_add_prop("isolate", "CIRCUIT CUTOFF", _prop_sprite("isolate"), Color("e0ad65"))
+	_add_prop("fuse", "SPARE FUSE", _prop_sprite("fuse"), Color("e0ad65"))
+	_add_prop("cabinet", "DISTRIBUTION", _prop_sprite("cabinet"), Color("e0ad65"))
+	_add_prop("aux", "AUX BRANCH", _prop_sprite("aux"), Color("e0ad65"))
+	_add_prop("freezer", "SAMPLE FREEZER", _prop_sprite("freezer"), Color("87d5b3"))
+	_add_prop("battery", "EMERGENCY BATTERY", _prop_sprite("battery"), Color("87d5b3"))
+	_add_prop("cart", "SERVICE CART", _prop_sprite("cart"), Color("87d5b3"))
+	_add_prop("case", "SAMPLE CASE", _prop_sprite("case"), Color("87d5b3"), false)
 	props["case"].visible = false
-	_add_prop("socket", "EMERGENCY SOCKET", Vector2(795, 395), "power_console", Color("9bace8"))
-	_add_prop("release", "DOCKING CLAMPS", Vector2(900, 395), "clamp_console", Color("9bace8"))
-	_add_prop("shuttle", "BOARD SHUTTLE", Vector2(1050, 485), "pod", Color("9bace8"))
-	props["shuttle"]._visual.scale = Vector2(1.5, 1.5)
+	_add_prop("socket", "EMERGENCY SOCKET", _prop_sprite("socket"), Color("9bace8"))
+	_add_prop("release", "DOCKING CLAMPS", _prop_sprite("release"), Color("9bace8"))
+	_add_prop("shuttle", "BOARD SHUTTLE", _prop_sprite("shuttle"), Color("9bace8"))
 
 func _add_actor(id: String, title: String, suit: String, point: Vector2, color: Color) -> void:
 	var actor = Actor.new()
@@ -181,10 +225,10 @@ func _add_actor(id: String, title: String, suit: String, point: Vector2, color: 
 	crew[id] = actor
 
 func room_at(point: Vector2) -> String:
-	for key in ROOMS:
-		var rect: Rect2i = ROOMS[key]
-		if Rect2(Vector2(rect.position * 32), Vector2(rect.size * 32)).has_point(point): return key
-	return "PASSAGE"
+	var c := Vector2i(floori(point.x / TILE), floori(point.y / TILE))
+	if c.x < 0 or c.y < 0 or c.y >= _room_grid.size() or c.x >= _room_grid[c.y].length(): return "PASSAGE"
+	var key := _room_grid[c.y][c.x]
+	return _room_by_key[key].name if _room_by_key.has(key) else "PASSAGE"
 
 func _process(delta: float) -> void:
 	if not active or ending: return
@@ -229,10 +273,10 @@ func use_prop(id: String) -> void:
 			if state.has_flag("case_arrived") and not state.has_flag("samples_saved"):
 				perform("pack_samples")
 			else:
-				announce("MARA", "Living samples. The battery keeps them cold. Ivo has an insulated case aboard the shuttle; it can hold the priority rack." if not state.has_flag("battery_out") else "Cooling is offline. " + ("The priority rack is safe in the case." if state.has_flag("samples_saved") else "The samples are lost. Let's get the crew home."))
+				announce("AARON", "Living samples. The battery keeps them cold. Dhan has an insulated case aboard the shuttle; it can hold the priority rack." if not state.has_flag("battery_out") else "Cooling is offline. " + ("The priority rack is safe in the case." if state.has_flag("samples_saved") else "The samples are lost. Let's get the crew home."))
 		"battery":
 			if state.route == "battery" and not state.has_flag("battery_out"):
-				var consequence := "Priority samples are packed. The remaining research will be lost." if state.has_flag("samples_saved") else "All living samples will be lost. You can ask Ivo to fetch the insulated case before committing."
+				var consequence := "Priority samples are packed. The remaining research will be lost." if state.has_flag("samples_saved") else "All living samples will be lost. You can ask Dhan to fetch the insulated case before committing."
 				ui.confirm_action("Disconnect freezer power?", consequence + " The crew remains safe. This choice cannot be undone.", "disconnect_battery")
 			else: perform("disconnect_battery")
 		"cart": perform("take_cart")
@@ -242,16 +286,16 @@ func use_prop(id: String) -> void:
 		"shuttle":
 			if state.has_flag("clamps"):
 				if not crew_ready():
-					announce("IVO", "We're walking aboard. Give us a moment before departure.")
+					announce("DHAN", "We're walking aboard. Give us a moment before departure.")
 					return
 				var cargo := "All research preserved aboard the main ship for recovery." if state.route == "engineering" else "Priority samples aboard." if state.has_flag("samples_saved") else "Research left behind."
-				ui.confirm_action("Three seats. One destination.", "Johnny, Mara and Ivo are ready. " + cargo + " Launch for Earth?", "launch")
+				ui.confirm_action("Three seats. One destination.", "Johnny, Aaron and Dhan are ready. " + cargo + " Launch for Earth?", "launch")
 			else: perform("launch")
 
 func perform(action: String) -> Dictionary:
 	if action == "launch" and not crew_ready(): return {"ok": false, "line": "Wait until both crewmates have boarded."}
-	if action == "push_locker" and (crew.mara.position.distance_to(Vector2(305, 440)) > 45 or crew.mara.following):
-		var refused := {"ok": false, "line": "Mara needs to hold the top. Ask her to help with the locker first."}
+	if action == "push_locker" and (crew.mara.position.distance_to(anchor("locker_hold")) > 45 or crew.mara.following):
+		var refused := {"ok": false, "line": "Aaron needs to hold the top. Ask him to help with the locker first."}
 		announce("SHIP", refused.line)
 		return refused
 	var result: Dictionary = state.apply(action)
@@ -263,27 +307,27 @@ func perform(action: String) -> Dictionary:
 				locker_body.process_mode = Node.PROCESS_MODE_DISABLED
 				locker_body.get_child(0).set_deferred("disabled", true)
 				_set_locker_nav(false)
-				create_tween().tween_property(locker_visual, "position", Vector2(328, 520), 0.6)
+				create_tween().tween_property(locker_visual, "position", anchor("locker_cleared"), 0.6)
 				crew.mara.following = true
 			"assess":
-				crew.ivo.go_to(Vector2(970, 475))
+				crew.ivo.go_to(anchor("bay_watch"))
 			"fetch_case":
 				_busy_actors["ivo"] = true
-				crew.ivo.go_to(Vector2(1000, 470), func():
+				crew.ivo.go_to(anchor("shuttle_side"), func():
 					crew.ivo.set_cargo(true)
-					crew.ivo.go_to(Vector2(475, 795), func():
+					crew.ivo.go_to(anchor("case_drop"), func():
 						crew.ivo.set_cargo(false)
 						_busy_actors.erase("ivo")
 						if not ending: perform("case_arrived")))
 			"release":
-				crew.mara.go_to(Vector2(1005, 505))
-				crew.ivo.go_to(Vector2(1045, 525))
+				crew.mara.go_to(anchor("board_aaron"))
+				crew.ivo.go_to(anchor("board_dhan"))
 			"launch": _launch()
 		refresh()
 	return result
 
 func crew_ready() -> bool:
-	return crew.mara.position.distance_to(Vector2(1005, 505)) < 20 and crew.ivo.position.distance_to(Vector2(1045, 525)) < 20
+	return crew.mara.position.distance_to(anchor("board_aaron")) < 20 and crew.ivo.position.distance_to(anchor("board_dhan")) < 20
 
 func refresh() -> void:
 	for prop in props.values(): prop.refresh()
@@ -296,7 +340,7 @@ func refresh() -> void:
 	if state.has_flag("samples_saved"):
 		props["case"].caption.text = "SAMPLES SECURED"
 	if ui != null: ui.update_hud()
-	queue_redraw()
+	if ship != null: ship.queue_redraw()
 
 func _exit_tree() -> void:
 	Sfx.stop_ambient()
@@ -308,11 +352,6 @@ func _set_wide(on: bool) -> void:
 	var win := get_window()
 	if win != null:
 		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND if on else Window.CONTENT_SCALE_ASPECT_KEEP
-
-## A floor sign centered on x (world px).
-func _sign(font: Font, text: String, center_x: float, y: float, color: Color) -> void:
-	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-	draw_string(font, Vector2(round(center_x - w / 2.0), y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
 
 func prop_done(id: String) -> bool:
 	var mapping := {"locker": "locker_clear", "terminal": "assessed", "isolate": "isolated", "fuse": "fuse_taken", "cabinet": "engineering_power", "aux": "aux_off", "freezer": "samples_saved", "battery": "battery_out", "cart": "battery_loaded", "case": "samples_saved", "socket": "battery_connected", "release": "clamps"}
@@ -335,15 +374,15 @@ func act_on_dialogue(id: String, action: String) -> String:
 	var actor = crew[id]
 	match action:
 		"follow":
-			if find_path(actor.position, player.position).is_empty(): return "The cabin doorway is blocked. Clear it with Mara first."
+			if find_path(actor.position, player.position).is_empty(): return "The cabin doorway is blocked. Clear it with Aaron first."
 			actor.following = true
 		"wait":
 			actor.following = false
 			actor.path.clear()
 		"help_locker", "load_battery":
-			var target := Vector2(305, 440) if action == "help_locker" else Vector2(535, 800)
-			var player_target := Vector2(320, 450) if action == "help_locker" else Vector2(570, 815)
-			# She always walks over; if the player isn't there yet she waits, and
+			var target := anchor("locker_hold") if action == "help_locker" else anchor("cart_lift")
+			var player_target: Vector2 = anchor("locker_push") if action == "help_locker" else props["cart"].position
+			# He always walks over; if the player isn't there yet he waits, and
 			# the task starts as soon as the player arrives.
 			_busy_actors[id] = true
 			actor.go_to(target, func(): _start_when_player_near(id, action, player_target))
@@ -362,7 +401,7 @@ func _start_when_player_near(id: String, action: String, player_target: Vector2)
 		return
 	if not crew[id].has_meta("waiting_for_player"):
 		crew[id].set_meta("waiting_for_player", true)
-		announce("MARA", "I'm at the locker. Come push when you're ready." if action == "help_locker" else "I'm at the cart. Come here and we'll lift it together.")
+		announce("AARON", "I'm at the locker. Come push when you're ready." if action == "help_locker" else "I'm at the cart. Come here and we'll lift it together.")
 	get_tree().create_timer(0.25).timeout.connect(func():
 		if is_instance_valid(self) and is_inside_tree():
 			if player.position.distance_to(player_target) <= 115:
@@ -378,7 +417,9 @@ func offline_response(id: String, message: String) -> Dictionary:
 	var action := "none"
 	var query := m.begins_with("what") or m.begins_with("why") or m.begins_with("where") or m.begins_with("how")
 	var negative := m.contains("don't") or m.contains("do not") or m.contains("stop") or m.contains("never")
-	if negative:
+	if _mentions(m, ["your name", "who are you"]):
+		line = "I'm %s. " % crew[id].display_name.split(" · ")[0].capitalize() + state.objective()
+	elif negative:
 		line = "Understood. I won't start another task. " + state.objective()
 	elif not query and _mentions(m, ["follow", "come with", "stay with me"]):
 		action = "follow"
@@ -396,9 +437,9 @@ func offline_response(id: String, message: String) -> Dictionary:
 		if state.has_flag("samples_saved"): line = "The priority rack is safe in the insulated case. We kept what matters most."
 		elif state.has_flag("battery_out"): line = "Cooling has stopped. The samples are lost, but the three of us can still make it home."
 		elif state.has_flag("case_arrived"): line = "The case is beside the freezer. Pack the priority rack before disconnecting power."
-		elif state.has_flag("case_requested"): line = "I'm delivering the case to the laboratory." if id == "ivo" else "Ivo is bringing the case. Keep the freezer connected until we've packed."
+		elif state.has_flag("case_requested"): line = "I'm delivering the case to the laboratory." if id == "ivo" else "Dhan is bringing the case. Keep the freezer connected until we've packed."
 		else:
-			line = "There's an insulated case in the shuttle. Ask Ivo to fetch it; we can save the priority rack."
+			line = "There's an insulated case in the shuttle. Ask Dhan to fetch it; we can save the priority rack."
 			if id == "ivo" and not query and _mentions(m, ["fetch", "bring", "get", "save", "retrieve", "preserve"]):
 				action = "fetch_case"
 				line = "I'll fetch the insulated case and bring it to the lab. Keep cooling on until we've packed."
@@ -425,32 +466,3 @@ func _launch() -> void:
 	Sfx.stop_ambient()
 	Sfx.play("launch", -4)
 	ui.show_ending()
-
-func _draw() -> void:
-	draw_rect(Rect2(-500, -500, 2200, 1900), Color("050a19"))
-	for i in range(130):
-		var p := Vector2(posmod(i * 197 + 31, 1600) - 200, posmod(i * 313 + 13, 1300) - 200)
-		draw_rect(Rect2(p, Vector2(1, 1)), Color(0.45, 0.6, 0.85, 0.4))
-	for cell in floors:
-		var rect := Rect2(Vector2(cell * 32), Vector2(32, 32))
-		var src := Rect2(Vector2(posmod(cell.x * 32, floor_tex.get_width()), posmod(cell.y * 32, floor_tex.get_height())), Vector2(32, 32))
-		draw_texture_rect_region(floor_tex, rect, src)
-	for key in ROOMS:
-		var grid: Rect2i = ROOMS[key]
-		var rect := Rect2(Vector2(grid.position * 32), Vector2(grid.size * 32))
-		var color: Color = COLORS[key]
-		draw_rect(rect, Color(color, 0.07))
-		draw_rect(rect.grow(-3), Color(color, 0.4), false, 2)
-		draw_string(UiStyle.font(), rect.position + Vector2(18, 25), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)
-		if key == "CABIN" and state.has_flag("aux_off"): draw_rect(rect, Color(0, 0, 0, 0.45))
-	for cell in walls:
-		var rect := Rect2(Vector2(cell * 32), Vector2(32, 32))
-		draw_texture_rect(face_tex if floors.has(cell + Vector2i.DOWN) else wall_tex, rect, false)
-	# Floor direction markers are environmental signage rather than quest arrows.
-	var font := UiStyle.font()
-	# Centered on each doorway so they stay clear of the room names.
-	_sign(font, "ENGINEERING ^", 544, 342, COLORS.ENGINEERING)
-	_sign(font, "LABORATORY v", 544, 563, COLORS.LABORATORY)
-	_sign(font, "BAY >", 662, 465, COLORS["SHUTTLE BAY"])
-	if state.powered():
-		for x in range(765, 1120, 32): draw_rect(Rect2(x, 545, 12, 3), Color("87d5b3"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the base footage for Back2Earth's opening story (38 s). Owner: D.
+"""Render the base footage for Back2Earth's opening story (41.2 s). Owner: D.
 
 The game doesn't play this directly: the team edited it (voices added, retimed) into
 the final cut, which lives in the game as assets/video/intro.ogv + assets/audio/intro.ogg
@@ -27,7 +27,7 @@ out and the rest is turned down), so recorded voices sit on top cleanly when edi
 Four astronauts, one per suit: Johnny (the player) wears the suit they picked; Aaron,
 who pulls him to safety, wears the in-game crewmate's suit (SUIT_PREFERENCE in
 scripts/interactables/crewmate.gd); Kien is pulled out into space; Dhan reaches the
-East Section door first and is locked in when the breach hits.
+safe side of the barrier first and waits, facing back toward the rescue.
 
 Beats (script by the team):
   0-3.2     THE YEAR 2126, slowly dissolving into space
@@ -37,13 +37,13 @@ Beats (script by the team):
   9-11.4    dashboard: nav map, DISTANCE TO EARTH 676,767 MI
   11.4-19.3 Kien wakes ("Real food. Finally."), impact, lights fail, red alarm,
             "Collision detected. Evacuate now.", crew unbuckle and hurry aft
-  19.3-24.2 corridor: Dhan ducks through the East Section door; the second impact locks
-            it and tears the hull open; Kien is pulled out (*Sucked out of the ship*),
+  19.3-24.2 corridor: Dhan stops beyond the barrier and looks back; the second impact
+            tears the hull open; Kien is pulled out (*Sucked out of the ship*),
             Johnny reaches and misses
   24.2-27.2 outside: the same ship, breached; Kien tumbles away. Silence.
-  27.2-38   Aaron pulls Johnny through the bulkhead, door slams, breathing, MAIN POWER
+  27.2-41.2 Aaron pulls Johnny through the bulkhead, door slams, breathing, MAIN POWER
             OFFLINE; Johnny turns to Aaron: "That was a close one! We need to fix power
-            first. Then find Dhan." Fade to black.
+            first. Then find Dhan." All three then enter the cabin; fade to black.
 """
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ T_CORR = 19.3            # corridor
 T_HIT2 = 21.4            # second impact, breach
 T_OUT = 24.2             # outside, silence
 T_SEAL = 27.2            # pulled through the bulkhead
-LENGTH = 38.0
+LENGTH = 41.2
 T_FADE_OUT = LENGTH - 0.4  # last caption done; fade to black, then gameplay
 SEAL_OFF = T_SEAL - 19.0  # the seal shot keeps its original 19.0-30.0 clock + this
 
@@ -96,7 +96,7 @@ CAPTIONS = [
     (12.2, 14.5, "KIEN:", "REAL FOOD. FINALLY.", "crew", "crew_1"),
     (15.9, 19.4, "SYSTEM:", "COLLISION DETECTED. EVACUATE NOW.", "system", "system_1"),
     (21.7, 24.2, "KIEN:", "*SUCKED OUT OF THE SHIP*", "action", "kien_1"),
-    (33.6, T_FADE_OUT, "JOHNNY:", "THAT WAS A CLOSE ONE! WE NEED TO FIX POWER FIRST. THEN FIND DHAN.", "crew", "crew_2"),
+    (33.6, 37.6, "JOHNNY:", "THAT WAS A CLOSE ONE! WE NEED TO FIX POWER FIRST. THEN FIND DHAN.", "crew", "crew_2"),
 ]
 JOHNNY_TURNS = 33.6      # Johnny turns to face Aaron as he starts talking
 CPS = 30.0               # caption typing speed (chars per second)
@@ -732,10 +732,9 @@ def build_corridor():
     rect(img, 0, 132, W, 133, STEEL_L)
     for x in range(0, W, 8):
         rect(img, x, 137, x + 1, H, (48, 46, 60))
-    # East Section door (left); the leaf is drawn per frame (draw_hatch).
+    # Cabin door (left); the leaf is drawn per frame (draw_hatch).
     rect(img, 4, 72, 32, 132, STEEL_L)
-    draw_text(img, 4, 53, "EAST", AMBER)
-    draw_text(img, 4, 62, "SECTION", AMBER)
+    draw_text(img, 4, 62, "CABIN", AMBER)
     # Terminal frame (screen drawn per frame).
     tx0, ty0, tx1, ty1 = CORR_TERM
     rect(img, tx0, ty0, tx1, ty1, STEEL)
@@ -759,22 +758,18 @@ def build_corridor():
 
 
 HATCH = (7, 75, 29, 132)
-HATCH_OPEN = (T_CORR + 1.15, T_CORR + 1.35)   # slides up for Dhan, out in front
-HATCH_SHUT = (T_HIT2 - 0.05, T_HIT2 + 0.05)   # slams with the second impact and locks
+HATCH_OPEN = (37.6, 37.85)   # opens after Johnny finishes speaking
+T_CABIN_ENTRY = 37.9
+AHEAD_WAIT_X = 58.0
+CABIN_ENTRY = {"ahead": (58.0, 0.0, 1.2), "survivor": (90.0, 0.22, 1.6), "player": (124.0, 0.44, 2.0)}
 
 
 def hatch_open_amount(t):
-    if t < HATCH_OPEN[0] or t >= HATCH_SHUT[1]:
-        return 0.0
-    if t < HATCH_OPEN[1]:
-        return ease_out((t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]))
-    if t < HATCH_SHUT[0]:
-        return 1.0
-    return 1.0 - (t - HATCH_SHUT[0]) / (HATCH_SHUT[1] - HATCH_SHUT[0])
+    return ease_out(max(0.0, min(1.0, (t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]))))
 
 
 def draw_hatch(img, t):
-    """Pod hatch leaf (slides up). Takes film time."""
+    """Cabin hatch leaf (slides up). Takes film time."""
     x0, y0, x1, y1 = HATCH
     u = hatch_open_amount(t)
     rect(img, x0, y0, x1, y1, (8, 10, 16))
@@ -788,11 +783,11 @@ def draw_hatch(img, t):
 
 
 def draw_hatch_light(img, t):
-    """Window lamp in the hatch: green while it works, blinking red once it's locked."""
+    """Window lamp in the cabin hatch before it opens."""
     u = hatch_open_amount(t)
     if u > 0:
         return
-    if t < T_HIT2:
+    if t < HATCH_OPEN[0]:
         col = (20, 120, 70)
     else:
         col = RED if int((t - T_HIT2) * 2.5) % 2 == 0 else (90, 0, 30)
@@ -1128,12 +1123,11 @@ def shot_breach(t, cast):
     if hit:
         draw_breach(img, t, room)
     lc = t - T_CORR
-    # Dhan, out in front: sprints for the East Section door and gets through just before it locks.
+    # Dhan clears the barrier, stops before the cabin, and looks back at the others.
     D = cast["ahead"]
-    dx_ = AHEAD_X0 - AHEAD_V * lc
-    if dx_ > -10:
-        clip = (HATCH[0], 0, W, H) if dx_ < HATCH[2] + 5 else None
-        D.draw(img, dx_, FEET, t_anim=lc * 1.4, walking=True, left=True, tint=crew, clip=clip)
+    dx_ = max(AHEAD_WAIT_X, AHEAD_X0 - AHEAD_V * lc)
+    dhan_walking = dx_ > AHEAD_WAIT_X
+    D.draw(img, dx_, FEET, t_anim=lc * 1.4, walking=dhan_walking, left=dhan_walking, tint=crew)
     A, P, B = cast["survivor"], cast["player"], cast["lost"]
     run = min(lc, T_HIT2 - T_CORR) / (T_HIT2 - T_CORR)
     walk = min(lc, T_HIT2 - T_CORR) * 1.3
@@ -1233,7 +1227,7 @@ def shot_outside(t, cast):
 
 
 def shot_seal(tf, cast):
-    """27.2-36.2: pulled through the bulkhead, door slams, MAIN POWER OFFLINE.
+    """27.2-41.2: rescue, barrier seals, Johnny speaks, all three enter the cabin.
     Inside, t runs on the original 19.0-28.0 clock (t = film time - SEAL_OFF)."""
     t = tf - SEAL_OFF
     room, crew = corridor_light(t)
@@ -1241,7 +1235,7 @@ def shot_seal(tf, cast):
     draw_slab(img, t)
     draw_hatch(img, tf)
     img = mul(img, room)
-    draw_hatch_light(img, tf)  # the East Section door stays locked: no power
+    draw_hatch_light(img, tf)  # cabin stays closed until the crew is ready
     slammed = t >= 21.45
     if slammed:  # the breach side goes dark behind the door
         dark = min(0.6, (t - 21.5) / 1.5 * 0.6) if t > 21.5 else 0.0
@@ -1255,7 +1249,11 @@ def shot_seal(tf, cast):
     A, P = cast["survivor"], cast["player"]
     breath = ((t - 21.8) % 3.2) if t >= 21.8 else 0.0
     bob = 1 if 0.2 < breath < 1.1 else 0
-    if t < 19.65:  # A runs back for the player; the player slides toward the breach
+    if tf < T_CABIN_ENTRY:
+        cast["ahead"].draw(img, AHEAD_WAIT_X, FEET, left=False, lift=bob, tint=crew)
+    if tf >= T_CABIN_ENTRY:
+        draw_cabin_entry(img, tf, cast, crew)
+    elif t < 19.65:  # A runs back for the player; the player slides toward the breach
         ax = lerp(170, 226, ease_io((t - 19.0) / 0.65))
         a_top = A.draw(img, ax, FEET, t_anim=t, walking=True, tint=crew)
         pxx = 250 + 6 * (t - 19.0)
@@ -1298,6 +1296,24 @@ def shot_seal(tf, cast):
         img = (img.astype(np.float32) * VIGNETTE(strength)).astype(np.uint8)
     dx, dy = shake(t, 21.47, 0.35, 2, 3)
     return view(img, 0, dx, dy)
+
+
+def cabin_entry_x(role, film_time):
+    x, delay, duration = CABIN_ENTRY[role]
+    progress = max(0.0, min(1.0, (film_time - T_CABIN_ENTRY - delay) / duration))
+    return lerp(x, -14.0, progress)
+
+
+def draw_cabin_entry(img, film_time, cast, crew):
+    for role in ("ahead", "survivor", "player"):
+        _, delay, _ = CABIN_ENTRY[role]
+        walking = film_time >= T_CABIN_ENTRY + delay
+        x = cabin_entry_x(role, film_time)
+        if x <= -10:
+            continue
+        clip = (HATCH[0], 0, W, H) if x < HATCH[2] + 5 else None
+        cast[role].draw(img, x, FEET, t_anim=film_time * 1.4, walking=walking,
+                        left=walking, tint=crew, clip=clip)
 
 
 def _vignette_base():
@@ -1495,7 +1511,7 @@ def soundtrack():
     alarm(T_IMPACT + 0.8, T_HIT2, 0.09)
     fx(T_STAND - 0.2, fade(filt(noise(0.008), "high", 3000), 0.0005, 0.004), 0.4)  # restraints
     steps(T_WALK, T_CORR, 0.2, 0.5)
-    # Corridor: running feet, the East Section door opening for Dhan.
+    # Running feet during the breach; the cabin door opens after the final line.
     steps(T_CORR, T_HIT2, 0.17, 0.55)
     fx(HATCH_OPEN[0], fade(filt(noise(0.25), "band", [400, 2500]) * decay(0.25, 6), 0.01, 0.05), 0.25)
     # Second impact: boom, tearing metal, the hatch slamming shut, rushing air.

@@ -38,7 +38,7 @@ const T_CORR := 19.3
 const T_HIT2 := 21.4
 const T_OUT := 24.2
 const T_SEAL := 27.2
-const LENGTH := 38.0
+const LENGTH := 41.2
 const T_FADE_OUT := LENGTH - 0.4
 const SEAL_OFF := T_SEAL - 19.0
 const JOHNNY_TURNS := 33.6
@@ -88,8 +88,10 @@ const CORR_DOOR := [144, 164]
 const CORR_PANEL := [128, 113, 140, 125]
 const CORR_TERM := [50, 50, 118, 82]
 const HATCH := [7, 75, 29, 132]
-const HATCH_OPEN := [T_CORR + 1.15, T_CORR + 1.35]
-const HATCH_SHUT := [T_HIT2 - 0.05, T_HIT2 + 0.05]
+const HATCH_OPEN := [37.6, 37.85]
+const T_CABIN_ENTRY := 37.9
+const AHEAD_WAIT_X := 58.0
+const CABIN_ENTRY := {"ahead": [58.0, 0.0, 1.2], "survivor": [90.0, 0.22, 1.6], "player": [124.0, 0.44, 2.0]}
 const CORR_RUN := {"survivor": [330.0, 170.0], "player": [362.0, 206.5], "lost": [400.0, 246.5]}
 const AHEAD_X0 := 150.0
 const AHEAD_V := 82.0
@@ -777,13 +779,7 @@ func _corridor_light(t: float) -> Array:
 
 
 func _hatch_open_amount(t: float) -> float:
-	if t < HATCH_OPEN[0] or t >= HATCH_SHUT[1]:
-		return 0.0
-	if t < HATCH_OPEN[1]:
-		return ease_out((t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]))
-	if t < HATCH_SHUT[0]:
-		return 1.0
-	return 1.0 - (t - HATCH_SHUT[0]) / (HATCH_SHUT[1] - HATCH_SHUT[0])
+	return ease_out(clampf((t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]), 0.0, 1.0))
 
 
 func _hatch(t: float, m) -> void:
@@ -806,7 +802,7 @@ func _hatch_light(t: float) -> void:
 	if _hatch_open_amount(t) > 0:
 		return
 	var col: Color
-	if t < T_HIT2:
+	if t < HATCH_OPEN[0]:
 		col = Color8(20, 120, 70)
 	else:
 		col = RED if int((t - T_HIT2) * 2.5) % 2 == 0 else Color8(90, 0, 30)
@@ -881,10 +877,9 @@ func _shot_breach(t: float) -> void:
 	if hit:
 		_breach(t, room)
 	var lc := t - T_CORR
-	var dx_ := AHEAD_X0 - AHEAD_V * lc
-	if dx_ > -10:
-		var clip := [HATCH[0], 0, W, H] if dx_ < HATCH[2] + 5 else []
-		_astro("ahead", dx_, FEET, lc * 1.4, true, true, -1, 0, 0, clip, crew)
+	var dx_ := maxf(AHEAD_WAIT_X, AHEAD_X0 - AHEAD_V * lc)
+	var dhan_walking := dx_ > AHEAD_WAIT_X
+	_astro("ahead", dx_, FEET, lc * 1.4, dhan_walking, dhan_walking, -1, 0, 0, [], crew)
 	var run := minf(lc, T_HIT2 - T_CORR) / (T_HIT2 - T_CORR)
 	var walk := minf(lc, T_HIT2 - T_CORR) * 1.3
 	var to := 13.25 + (t - T_HIT2)
@@ -1011,7 +1006,12 @@ func _shot_seal(tf: float) -> void:
 	_terminal(t)
 	var breath := fmod(t - 21.8, 3.2) if t >= 21.8 else 0.0
 	var bob := 1 if (0.2 < breath and breath < 1.1) else 0
-	if t < 19.65:
+	# Dhan waits beyond the barrier, facing back toward the rescue.
+	if tf < T_CABIN_ENTRY:
+		_astro("ahead", AHEAD_WAIT_X, FEET, 0.0, false, false, -1, 0, bob, [], crew)
+	if tf >= T_CABIN_ENTRY:
+		_draw_cabin_entry(tf, crew)
+	elif t < 19.65:
 		var ax := lerpf(170, 226, ease_io((t - 19.0) / 0.65))
 		var a_top := _astro("survivor", ax, FEET, t, true, false, -1, 0, 0, [], crew)
 		var pxx := 250 + 6 * (t - 19.0)
@@ -1054,6 +1054,24 @@ func _shot_seal(tf: float) -> void:
 	if t >= 21.6:  # helmet vignette, breathing with the player
 		var strength := minf(0.5, (t - 21.6) * 0.5) + (0.04 if bob else 0.0)
 		_canvas.draw_texture(_tex["vignette"], Vector2.ZERO, Color(1, 1, 1, strength))
+
+
+## The three survivors leave only after Johnny's existing line has finished.
+func cabin_entry_x(role: String, film_time: float) -> float:
+	var entry: Array = CABIN_ENTRY[role]
+	var progress := clampf((film_time - T_CABIN_ENTRY - float(entry[1])) / float(entry[2]), 0.0, 1.0)
+	return lerpf(float(entry[0]), -14.0, progress)
+
+
+func _draw_cabin_entry(film_time: float, crew) -> void:
+	for role in ["ahead", "survivor", "player"]:
+		var entry: Array = CABIN_ENTRY[role]
+		var walking := film_time >= T_CABIN_ENTRY + float(entry[1])
+		var x := cabin_entry_x(role, film_time)
+		if x <= -10.0:
+			continue
+		var clip := [HATCH[0], 0, W, H] if x < HATCH[2] + 5 else []
+		_astro(role, x, FEET, film_time * 1.4, walking, walking, -1, 0, 0, clip, crew)
 
 
 ## Draws whatever frame the film is on.

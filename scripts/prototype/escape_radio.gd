@@ -79,6 +79,16 @@ func _on_reply(result: int, code: int, _headers: PackedStringArray, bytes: Packe
 	if data.get("source", "") != "live":
 		_fallback()
 		return
+	# An older hosted backend may still use the original prototype names.
+	# Keep displayed replies consistent and skip any voice that says an old name.
+	var current_line: String = data.line
+	for old_name in ["mara", "ivo"]:
+		var name_pattern := RegEx.new()
+		name_pattern.compile("(?i)\\b" + old_name + "\\b")
+		current_line = name_pattern.sub(current_line, "Aaron" if old_name == "mara" else "Dhan", true)
+	if current_line != data.line:
+		data.line = current_line
+		data["audio_url"] = ""
 	_deliver(data)
 	var url: String = str(data.get("audio_url", ""))
 	if url.begins_with("/npc/audio/"):

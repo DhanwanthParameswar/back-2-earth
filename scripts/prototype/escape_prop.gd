@@ -5,13 +5,17 @@ var prop_id := ""
 var title := ""
 var texture_path := ""
 var accent := Color("29adff")
+var solid := true          # false: walk-through (the locker's label, the sample case)
 var caption: Label
 
 func _ready() -> void:
 	super._ready()
-	shadow_radius = 15
-	set_visual(texture_path, accent)
-	add_solid_base(Vector2(24, 12))
+	if texture_path != "":
+		shadow_radius = 15
+		set_visual(texture_path, accent)
+		_visual.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if solid:
+		add_solid_base(Vector2(24, 12))
 	visibility_changed.connect(func():
 		for child in get_children():
 			if child is StaticBody2D:
