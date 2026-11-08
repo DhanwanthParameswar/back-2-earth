@@ -61,6 +61,10 @@ func set_cargo(carrying: bool) -> void:
 	cargo.visible = carrying
 
 func can_interact(_player) -> bool:
+	# While Mara is holding the locker she stands between you and it, so she is
+	# not an E target then: E pushes the locker instead of opening her chat.
+	if actor_id == "mara" and mission.state.has_flag("locker_ready") and not mission.state.has_flag("locker_clear"):
+		return false
 	return mission.active and not mission.ending
 
 func get_prompt() -> String:
