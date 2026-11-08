@@ -12,7 +12,7 @@ import escape_dialogue as dialogue
 
 VALID = {
     "npc_id": "mara", "state_version": 3, "message": "Could you hold the locker?",
-    "objective": "Clear the cabin doorway", "flags": {}, "history": [],
+    "objective": "Clear the jammed locker from the hallway", "flags": {}, "history": [],
     "available_actions": {"none": "Answer", "help_locker": "Hold the locker"},
 }
 

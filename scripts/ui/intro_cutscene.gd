@@ -32,6 +32,8 @@ var _audio: AudioStreamPlayer = null
 var _hint: Label
 var _length := LENGTH
 var _t := 0.0
+var _clock_start_usec := -1
+var _last_film_time := 0.0
 var _started := false
 var _done := false
 
@@ -98,6 +100,10 @@ func _play_audio() -> void:
 		_audio = AudioStreamPlayer.new()
 		_audio.stream = load(AUDIO_PATH)
 		add_child(_audio)
+	# Start after resource loading, so the first frame's delta cannot include
+	# the time spent building the scene or decoding the soundtrack.
+	_clock_start_usec = Time.get_ticks_usec()
+	if _audio != null:
 		_audio.play()
 
 
@@ -105,8 +111,16 @@ func _play_audio() -> void:
 ## captions on the voices), otherwise our own.
 func _film_time() -> float:
 	if _audio != null and _audio.playing:
-		return _audio.get_playback_position() + AudioServer.get_time_since_last_mix()
-	return _t
+		return _clamp_audio_clock(_audio.get_playback_position() + AudioServer.get_time_since_last_mix())
+	_last_film_time = maxf(_last_film_time, _t)
+	return _last_film_time
+
+
+func _clamp_audio_clock(audio_time: float) -> float:
+	# Before the new stream's first mix, the mixer timestamp can belong to
+	# the menu or a loading stall. Never jump ahead of this intro or rewind.
+	_last_film_time = clampf(audio_time, _last_film_time, _t)
+	return _last_film_time
 
 
 ## The picture can end a hair before the sound; let the last moment of audio
@@ -127,10 +141,12 @@ func skip() -> void:
 	_finish()
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if not is_running():
 		return
-	_t += delta
+	if _clock_start_usec < 0:
+		return
+	_t = float(Time.get_ticks_usec() - _clock_start_usec) / 1000000.0
 	_hint.visible = _t >= HINT_DELAY
 	if _film != null:
 		var ft := _film_time()
