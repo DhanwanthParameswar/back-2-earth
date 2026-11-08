@@ -688,7 +688,7 @@ func _facts(count: int) -> String:
 func show_map() -> void:
 	var secs := int(mission.elapsed)
 	_panel("CREW TABLET  ·  WAYFARER  ·  %d:%02d" % [secs / 60, secs % 60], "map", 588.0)
-	var glass := Style.box(Color(Style.NAVY, 0.78), Color(Style.CYAN, 0.8), 2)
+	var glass := Style.box(Color(Style.NAVY, 0.9), Color(Style.CYAN, 0.8), 2)
 	glass.set_content_margin_all(10)
 	modal.add_theme_stylebox_override("panel", glass)
 	content.add_theme_constant_override("separation", 4)
@@ -710,7 +710,8 @@ func show_map() -> void:
 	var w := 276.0
 	_slate(side, "TASK", 9, Style.CYAN, w)
 	_slate(side, s.objective(), 11, Style.TEXT, w)
-	_slate(side, "You're in: %s%s" % [mission.room.capitalize(), ("   ·   Carrying: " + _carrying(s.carrying)) if s.carrying != "" else ""], 9, Style.MUTED, w)
+	_slate(side, "You're in: " + mission.room.capitalize(), 9, Style.MUTED, w)
+	if s.carrying != "": _slate(side, "Carrying: " + _carrying(s.carrying), 9, Style.MUTED, w)
 	_slate(side, "CREW", 9, Style.CYAN, w)
 	_slate(side, "Aaron: " + _aaron_status(), 9, Style.TEXT, w)
 	_slate(side, "Dhan: " + _dhan_status(), 9, Style.TEXT if s.stage() < 3 else Style.AMBER, w)

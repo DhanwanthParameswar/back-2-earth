@@ -9,6 +9,7 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	if mission == null or mission.map_data.is_empty(): return
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.035, 0.09, 0.95))  # the game doesn't show through
 	var world: Vector2 = Vector2(mission.map_size * mission.TILE)
 	var k := minf(size.x / world.x, size.y / world.y)
 	var origin := (size - world * k) / 2.0
@@ -28,7 +29,24 @@ func _draw() -> void:
 		var rr: Array = room.rect
 		var rect := Rect2(origin + Vector2(rr[0], rr[1]) * cell, Vector2(rr[2], rr[3]) * cell)
 		draw_rect(rect, Color(room.color), false, 1)
-		var label: String = room.name + (" (SEALED)" if room.sealed else "")
-		draw_string(UiStyle.font(), rect.position + Vector2(3, 10), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, Color(room.color))
+		_label(rect, str(room.name), room.sealed, Color(room.color))
 	for actor in mission.crew.values(): draw_circle(origin + actor.position * k, 3, actor.tint)
 	draw_circle(origin + mission.player.position * k, 4, Color.WHITE)
+
+## Shorter names for rooms too small for the full one.
+const SHORT := {"FLIGHT DECK": "FLIGHT", "OBSERVATION": "OBS", "ENGINEERING": "ENGINE", "LABORATORY": "LAB",
+	"HYDROPONICS": "HYDRO", "SUIT ROOM": "SUITS", "SHUTTLE BAY": "BAY", "CORRIDOR": "CORR", "JUNCTION": "JUNCT",
+	"STORAGE": "STORE", "PASSAGE": "PASS", "BREACH": "BREACH", "CABIN": "CABIN", "GALLEY": "GALLEY", "MEDBAY": "MED"}
+
+## A room's name inside its box, never spilling out: the full name if it fits, else a short
+## one, else smaller. Sealed rooms say SEALED on a second line when there's room.
+func _label(rect: Rect2, name: String, sealed: bool, color: Color) -> void:
+	var font := UiStyle.font()
+	var room_w := rect.size.x - 5.0
+	for text in [name, str(SHORT.get(name, name))]:
+		for font_size in [7, 6, 5]:
+			if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > room_w: continue
+			draw_string(font, rect.position + Vector2(3, 3 + font_size), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+			if sealed and rect.size.y >= font_size * 2 + 8 and font.get_string_size("SEALED", HORIZONTAL_ALIGNMENT_LEFT, -1, 5).x <= room_w:
+				draw_string(font, rect.position + Vector2(3, 6 + font_size * 2), "SEALED", HORIZONTAL_ALIGNMENT_LEFT, -1, 5, Color(color, 0.8))
+			return
