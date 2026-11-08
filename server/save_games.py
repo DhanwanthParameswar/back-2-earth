@@ -6,6 +6,12 @@ FLAGS = set('locker_ready locker_clear assessed isolated fuse_taken fuse_install
 TASKS = ('', 'help_locker', 'load_battery', 'fetch_case')
 
 
+def valid_notes(notes):
+    """Facts remembered by one crewmate during this saved mission."""
+    return (isinstance(notes, list) and len(notes) <= 12 and
+            all(isinstance(note, str) and 0 < len(note) <= 120 for note in notes))
+
+
 def number(value, high=1000000):
     try:
         return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= high
@@ -61,4 +67,7 @@ def valid(snapshot):
             return False
         if any(not isinstance(t, dict) or t.get('role') not in ('player', 'npc') or not isinstance(t.get('text'), str) or len(t['text']) > 420 for t in turns):
             return False
+    notes = snapshot.get('memory_notes', {})
+    if not isinstance(notes, dict) or any(k not in crew or not valid_notes(v) for k, v in notes.items()):
+        return False
     return True

@@ -88,6 +88,13 @@ func compatible(data) -> bool:
 		if not turns is Array or turns.size() > 6: return false
 		for turn in turns:
 			if not turn is Dictionary or not turn.get("role") in ["player", "npc"] or not turn.get("text") is String or turn.text.length() > 420: return false
+	if not data.get("memory_notes", {}) is Dictionary: return false
+	for id in data.get("memory_notes", {}):
+		if not id in ["mara", "ivo"]: return false
+		var notes = data.memory_notes[id]
+		if not notes is Array or notes.size() > 12: return false
+		for note in notes:
+			if not note is String or note.length() == 0 or note.length() > 120: return false
 	return JSON.stringify(data).to_utf8_buffer().size() <= 24000
 
 func has_progress() -> bool:

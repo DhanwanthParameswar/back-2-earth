@@ -344,10 +344,14 @@ guest checkpoint can be imported into an empty account slot.
 
 The escape mission saves after progress changes, every five seconds while playing,
 on pause, and on leaving the mission or losing focus. Checkpoints include the
-route, inventory, player/crew positions, flashlights, recent radio conversation,
+route, inventory, player/crew positions, flashlights, recent radio conversation, remembered crew facts,
 and pending crew tasks. Resume skips the intro and restores cleared-locker
 collision and interrupted case deliveries. Completing an escape removes its
-resume slot; accounts, leaderboard results, and crew memory are kept.
+resume slot. Crew conversations and remembered facts belong to that checkpoint:
+Resume restores them, and New Game, Restart, Delete Save, or completing the mission
+clears them with its progress. Accounts and leaderboard results are kept. Current
+clients send their saved notes with each chat and never use the older account-wide
+memory table, so an old or late reply cannot repopulate a new game's memory.
 
 `SaveGame` keeps a separate atomic local file per account (or guest device).
 Offline account changes stay queued and retry every 15 seconds. Cloud revisions
