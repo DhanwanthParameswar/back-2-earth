@@ -127,6 +127,10 @@ func _strings(value, longest: int, most: int) -> bool:
 ## Per-run answers: a code from 3/6/9, each code and branch mapped to a distinct box/toggle.
 func _puzzle(p) -> bool:
 	if not p is Dictionary or not p.get("fuse_for") is Dictionary or not p.get("toggle_for") is Dictionary: return false
+	if p.has("vials"):  # medbay vials (newer saves): three names, one of them the painkiller
+		if not p.vials is Array or p.vials.size() != 3 or not p.get("painkiller") in [0, 1, 2, 0.0, 1.0, 2.0]: return false
+		for v in p.vials:
+			if not v is String or v.length() > 16: return false
 	if not p.get("code") in [3, 6, 9, 3.0, 6.0, 9.0] or not p.get("aux") in [1, 2, 3, 1.0, 2.0, 3.0] or not p.get("selector") in [0, 1, 2, 0.0, 1.0, 2.0]: return false
 	var boxes: Array = []
 	for k in ["3", "6", "9"]:
@@ -137,7 +141,7 @@ func _puzzle(p) -> bool:
 		var t = p.toggle_for.get(k)
 		if not t in [0, 1, 2, 0.0, 1.0, 2.0] or toggles.has(int(t)): return false
 		toggles.append(int(t))
-	return p.size() == 5 and p.fuse_for.size() == 3 and p.toggle_for.size() == 3
+	return p.size() == (7 if p.has("vials") else 5) and p.fuse_for.size() == 3 and p.toggle_for.size() == 3
 
 func has_progress() -> bool:
 	return compatible(_record.get("snapshot", {}))

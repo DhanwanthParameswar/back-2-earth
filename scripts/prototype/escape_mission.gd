@@ -27,6 +27,7 @@ const SCHEMA := 2
 const MAP_ID := "escape-v2"
 const NEAR := 115.0                 # "standing next to it" for crew tasks
 const LIFT_HOLD := 6.0              # how long Aaron can hold the locker up
+const THRUST_HOLD := 8.0            # the hold thrusters keep the shuttle steady this long (release meanwhile)
 const BREAKER_HOLD := 7.0           # how long Aaron can hold the bay breaker shut (press RESTART meanwhile)
 const SOFT_COOLDOWN := 12.0         # seconds between unprompted lines
 const NUDGE_1 := 45.0
@@ -84,8 +85,10 @@ var voice: AudioStreamPlayer
 var _marvis_chain_active := false
 var _intro = null
 var _busy := {}                 # crew id -> task
-var _breaker_until := -1.0
-var _consulted := {}            # crew Johnny has asked anything this run      # Aaron is holding the bay breaker shut until then
+var _breaker_until := -1.0      # Aaron is holding the bay breaker shut until then
+var _consulted := {}            # crew Johnny has asked anything this run
+var _thrust_until := -1.0       # hold thrusters firing until then
+var _vials_read := {}           # vial names Johnny read out to Aaron
 var _task_arg := {}             # crew id -> extra (the fuse box Aaron is fetching)
 var alarm                       # escape_alarm.gd: the corridor's rotating beacons
 var impacts                     # escape_impacts.gd: debris striking the hull now and then
@@ -377,6 +380,7 @@ func _process(delta: float) -> void:
 	_update_lift()
 	_update_count()
 	_update_breaker()
+	_update_thrust()
 	ui.set_banner(timing_banner(), timing_left())
 	_tick_dhan(delta)
 	_deliver_lines()
@@ -438,12 +442,20 @@ func _secret_trigger_ending() -> void:
 	state.flags["dhan_aboard"] = true
 	state.flags["aaron_aboard"] = true
 	state.flags["clamps"] = true
+	# Everyone is aboard: nobody is left standing in the bay as the shuttle drops.
+	for actor in crew.values():
+		actor.following = false
+		actor.path.clear()
+		actor.light_on = false
+		actor.visible = false
+	player.visible = false
+	carried_visual.visible = false
 	ui.close()
 	_launch()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not active or ending or ui.is_open(): return
-	if event.is_echo() or not event.is_pressed(): return
+	if event.is_echo() or not event.is_pressed() or not Settings.fresh_press(event): return
 	if event.is_action_pressed("radio_1"): open_chat("mara")
 	elif event.is_action_pressed("radio_2"): open_chat("ivo")
 	elif event.is_action_pressed("radio_3"): open_chat("marvis")
@@ -729,7 +741,8 @@ func actor_prompt(id: String) -> String:
 	if id == "ivo":
 		if not state.dhan_alive(): return "DHAN"
 		if not state.has_flag("dhan_free") and lifting(): return "hold: PULL DHAN FREE"
-		if state.carrying == "splint" and not state.has_flag("dhan_treated"): return "hold: SPLINT DHAN'S LEG"
+		if state.carrying.begins_with("splint") and not state.has_flag("dhan_treated"): return "hold: SPLINT DHAN'S LEG"
+		if state.carrying.begins_with("vial_"): return "hold: GIVE DHAN THE " + _vial_held()
 	return "Talk to " + crew_name(id).capitalize()
 
 func actor_interactable(id: String) -> bool:
@@ -743,9 +756,18 @@ func interact_actor(id: String) -> void:
 		if not state.has_flag("dhan_free") and lifting():
 			begin_hold(crew.ivo, 2.0, "PULL", _free_dhan, props.locker)
 			return
-		if state.has_flag("dhan_free") and state.carrying == "splint" and not state.has_flag("dhan_treated"):
+		if state.has_flag("dhan_free") and state.carrying.begins_with("splint") and not state.has_flag("dhan_treated"):
 			begin_hold(crew.ivo, 2.0, "SPLINT", func():
 				if perform("apply_splint").ok: say("splint_dhan"))
+			return
+		if state.has_flag("dhan_free") and state.carrying.begins_with("vial_"):
+			begin_hold(crew.ivo, 1.2, "GIVE", func():
+				var r := perform("give_vial")
+				if r.ok: say("vial_right_dhan")
+				elif r.get("wrong", false):
+					Sfx.play("hit", -10)
+					Haptics.play("jolt")
+					say("vial_wrong_dhan"))
 			return
 	if id == "ivo" and not state.dhan_alive(): return
 	open_chat(id)
@@ -885,11 +907,15 @@ func closeup_press(panel: String, part: String) -> void:
 						_bay_powered()
 					else: Haptics.play("jolt")
 		"medkit":
-			if part == "splint" and perform("take_splint").ok:
+			if part.begins_with("vial"):
+				_fumble_unless("mara", "fumble_vial_dhan")
+				perform("take_vial", part.right(1))
+			elif part == "splint" and perform("take_splint").ok:
 				announce("MEDICAL CABINET", "Splint kit and painkillers.")
 		"pilot":
 			match part:
 				"launch": fail_or(perform("launch"))
+				"thrust": _fire_thrusters()
 				"leave": stand()
 	if ui.mode == "closeup": ui.refresh_closeup()
 
@@ -1040,6 +1066,8 @@ func available_actions(id: String) -> Dictionary:
 		var task := str(_busy[id]).trim_suffix("_walk")
 		var b := {"none": "You are busy: %s Tell Johnny that plainly. Don't start anything else." % str(BUSY_TELL.get(task, "doing a task."))}
 		if task in ["lift_locker", "lift_battery", "carry_dhan", "hold_breaker"]: b[task] = "Johnny asked again: keep at it and remind him what you need from him."
+		if task == "release_clamps" and clamps_ready():
+			b["release_now"] = "Johnny says release / now: release the clamps (only works while his hold thrusters are firing)."
 		if task == "hold_breaker" and breaker_ready() and not breaker_held():
 			b["breaker_now"] = "Johnny says now / go / hold it: hold the breaker shut for a few seconds so he can press RESTART."
 		return b
@@ -1109,6 +1137,10 @@ func act_on_dialogue(id: String, action: String, message := "") -> String:
 				if _busy.get(id, "") != "hold_breaker_walk": return
 				_busy[id] = "hold_breaker"
 				say_again("breaker_ready_aaron"))
+		"release_now":
+			if not clamps_ready(): return "I'm not at the console yet."
+			if not thrusting(): return "Thrusters first, Johnny, or she drifts into the wall. Hit HOLD THRUSTERS, then tell me."
+			_release_now()
 		"breaker_now":
 			if not breaker_ready(): return "I'm not at the breaker yet. Give me a second."
 			_breaker_until = elapsed + BREAKER_HOLD
@@ -1255,6 +1287,20 @@ func _carry_dhan() -> void:
 		state.learn("dhan_aboard", "SHUTTLE: Dhan is strapped in."))
 
 ## The nearest walkable cell centre (the player can stand half over furniture).
+## The name on the vial Johnny is holding.
+func _vial_held() -> String:
+	var c: String = state.carrying
+	if not c.contains("vial_"): return ""
+	var names: Array = state.vial_names()
+	var i := int(c.right(1))
+	return str(names[i]) if i < names.size() else "VIAL"
+
+## Vial names in what Johnny said, for Aaron (he only knows what he's told).
+func _note_vials(message: String) -> void:
+	var m := message.to_upper()
+	for n in state.vial_names():
+		if m.contains(str(n)) or m.contains(str(n).left(5)): _vials_read[str(n)] = true
+
 ## Touching something nobody explained: the other crewmate isn't sure either and points
 ## Johnny to whoever knows (once each per run).
 func _fumble(id: String) -> void:
@@ -1291,8 +1337,12 @@ func _breaker_done() -> void:
 
 ## "Now!" to Aaron at the breaker is instant (no waiting on the AI): timing matters.
 func quick_action(id: String, message: String) -> Dictionary:
-	if id != "mara" or not breaker_ready() or breaker_held(): return {}
+	if id != "mara": return {}
 	var m := message.to_lower()
+	if clamps_ready() and RegEx.create_from_string("\\b(release|now|go|do it|open|let go|let her go)\\b").search(m) != null \
+			and RegEx.create_from_string("\\b(not|don't|dont|wait)\\b").search(m) == null:
+		return {"line": "Releasing! Hold her steady!" if thrusting() else "", "action": "release_now", "source": "offline"}
+	if not breaker_ready() or breaker_held(): return {}
 	if RegEx.create_from_string("\\b(now|go|hold( it)?|do it|press|push|close it|shut it|ready)\\b").search(m) == null: return {}
 	if RegEx.create_from_string("\\b(not|don't|dont|wait)\\b").search(m) != null: return {}
 	return {"line": "Holding it! Press RESTART!", "action": "breaker_now", "source": "offline"}
@@ -1303,6 +1353,8 @@ func timing_banner() -> String:
 	var e := Settings.button_label("interact")
 	if lifting() and not state.has_flag("dhan_free"): return "AARON IS LIFTING THE LOCKER  ·  HOLD %s ON DHAN TO PULL HIM OUT" % e
 	if _count.has("t"): return "LIFT TOGETHER  ·  PRESS %s WHEN AARON SAYS \"THREE!\"" % e
+	if thrusting() and not state.has_flag("clamps"): return "THRUSTERS HOLDING  ·  RADIO AARON \"RELEASE\" NOW (%s)" % Settings.button_label("radio_1")
+	if clamps_ready(): return "AARON IS AT THE CLAMP CONSOLE  ·  PRESS HOLD THRUSTERS, THEN RADIO \"RELEASE\""
 	if breaker_held(): return "AARON IS HOLDING THE BREAKER  ·  PRESS RESTART ON THE CABINET NOW"
 	if breaker_ready() and not state.powered(): return "AARON IS AT THE BAY BREAKER  ·  RADIO HIM \"NOW\" (%s), THEN PRESS RESTART" % Settings.button_label("radio_1")
 	return ""
@@ -1312,6 +1364,7 @@ func timing_left() -> float:
 	if lifting() and not state.has_flag("dhan_free"): return clampf((_lift_until - elapsed) / LIFT_HOLD, 0.0, 1.0)
 	if _count.has("t"): return clampf(1.0 - float(_count.t) / COUNT_THREE, 0.0, 1.0)
 	if breaker_held(): return clampf((_breaker_until - elapsed) / BREAKER_HOLD, 0.0, 1.0)
+	if thrusting() and not state.has_flag("clamps"): return clampf((_thrust_until - elapsed) / THRUST_HOLD, 0.0, 1.0)
 	return -1.0
 
 func _free_spot(at: Vector2) -> Vector2:
@@ -1330,20 +1383,48 @@ func _walk_player(delta: float) -> void:
 		_player_path.remove_at(0)
 
 ## Aaron opens the clamps, then runs aboard (M17). Launching before he's in = F4.
+## Aaron goes to the clamp console and waits for Johnny's mark (release_now).
 func _release_clamps() -> void:
 	_busy["mara"] = "release_clamps"
 	crew.mara.following = false
 	crew.mara.go_to(anchor("release_stand"), func():
+		if ending or _busy.get("mara", "") != "release_clamps": return
+		say_again("clamps_ready_aaron"))
+
+## Aaron is at the clamp console, waiting for "release".
+func clamps_ready() -> bool:
+	return _busy.get("mara", "") == "release_clamps" and not state.has_flag("clamps") and near(crew.mara.position, anchor("release_stand"), 40.0)
+
+func thrusting() -> bool:
+	return _thrust_until > 0.0 and elapsed < _thrust_until
+
+func _fire_thrusters() -> void:
+	if state.has_flag("clamps"): return
+	_thrust_until = elapsed + THRUST_HOLD
+	ship.thrust = 0.35
+	Sfx.play("launch", -20)
+	Haptics.play("heavy")
+	ui.shake(0.3)
+
+func _update_thrust() -> void:
+	if _thrust_until < 0.0 or elapsed < _thrust_until: return
+	_thrust_until = -1.0
+	if launching: return
+	ship.thrust = 0.0
+	if not state.has_flag("clamps"): say_again("thrust_out_aaron")
+
+## On Johnny's mark: the clamps open, Aaron runs aboard.
+func _release_now() -> void:
+	if not perform("release", "thrust").ok: return
+	_thrust_until = -1.0
+	ship.thrust = 0.0
+	marvis_say(["clamps_releasing"])
+	crew.mara.go_to(anchor("board_aaron"), func():
+		_busy.erase("mara")
 		if ending: return
-		say("aaron_releasing")
-		if perform("release").ok:
-			marvis_say(["clamps_releasing"])
-		crew.mara.go_to(anchor("board_aaron"), func():
-			_busy.erase("mara")
-			if ending: return
-			crew.mara.visible = false
-			perform("aaron_aboard")
-			say("aaron_boarded")))
+		crew.mara.visible = false
+		perform("aaron_aboard")
+		say("aaron_boarded"))
 
 # --- What the player is stuck on, for nudges and the AI (section 8) -----------------
 
@@ -1367,7 +1448,7 @@ func next_step() -> String:
 		return "choose"
 	if state.dhan_alive() and not state.has_flag("dhan_aboard"): return "carry"
 	if not seated: return "seat"
-	if not state.has_flag("clamps"): return "release"
+	if not state.has_flag("clamps"): return "release_mark" if clamps_ready() else "release"
 	return "launch"
 
 func _progress() -> void:
@@ -1402,10 +1483,14 @@ func talking_points(id: String) -> Array:
 			pts.append("The lab battery could power the clamps, but it keeps the freezer and the samples alive.")
 			pts.append("Only if Johnny asks about saving the samples or other options: there's an insulated case aboard the shuttle that fits one rack. You can fetch it.")
 		if state.dhan_alive() and state.has_flag("dhan_free") and not state.has_flag("dhan_treated") and state.stage() >= 2:
-			pts.append("Dhan's leg needs immobilising and he needs painkillers. The medbay cabinet should have a splint kit.")
+			pts.append("Dhan needs a splint on his leg and a painkiller. Both are in the medbay cabinet.")
+		if state.dhan_alive() and not state.has_flag("vial_given") and not state.has_flag("vial_wrong"):
+			pts.append("You know medicine. The medbay cabinet has three vials and only one is a safe painkiller. You only know which once Johnny reads you the labels (vials_johnny_read_out). Never guess a vial.")
 		if step == "bat_lift": pts.append("The battery is too heavy for one person; you can lift it together on a count of three.")
 		if step == "carry": pts.append("The bay has power. Dhan needs carrying to the shuttle; you can do it together.")
-		if step in ["seat", "release"]: pts.append("You'll release the clamps from the bay console, but only once Johnny is in the pilot seat.")
+		if step in ["seat", "release"]: pts.append("You'll release the clamps from the bay console once Johnny is in the pilot seat. He fires the hold thrusters and gives you the word.")
+		if step == "release_mark": pts.append("You're at the clamp console. Johnny presses HOLD THRUSTERS on the pilot panel, then says 'release'. Releasing with cold engines would drift the shuttle into the wall.")
+		if step == "eng_breaker": pts.append("You can go hold the shuttle bay breaker shut while Johnny presses RESTART in engineering.")
 		if state.has_flag("dhan_dead"): pts.append("Dhan has died. You are grieving but you still want to get home.")
 	else:
 		pts.append("You are pinned or sitting, in pain. You joke to hide it. You can't walk anywhere.")
@@ -1417,6 +1502,7 @@ func talking_points(id: String) -> Array:
 		if step in ["eng_isolate", "choose"] and room == "ENGINEERING":
 			pts.append("Before touching the cabinet, the big isolator handle by the door must be pulled.")
 		if step == "eng_test": pts.append("Once the new fuse is in, press TEST on the cabinet.")
+		if step == "release_mark": pts.append("Aaron is at the clamp console. Johnny presses HOLD THRUSTERS on the pilot panel, then tells Aaron 'release'.")
 		if step == "eng_breaker": pts.append("RESTART only works while someone holds the shuttle bay breaker shut. Johnny can't be in both places: Aaron has to go to the bay power panel.")
 		if step == "eng_restart": pts.append("Aaron is at the bay breaker. Johnny tells him 'now', then presses RESTART on the cabinet.")
 	return pts
@@ -1424,6 +1510,7 @@ func talking_points(id: String) -> Array:
 ## Everything the model may use about the world, for one crewmate (escape_dialogue.py).
 func snapshot(id: String, message := "") -> Dictionary:
 	_consulted[id] = true  # Johnny has talked to this crewmate (see _fumble)
+	if id == "mara": _note_vials(message)
 	var stage: int = state.stage()
 	var step := next_step()
 	var snap := {"npc_id": id, "state_version": state.version, "objective": state.objective(),
@@ -1460,6 +1547,14 @@ func snapshot(id: String, message := "") -> Dictionary:
 			snap["short_toggle"] = ["left", "middle", "right"][state.right_toggle()]
 			told[state.short_branch()] = "flip the %s toggle down" % ["left", "middle", "right"][state.right_toggle()].to_upper()
 		snap["codes_johnny_read_out"] = told
+	if id == "mara":
+		# Aaron knows medicine, but only the vials Johnny read out to him.
+		var meds := {}
+		for n in _vials_read:
+			meds[n] = {"painkiller": "the safe painkiller for Dhan: give him this one",
+				"sedative": "a strong sedative: it would knock him out, don't",
+				"stimulant": "a heart stimulant: dangerous for him now, don't"}.get(Rules.vial_kind(n), "unknown")
+		snap["vials_johnny_read_out"] = meds
 		if state.has_flag("battery_out") or state.carrying == "battery cart":
 			snap["lab_battery_selector"] = "position " + state.right_selector()
 	else:
@@ -1623,6 +1718,15 @@ func offline_response(id: String, message: String, answering := "") -> Dictionar
 	elif not query and _mentions(m, ["lift", "hold", "raise", "help", "grab", "locker", "off him", "off his", "get it off", "move it", "push", "pick"]) and acts.has("lift_locker"):
 		action = "lift_locker"
 		line = "On it. Get ready to pull him."
+	elif _mentions(m, ["vial", "painkiller", "pain killer", "medicine", "drug", "label", "morph", "analv", "dolor", "somna", "dormi", "lethe", "adren", "vigor", "kardi"]) and not state.vial_names().is_empty():
+		_note_vials(message)
+		var said: Array = []
+		for n in state.vial_names(): if _vials_read.has(str(n)): said.append(str(n))
+		if said.is_empty(): line = "Read me the labels on the vials. I'll tell you which one is safe for him."
+		else:
+			var safe: Array = said.filter(func(n): return Rules.vial_kind(n) == "painkiller")
+			if not safe.is_empty(): line = "%s. That's the painkiller. Give him that one, nothing else." % safe[0].capitalize()
+			else: line = "%s? Don't give him that. Read me the other labels." % said[0].capitalize()
 	elif not query and _mentions(m, ["breaker", "bay panel", "power panel", "hold it", "hold the"]) and acts.has("hold_breaker"):
 		action = "hold_breaker"
 		line = "On my way to the bay breaker. Tell me when you're at the cabinet."
@@ -1881,6 +1985,9 @@ func _restore_progress(data: Dictionary) -> void:
 			"toggle_for": {"1": int(pz.toggle_for.get("1", 0)), "2": int(pz.toggle_for.get("2", 1)), "3": int(pz.toggle_for.get("3", 2))},
 			"selector": int(pz.get("selector", 0))
 		}
+		if pz.get("vials") is Array and pz.vials.size() == 3:
+			state.puzzle["vials"] = pz.vials.map(func(v): return str(v))
+			state.puzzle["painkiller"] = int(pz.get("painkiller", 0))
 	state.vitality = clampf(float(s.get("vitality", 100.0)), 0.0, 100.0)
 	for f in s.get("fails", []): state.fails[str(f)] = true
 	state.promises = s.get("promises", {}).duplicate()
@@ -1952,7 +2059,8 @@ func _resume_tasks() -> void:
 				if _task_arg.has("mara"): _fetch_fuse(str(_task_arg.mara))
 			"release_clamps":
 				# Seats aren't saved: Aaron waits for Johnny to sit and ask again.
-				if state.has_flag("clamps") and not state.has_flag("aaron_aboard"):
+				if not state.has_flag("clamps"): _release_clamps()
+				elif not state.has_flag("aaron_aboard"):
 					crew.mara.go_to(anchor("board_aaron"), func():
 						crew.mara.visible = false
 						perform("aaron_aboard"))

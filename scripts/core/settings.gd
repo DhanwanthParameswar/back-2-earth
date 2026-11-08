@@ -159,11 +159,29 @@ func controller_name() -> String:
 	return Input.get_joy_name(pads[0]) if not pads.is_empty() else ""
 
 
+var _axis_held := {}      # joypad axis -> past the press threshold
+var _axis_seen := {}      # joypad axis -> [last event id, its answer]
+
+## Triggers and stick tilts arrive as a stream of motion events while held. True only for
+## the one that crosses the press threshold, so a trigger pull or a tilt counts once.
+## Every other event (keys, buttons) is always fresh.
+func fresh_press(event: InputEvent) -> bool:
+	if not event is InputEventJoypadMotion: return true
+	var key := "%d:%d" % [event.device, event.axis]
+	var id := event.get_instance_id()
+	if _axis_seen.has(key) and _axis_seen[key][0] == id: return _axis_seen[key][1]
+	var down: bool = absf(event.axis_value) > 0.5
+	var fresh: bool = down and not _axis_held.get(key, false)
+	_axis_held[key] = down
+	_axis_seen[key] = [id, fresh]
+	return fresh
+
+
 ## The button to show in a hint for an action, for whatever the player is using.
 func button_label(action: String) -> String:
 	if using_controller:
 		return {"interact": "A", "confirm": "A", "back": "B", "talk": "X", "flashlight": "Y",
-			"radio_1": "LB", "radio_2": "RB", "radio_3": "L3", "deck_map": "BACK", "pause": "START", "move": "L-STICK"}.get(action, "?")
+			"radio_1": "LB", "radio_2": "RB", "radio_3": "RT", "deck_map": "LT", "pause": "START", "move": "L-STICK"}.get(action, "?")
 	return {"interact": "E", "confirm": "ENTER", "back": "ESC", "talk": "SPACE", "flashlight": "F",
 		"radio_1": "1", "radio_2": "2", "radio_3": "3", "deck_map": "TAB", "pause": "ESC", "move": "WASD"}.get(action, "?")
 

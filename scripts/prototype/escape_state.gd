@@ -7,9 +7,16 @@ extends RefCounted
 const FLAGS := ["dhan_free", "locker_clear", "isolated", "code_read", "fuse_installed",
 	"fault_found", "aux_off", "engineering_power", "freezer_off", "battery_out",
 	"battery_loaded", "battery_taken", "battery_connected", "case_requested", "case_arrived",
-	"samples_saved", "samples_wrong", "splint_taken", "dhan_treated", "dhan_dead",
+	"samples_saved", "samples_wrong", "splint_taken", "dhan_treated", "dhan_dead", "vial_given", "vial_wrong",
 	"dhan_aboard", "clamps", "aaron_aboard", "departed"]
-const CARRY := ["", "fuse_A", "fuse_B", "fuse_C", "splint", "battery cart"]
+const CARRY := ["", "fuse_A", "fuse_B", "fuse_C", "splint", "battery cart",
+	"vial_0", "vial_1", "vial_2", "splint_vial_0", "splint_vial_1", "splint_vial_2"]
+## The medbay cabinet's three vials (names change every run). Only Aaron knows which is which.
+const PAINKILLERS := ["MORPHIDONE", "ANALVEX", "DOLORIN"]
+const SEDATIVES := ["SOMNAREX", "DORMICAL", "LETHEX"]
+const STIMULANTS := ["ADRENACOR", "VIGORAL", "KARDIX"]
+const VIAL_BOOST := 12.0        # the right painkiller
+const VIAL_COST := 8.0          # a wrong vial
 const BOXES := ["A", "B", "C"]
 const CODES := [3, 6, 9]
 const SELECTOR := ["I", "II", "III"]
@@ -66,6 +73,10 @@ func new_puzzle(seed_value := -1) -> void:
 		"toggle_for": {"1": toggles[0], "2": toggles[1], "3": toggles[2]},
 		"selector": rng.randi_range(0, 2),
 	}
+	var vials := [PAINKILLERS[rng.randi_range(0, 2)], SEDATIVES[rng.randi_range(0, 2)], STIMULANTS[rng.randi_range(0, 2)]]
+	_shuffle(vials, rng)
+	puzzle["vials"] = vials
+	puzzle["painkiller"] = vials.find(vials.filter(func(v): return v in PAINKILLERS)[0])
 
 func _shuffle(list: Array, rng: RandomNumberGenerator) -> void:
 	for i in range(list.size() - 1, 0, -1):
@@ -75,6 +86,17 @@ func _shuffle(list: Array, rng: RandomNumberGenerator) -> void:
 		list[j] = t
 
 func fault_code() -> String: return "E-%d" % int(puzzle.code)
+func vial_names() -> Array:
+	return puzzle.get("vials", [])
+
+## What a vial name is, for Aaron: "painkiller", "sedative", "stimulant" or "".
+static func vial_kind(name: String) -> String:
+	var n := name.to_upper()
+	if n in PAINKILLERS: return "painkiller"
+	if n in SEDATIVES: return "sedative"
+	if n in STIMULANTS: return "stimulant"
+	return ""
+
 func right_fuse() -> String: return str(puzzle.fuse_for.get(str(int(puzzle.code)), ""))
 func fuse_for(code: int) -> String: return str(puzzle.fuse_for.get(str(code), ""))
 func short_branch() -> String: return "AUX-%d" % int(puzzle.aux)
@@ -249,13 +271,32 @@ func apply(action: String, arg := "") -> Dictionary:
 			return _grant("battery_connected", "")
 		"take_splint":
 			if has_flag("splint_taken"): return _no("You already took the splint kit.")
-			if carrying != "": return _no("Your hands are full.")
-			carrying = "splint"
+			if carrying != "" and not carrying.begins_with("vial_"): return _no("Your hands are full.")
+			carrying = "splint" + ("_" + carrying if carrying != "" else "")
 			return _grant("splint_taken", "")
-		"apply_splint":
-			if carrying != "splint": return _no("You need the splint kit from the medbay.")
+		"take_vial":
+			if has_flag("vial_given") or has_flag("vial_wrong") or carrying.contains("vial_"): return _no("You've already taken a vial.")
+			if carrying != "" and carrying != "splint": return _no("Your hands are full.")
+			if not arg in ["0", "1", "2"]: return _no("")
+			carrying = ("splint_" if carrying == "splint" else "") + "vial_" + arg
+			version += 1
+			return {"ok": true, "line": ""}
+		"give_vial":
+			if not carrying.contains("vial_"): return _no("You need a vial from the medbay cabinet.")
 			if not dhan_alive(): return _no("It's too late for that.")
-			carrying = ""
+			var index := int(carrying.right(1))
+			carrying = "splint" if carrying.begins_with("splint") else ""
+			if index == int(puzzle.get("painkiller", -1)):
+				vitality = minf(100.0, vitality + VIAL_BOOST)
+				return _grant("vial_given", "")
+			flags["vial_wrong"] = true
+			version += 1
+			hurt(VIAL_COST)
+			return {"ok": false, "line": "", "wrong": true}
+		"apply_splint":
+			if not carrying.begins_with("splint"): return _no("You need the splint kit from the medbay.")
+			if not dhan_alive(): return _no("It's too late for that.")
+			carrying = carrying.trim_prefix("splint").trim_prefix("_")
 			vitality = minf(100.0, vitality + SPLINT_BOOST)
 			return _grant("dhan_treated", "")
 		"carry_dhan":
@@ -265,6 +306,8 @@ func apply(action: String, arg := "") -> Dictionary:
 		"release":
 			if not powered(): return _no("Docking controls have no power.")
 			if has_flag("clamps"): return _no("The clamps are already open.")
+			# On Johnny's mark: the clamps only open while the hold thrusters keep the shuttle steady.
+			if arg != "thrust": return _no("The clamps stay shut with the engines cold. The shuttle would drift into the wall. Fire the hold thrusters first.")
 			return _grant("clamps", "")
 		"aaron_aboard":
 			if not has_flag("clamps"): return _no("")

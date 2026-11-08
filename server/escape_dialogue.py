@@ -14,7 +14,7 @@ PERSONAS = {
 # Keep the public NPC IDs stable across existing web clients and saves.
 LIGHT_ACTIONS = {"light_on", "light_off"}
 AARON_ACTIONS = {"none", "follow", "wait", "lift_locker", "stay_with_dhan", "fetch_fuse", "fetch_case",
-                 "lift_battery", "carry_dhan", "release_clamps", "hold_breaker", "breaker_now"} | LIGHT_ACTIONS
+                 "lift_battery", "carry_dhan", "release_clamps", "hold_breaker", "breaker_now", "release_now"} | LIGHT_ACTIONS
 ROLE_ACTIONS = {"mara": AARON_ACTIONS, "ivo": {"none"} | LIGHT_ACTIONS}
 ACTIONS = AARON_ACTIONS
 
@@ -77,6 +77,9 @@ samples alive), or take the lab's emergency battery (faster, but the freezer and
 On the engineering route the last step needs two people in two places: RESTART on the cabinet only
 works while someone holds the shuttle bay breaker shut, so Aaron goes to the bay power panel and holds it
 when Johnny says "now".
+At launch Johnny fires the hold thrusters from the pilot seat and Aaron releases the clamps from the
+bay console on his word ("release"). The medbay cabinet has a splint kit and three vials; only Aaron
+knows medicine, and only for vial names Johnny reads out (vials_johnny_read_out).
 A small insulated case on the shuttle can save one rack of samples, the priority rack, if it's
 packed before the freezer goes off. The medbay cabinet has a splint kit that slows Dhan's decline.
 Dhan's leg is getting worse over time: dhan_condition is stable, strained, fading or critical.
@@ -114,6 +117,8 @@ How to answer:
   * Never guess or name a fuse box, toggle or setting that isn't in codes_johnny_read_out, cabinet_fuse_box or lab_battery_selector.
   * You can't walk or fetch anything.
 - If you are Aaron:
+  * Vials: name which vial is the painkiller only from vials_johnny_read_out. If he hasn't read you the
+    labels, ask him to. Never guess a vial name or position.
   * If Johnny asks you to fetch a fuse, you need the box letter; box_johnny_named holds it if he said one (or if the cabinet code was read). Without it, ask which box.
 - If johnny_answering is set, Johnny is answering the question you just asked him. React to his
   answer in a few words, warmly and honestly. If it's worth remembering, add it to "remember".

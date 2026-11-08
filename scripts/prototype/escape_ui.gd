@@ -51,6 +51,7 @@ var content_width := 490.0
 var _quick_replies := false
 var closeup
 var closeup_panel := ""
+var _return_panel := ""          # the close-up a chat was opened from: back to it when the chat closes
 var aux_cover_open := false
 var freezer_cover_open := false
 var _fail_layer: Control
@@ -215,7 +216,13 @@ func update_hud() -> void:
 		_fit_tag()
 
 func _carrying(c: String) -> String:
-	return "FUSE · BOX " + c.substr(5) if c.begins_with("fuse_") else c.to_upper()
+	if c.begins_with("fuse_"): return "FUSE · BOX " + c.substr(5)
+	if c.contains("vial_"):
+		var names: Array = mission.state.vial_names()
+		var i := int(c.right(1))
+		var vial: String = str(names[i]) if i < names.size() else "VIAL"
+		return ("SPLINT + " if c.begins_with("splint") else "") + vial
+	return c.to_upper()
 
 ## The corner tag sizes itself to its text, bottom right.
 func _fit_tag() -> void:
@@ -313,7 +320,7 @@ func show_caption(speaker: String, line: String, who := "") -> void:
 	toast_time = 4.0 + minf(line.length() * 0.05, 8.0)
 
 func _panel(title: String, new_mode: String, width := 490.0) -> void:
-	close()
+	_close()
 	mode = new_mode
 	content_width = width
 	modal.add_theme_stylebox_override("panel", Style.panel())
@@ -347,6 +354,13 @@ func _button(text: String, callback: Callable, parent: Node = null) -> Button:
 	return button
 
 func close(stop_voice := true) -> void:
+	var back_to := _return_panel if mode == "chat" else ""
+	_return_panel = ""
+	_close(stop_voice)
+	if back_to != "" and mission != null and mission.active and not mission.ending and (back_to == "pilot") == mission.seated:
+		show_closeup(back_to)
+
+func _close(stop_voice := true) -> void:
 	if radio != null: radio.cancel(stop_voice)
 	voice_mode = false
 	voice_status = null
@@ -377,7 +391,7 @@ func open_chat(id: String) -> void:
 	if Settings.voice_chat and radio.speech_supported():
 		_open_voice_chat(id)
 		return
-	close()
+	_close()
 	mode = "chat"
 	chat_id = id
 	_chat_frame(id)
@@ -423,15 +437,27 @@ func _chat_frame(id: String) -> void:
 	chat_aside = _text("", 9, Style.MUTED)
 
 func _open_voice_chat(id: String) -> void:
-	close()
+	_close()
 	mode = "chat"
 	voice_mode = true
 	chat_id = id
 	_chat_frame(id)
 	voice_status = _text("Press %s to talk" % Settings.button_label("talk"), 10, Style.CYAN_BRIGHT)
-	content.add_child(Style.label("[%s] talk / send      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")], 9, Style.MUTED))
+	var hint_text := "[%s] talk / send      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")]
+	# Controller: the mic is the way to talk; a row of ready-made lines is there too (A).
+	_quick_replies = Settings.using_controller
+	if _quick_replies:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		content.add_child(row)
+		for line in _suggestions(id):
+			var b := _button(line, _send.bind(line), row)
+			b.add_theme_font_size_override("font_size", 9)
+		hint_text = "[%s] talk / send      [A] say a line      [%s] close" % [Settings.button_label("talk"), Settings.button_label("back")]
+	content.add_child(Style.label(hint_text, 9, Style.MUTED))
 	modal.show()
 	_place_modal()
+	if _quick_replies: _focus_first_button.call_deferred()
 	# Tap to talk: the mic stays off until you press the talk button.
 
 func _voice_open() -> bool:
@@ -464,11 +490,16 @@ func _suggestions(id: String) -> Array[String]:
 	var out: Array[String] = []
 	if id == "marvis": return ["Status report.", "Power status.", "Crew medical."]
 	var acts: Dictionary = mission.available_actions(id)
+	if acts.has("breaker_now"): out.append("Now!")
+	if acts.has("release_now"): out.append("Release!")
+	if acts.has("hold_breaker"): out.append("Hold the bay breaker.")
 	if acts.has("lift_locker"): out.append("Lift the locker off him!")
 	if acts.has("lift_battery"): out.append("Help me lift the battery.")
 	if acts.has("carry_dhan"): out.append("Help me carry Dhan.")
 	if acts.has("release_clamps"): out.append("Release the clamps.")
 	if acts.has("fetch_case"): out.append("Can we save the samples?")
+	if id == "mara" and mission.room == "MEDBAY" and not mission.state.vial_names().is_empty():
+		out.append("The vials say %s." % ", ".join(mission.state.vial_names()))
 	if id == "ivo":
 		out.append("The code says E-%d." % int(mission.state.puzzle.code) if mission.state.has_flag("code_read") else "What do I do?")
 		out.append("How are you holding up?")
@@ -581,14 +612,22 @@ func refresh_closeup() -> void:
 			parts.append({"id": "connect", "kind": "button", "rect": Rect2(370, 46, 88, 30), "label": "CONNECT", "color": Color("9bace8"), "enabled": s.carrying == "battery cart"})
 		"medkit":
 			parts.append({"id": "splint", "kind": "box", "rect": Rect2(28, 34, 120, 110), "label": "SPLINT KIT" if not s.has_flag("splint_taken") else "(TAKEN)", "color": Color("ef8a81"), "enabled": not s.has_flag("splint_taken")})
-			parts.append({"id": "bandage", "kind": "box", "rect": Rect2(176, 34, 120, 110), "label": "BANDAGES: EMPTY", "color": Color("ef8a81"), "enabled": false})
-			parts.append({"id": "sedative", "kind": "box", "rect": Rect2(324, 34, 120, 110), "label": "SEDATIVES: LOCKED", "color": Color("ef8a81"), "enabled": false})
+			# Three vials, names only. Aaron knows which one is the painkiller (read him the labels).
+			var names: Array = s.vial_names()
+			var used: bool = s.has_flag("vial_given") or s.has_flag("vial_wrong") or s.carrying.contains("vial_")
+			for i in names.size():
+				parts.append({"id": "vial%d" % i, "kind": "box", "rect": Rect2(176 + i * 96, 50, 84, 78), "label": str(names[i]), "color": Color("c9a6ff"), "enabled": not used})
+			if not names.is_empty():
+				parts.append({"id": "vials_note", "kind": "display", "rect": Rect2(176, 8, 276, 34), "text": "PAIN RELIEF: ONE OF THREE.\nNO DOSAGE CARD." if not used else "VIAL TAKEN."})
+				mission.state.learn("vials", "MEDBAY: Three vials: %s. Only one is a painkiller. Aaron knows medicine." % ", ".join(names))
 		"pilot":
 			var dhan := "NO VITAL SIGNS" if not s.dhan_alive() else ("ABOARD" if s.has_flag("dhan_aboard") else "NOT ABOARD")
 			var screen := ["CLAMPS: " + ("RELEASED" if s.has_flag("clamps") else "!ENGAGED"), "DHAN: " + dhan, "AARON: " + ("ABOARD" if s.has_flag("aaron_aboard") else "OUTSIDE"), "COURSE: EARTH"]
 			for i in screen.size():
 				if screen[i].contains("!"): screen[i] = "!" + screen[i].replace("!", "")
 			parts.append({"id": "display", "kind": "display", "rect": Rect2(16, 16, 300, 74), "text": "\n".join(screen)})
+			if not s.has_flag("clamps"):
+				parts.append({"id": "thrust", "kind": "button", "rect": Rect2(16, 112, 150, 30), "label": "HOLDING..." if mission.thrusting() else "HOLD THRUSTERS", "color": Color("ffd84d"), "enabled": not mission.thrusting()})
 			parts.append({"id": "launch", "kind": "button", "rect": Rect2(340, 22, 112, 40), "label": "LAUNCH", "color": Color("ff8a5c")})
 			parts.append({"id": "leave", "kind": "button", "rect": Rect2(340, 84, 112, 28), "label": "LEAVE SEAT", "color": Color("9aa0c0")})
 	closeup.set_parts(parts)
@@ -778,7 +817,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if not modal.visible: return
-	if not event.is_pressed() or event.is_echo(): return
+	if not event.is_pressed() or event.is_echo() or not Settings.fresh_press(event): return
 	if event.is_action_pressed("talk") and _voice_open():
 		if radio.listening: radio.finish_listening()   # tap again: send
 		elif not radio.busy: radio.listen()
@@ -789,9 +828,12 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseButton or event is InputEventScreenTouch: return
 		if event.is_action_pressed("back") or (event.is_action_pressed("pause") and not event is InputEventKey):
 			close()
-		elif closeup_panel == "pilot" and (event.is_action_pressed("radio_1") or event.is_action_pressed("radio_2") or event.is_action_pressed("radio_3")):
+		elif event.is_action_pressed("radio_1") or event.is_action_pressed("radio_2") or event.is_action_pressed("radio_3"):
+			# Radio from any panel ("now!" from the cabinet); the chat brings you back here.
 			var id := "mara" if event.is_action_pressed("radio_1") else "ivo" if event.is_action_pressed("radio_2") else "marvis"
+			var back_to := closeup_panel
 			mission.open_chat(id)
+			_return_panel = back_to
 		elif closeup != null and is_instance_valid(closeup):
 			closeup.handle_key(event)
 		get_viewport().set_input_as_handled()

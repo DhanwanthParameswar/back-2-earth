@@ -8,7 +8,8 @@ extends RefCounted
 ##   left stick / d-pad  move            A  use / talk / confirm
 ##   B  back / close                     X  push-to-talk (voice chat)
 ##   Y  flashlight                       LB / RB  radio Aaron / Dhan
-##   Back (Select)  deck map             Start  pause
+##   RT (or L3)  radio M.A.R.V.I.S.      LT (or Back)  crew tablet
+##   Start  pause
 
 const KEYS := {
 	"move_left": [KEY_A, KEY_LEFT],
@@ -49,8 +50,10 @@ const PAD_BUTTONS := {
 	"back": [JOY_BUTTON_B],
 }
 
-## action: [axis, direction]
+## action: [axis, direction]. Triggers count once per pull (Settings.fresh_press).
 const PAD_AXES := {
+	"radio_3": [JOY_AXIS_TRIGGER_RIGHT, 1.0],
+	"deck_map": [JOY_AXIS_TRIGGER_LEFT, 1.0],
 	"move_left": [JOY_AXIS_LEFT_X, -1.0],
 	"move_right": [JOY_AXIS_LEFT_X, 1.0],
 	"move_up": [JOY_AXIS_LEFT_Y, -1.0],

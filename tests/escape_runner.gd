@@ -382,10 +382,17 @@ func _board_and_launch(mission) -> void:
 	mission.use_prop("shuttle")
 	check(mission.seated and mission.ui.closeup_panel == "pilot", "Johnny takes the pilot seat")
 	await _capture("pilot")
-	check(mission.act_on_dialogue("mara", "release_clamps") == "", "Seated: Aaron goes to release")
+	check(mission.act_on_dialogue("mara", "release_clamps") == "", "Seated: Aaron goes to the clamp console")
 	await _settle(mission)
+	check(mission.clamps_ready() and not s.has_flag("clamps"), "He waits at the console for Johnny's word")
+	check(mission.timing_banner().contains("HOLD THRUSTERS"), "The banner says: hold thrusters, then radio 'release'")
+	var early: Dictionary = mission.quick_action("mara", "release!")
+	check(str(early.get("action", "")) == "release_now" and mission.act_on_dialogue("mara", "release_now").contains("Thrusters first"), "Releasing with cold engines is refused")
+	mission.closeup_press("pilot", "thrust")
+	check(mission.thrusting() and mission.timing_left() > 0.9, "Hold thrusters fire, with a timer")
+	check(mission.act_on_dialogue("mara", "release_now") == "" and s.has_flag("clamps"), "On Johnny's mark the clamps open")
 	await _settle(mission)
-	check(s.has_flag("clamps") and s.has_flag("aaron_aboard"), "Aaron releases the clamps and boards")
+	check(s.has_flag("aaron_aboard"), "Aaron runs aboard")
 	mission.closeup_press("pilot", "launch")
 	check(mission.ending and mission.launching and not mission.ui.is_open(), "Launch: the sequence starts, controls lock")
 	await get_tree().create_timer(1.6).timeout
@@ -684,6 +691,21 @@ func _test_speech_and_voices() -> void:
 	cu._gui_input(click)
 	check(fired[0] == "go", "A click reaches a button under a screen")
 	cu.queue_free()
+	# Medbay vials: only Aaron knows which is the painkiller, and only once he's read the labels.
+	var mv = await _new_mission()
+	var sv = mv.state
+	var names: Array = sv.vial_names()
+	check(names.size() == 3 and Rules.vial_kind(names[sv.puzzle.painkiller]) == "painkiller", "Three vials, one painkiller")
+	check(mv.offline_response("mara", "which vial is the painkiller?").line.contains("labels"), "Aaron asks for the labels first")
+	var reply: String = mv.offline_response("mara", "the vials say " + ", ".join(names)).line
+	check(reply.to_upper().contains(str(names[sv.puzzle.painkiller])), "...then names the painkiller (got: %s)" % reply)
+	check(mv.snapshot("mara", "it says " + str(names[0])).vials_johnny_read_out.has(str(names[0])), "The AI only knows vials Johnny read out")
+	var wrong_i: int = (int(sv.puzzle.painkiller) + 1) % 3
+	sv.flags["dhan_free"] = true
+	check(sv.apply("take_vial", str(wrong_i)).ok and sv.carrying == "vial_%d" % wrong_i, "Take a vial")
+	var hp: float = sv.vitality
+	check(not sv.apply("give_vial").ok and sv.vitality < hp and sv.has_flag("vial_wrong"), "The wrong vial hurts Dhan")
+	await _free(mv)
 	# Asking again while Aaron is on his way to the locker carries on, it doesn't block.
 	var m3 = await _new_mission()
 	await _advance(m3, 2.0)

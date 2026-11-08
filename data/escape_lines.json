@@ -28,7 +28,7 @@
   "lift_count_drop": {"who": "aaron", "text": "Ow. Okay. Again. Lift on three."},
   "lift_count_done": {"who": "aaron", "text": "Got it. Now push the cart to the shuttle bay."},
 
-  "enter_medbay_aaron": {"who": "aaron", "text": "There should be splints in that cabinet."},
+  "enter_medbay_aaron": {"who": "aaron", "text": "Splints are in that cabinet. Vials too. Read me the labels before you give him anything."},
   "splint_dhan": {"who": "dhan", "text": "Oh, that's much better. Thank you."},
   "galley_aaron": {"who": "aaron", "text": "Kien was so excited about real food."},
 
@@ -94,8 +94,15 @@
   "nudge_carry_2": {"who": "aaron", "text": "Ask me to help carry Dhan. He can't walk it alone."},
   "nudge_seat_1": {"who": "aaron", "text": "Someone has to fly this thing, Captain."},
   "nudge_seat_2": {"who": "aaron", "text": "Pilot seat. Then tell me to release the clamps."},
-  "nudge_release_1": {"who": "aaron", "text": "The clamp console is right here. Tell me when."},
-  "nudge_release_2": {"who": "aaron", "text": "Tell me to release the clamps."},
+  "nudge_release_1": {"who": "aaron", "text": "I'll work the clamps from the console here. Tell me to release them."},
+  "nudge_release_2": {"who": "aaron", "text": "Tell me to release the clamps. Then fire the thrusters and give me the word."},
+  "clamps_ready_aaron": {"who": "aaron", "text": "I'm at the clamp console. Hit HOLD THRUSTERS on your panel, then tell me 'release'."},
+  "thrust_out_aaron": {"who": "aaron", "text": "Thrusters cut out. Fire them again, then tell me 'release'."},
+  "vial_right_dhan": {"who": "dhan", "text": "Oh... that's better. The pain's going. Thanks, Captain."},
+  "vial_wrong_dhan": {"who": "dhan", "text": "[gasps] That's not a painkiller. My heart's pounding."},
+  "fumble_vial_dhan": {"who": "dhan", "text": "Do you know what's in those? I don't. Aaron knows medicine. Read him the labels."},
+  "nudge_release_mark_1": {"who": "aaron", "text": "I'm at the console. Hold thrusters first, then give me the word."},
+  "nudge_release_mark_2": {"who": "aaron", "text": "Press HOLD THRUSTERS, then say 'release'."},
   "nudge_launch_1": {"who": "aaron", "text": "Everyone's in. Your call, Captain."},
   "nudge_launch_2": {"who": "aaron", "text": "Launch, Johnny."}
  },

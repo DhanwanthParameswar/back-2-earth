@@ -28,9 +28,10 @@ def vector(value, signed=False):
 # scripts/core/save_game.gd and the lists in scripts/prototype/escape_state.gd.
 FLAGS_V2 = set('''dhan_free locker_clear isolated code_read fuse_installed fault_found aux_off
 engineering_power freezer_off battery_out battery_loaded battery_taken battery_connected case_requested
-case_arrived samples_saved samples_wrong splint_taken dhan_treated dhan_dead dhan_aboard clamps aaron_aboard
+case_arrived samples_saved samples_wrong splint_taken dhan_treated dhan_dead vial_given vial_wrong dhan_aboard clamps aaron_aboard
 departed'''.split())
-CARRY_V2 = ('', 'fuse_A', 'fuse_B', 'fuse_C', 'splint', 'battery cart')
+CARRY_V2 = ('', 'fuse_A', 'fuse_B', 'fuse_C', 'splint', 'battery cart',
+            'vial_0', 'vial_1', 'vial_2', 'splint_vial_0', 'splint_vial_1', 'splint_vial_2')
 TASKS_V2 = ('', 'lift_locker', 'stay_with_dhan', 'fetch_fuse', 'fetch_case', 'lift_battery', 'carry_dhan', 'release_clamps', 'hold_breaker')
 POSES = ('stand', 'pinned', 'straining', 'sit', 'carried', 'dead')
 FAILS = ('F1', 'F2', 'F3', 'F4', 'F5')
@@ -46,7 +47,12 @@ def whole(value, options):
 
 
 def valid_puzzle(p):
-    if not isinstance(p, dict) or set(p) != {'code', 'fuse_for', 'aux', 'toggle_for', 'selector'}:
+    base = {'code', 'fuse_for', 'aux', 'toggle_for', 'selector'}
+    if not isinstance(p, dict) or set(p) not in (base, base | {'vials', 'painkiller'}):
+        return False
+    if 'vials' in p and (not isinstance(p['vials'], list) or len(p['vials']) != 3
+                         or any(not isinstance(v, str) or not 0 < len(v) <= 16 for v in p['vials'])
+                         or not whole(p['painkiller'], (0, 1, 2))):
         return False
     if not whole(p['code'], (3, 6, 9)) or not whole(p['aux'], (1, 2, 3)) or not whole(p['selector'], (0, 1, 2)):
         return False

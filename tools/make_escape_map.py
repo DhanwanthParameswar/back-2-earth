@@ -156,7 +156,7 @@ PROPS = {
 
 # Named spots the story uses (bottom-centre, tiles).
 ANCHORS = {
-    "player_start": (44.3, 21.3),          # Johnny, right at the locker
+    "player_start": (48.0, 22.0),          # Johnny, beside Aaron, a few steps from the locker
     "aaron_start": (47.0, 21.7),           # Aaron and Dhan, back by the barrier
     "dhan_start": (47.7, 20.2),
     "barrier_side": (48.3, 21.0),          # a spot by the barrier, away from the locker
