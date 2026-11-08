@@ -66,14 +66,15 @@ func _ready() -> void:
 
 func _find_beacons() -> void:
 	beacons.clear()
-	for y in mission.map_size.y:
-		for x in mission.map_size.x:
+	var size: Vector2i = mission.map_size
+	for y in size.y:
+		for x in size.x:
 			if not mission.ship.is_alarm_cell(x, y):
 				continue
 			var tile := Vector2(x * TILE, y * TILE)
-			var wall_min := x
+			var wall_min: int = x
 			while mission.ship.is_wall_face(wall_min - 1, y): wall_min -= 1
-			var wall_max := x
+			var wall_max: int = x
 			while mission.ship.is_wall_face(wall_max + 1, y): wall_max += 1
 			beacons.append({
 				"cell": Vector2i(x, y),
