@@ -6,7 +6,7 @@
   ],
   "evacuation_started": [
     "Emergency power on. Evacuation clock started: six minutes, give or take my rounding errors. Engineering is to the right.",
-    "Clock is running. Main power is in Engineering. Hold SPACE when the floor starts arguing with you."
+    "Clock is running. Main power is in Engineering. When the floor starts arguing with you, let it win and steer."
   ],
   "power_restored": [
     "Power restored. The cargo sled is awake, unlike most of my subroutines.",
@@ -28,8 +28,8 @@
     "Course set for Earth. Please remember the stars from somewhere safer."
   ],
   "debris_hit_repeat": [
-    "Your suit has filed another complaint. Try the magnetic boots.",
-    "That wreckage is winning. Brace with SPACE when the arrow turns red.",
+    "Your suit has filed another complaint. Watch the red arrow and keep clear of the junk.",
+    "That wreckage is winning. When the arrow turns red, get out of the debris lanes.",
     "Debris to the face costs us ten seconds. I'm keeping a tally. Please stop."
   ],
   "boots_frequent": [
@@ -47,7 +47,7 @@
     "The terminal near the top of the cockpit. Walk up to it and press E."
   ],
   "help_restore_power": [
-    "Engineering power console, lower half of the room. Hold SPACE if the pull drags you off course."
+    "Engineering power console, lower half of the room. Wait out the pull if it drags you off course."
   ],
   "help_open_compartment": [
     "Let gravity work. When the arrow says DOWN, the sled slides onto the plate. Stay out of the red debris lanes."

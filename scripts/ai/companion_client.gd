@@ -42,7 +42,7 @@ const DEFAULT_FALLBACKS := {
 	"core_collected": ["Core secured. The pod bay is open."],
 	"clamp_released": ["Clamp released. Get in the pod."],
 	"launch": ["Course set for Earth. Please remember the stars from somewhere safer."],
-	"debris_hit_repeat": ["Your suit has filed another complaint. Try the magnetic boots."],
+	"debris_hit_repeat": ["Your suit has filed another complaint. Watch the red arrow and keep clear of the junk."],
 	"boots_frequent": ["You and those boots. A lasting relationship."],
 	"low_time": ["Under a minute. I would run, if I had legs."],
 	"help": ["Follow the objective at the top of your screen. I believe in you. Statistically."],

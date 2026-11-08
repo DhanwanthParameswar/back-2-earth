@@ -16,7 +16,6 @@ var _hint_label: Label
 var _gravity_label: Label
 var _gravity_icon: Control
 var _prompt_label: Label
-var _boots_label: Label
 var _caption_panel: Control
 var _caption_tag: Label
 var _caption_text: Label
@@ -118,21 +117,17 @@ func _update_gravity_label() -> void:
 			_gravity_label.text = "SURGE %s\nin %d" % [dir_name, secs]
 			_gravity_label.modulate = Art.AMBER
 		2:  # PULL
-			_gravity_label.text = "PULL %s\n%ds  [SPACE]" % [dir_name, secs]
+			_gravity_label.text = "PULL %s\n%ds" % [dir_name, secs]
 			_gravity_label.modulate = Art.RED
 
 
 func _update_prompt() -> void:
-	var braced := false
 	var prompt := ""
 	if _player != null and GameState.is_playing():
-		braced = _player.braced
 		if _player.current_target != null:
 			prompt = "[E] %s" % _player.current_target.get_prompt()
 	_prompt_label.text = prompt
 	_prompt_label.visible = prompt != ""
-	_boots_label.modulate = Art.CYAN if braced else Color(0.6, 0.6, 0.65)
-	_boots_label.text = "MAG-BOOTS ON" if braced else "[SPACE] mag-boots"
 
 
 # --- Input ------------------------------------------------------------------------
@@ -328,8 +323,7 @@ func _show_win_text() -> void:
 		_won_caption.text = _launch_line
 	else:
 		_won_caption.text = "Course set for Earth. Please remember the stars from somewhere safer."
-	_won_stats.text = "Time left %02d:%02d   ·   Debris hits %d   ·   Boots used %d" % [
-		secs / 60, secs % 60, GameState.hit_count, GameState.boots_use_count]
+	_won_stats.text = "Time left %02d:%02d   ·   Debris hits %d" % [secs / 60, secs % 60, GameState.hit_count]
 	_won_prompt.visible = true
 	_end_input_ready = true
 
@@ -399,8 +393,6 @@ func _build_hud() -> void:
 	_prompt_label.modulate = Art.CYAN
 	root.add_child(_prompt_label)
 
-	_boots_label = _label("", Vector2(8, 286), Vector2(160, 16), 10)
-	root.add_child(_boots_label)
 	_status_label = _label("", Vector2(472, 286), Vector2(160, 16), 10, HORIZONTAL_ALIGNMENT_RIGHT)
 	root.add_child(_status_label)
 

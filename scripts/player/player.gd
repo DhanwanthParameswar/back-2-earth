@@ -1,21 +1,18 @@
 extends CharacterBody2D
 ## The astronaut. Owner: A.
 ## velocity = input * speed + gravity drift, applied in the physics step.
-## SPACE (held) = mag-boots: slower walking, much less drift.
 ##
 ## 3/4 view (Stardew-style): the node's origin is at the FEET. The collision box
 ## is only the feet, so the head can overlap the wall behind; the ship y-sorts
 ## the player against props by this point. The camera smoothly follows the body.
 
 const SPEED := 150.0
-const BOOTS_SPEED := 60.0
 const INTERACT_RADIUS := 44.0
 
 ## Skin sheets are 6 walk frames side by side (tools/import_astronaut_skins.py).
 const WALK_FRAMES := 6
 const IDLE_FRAME := 5
 const WALK_FPS := 10.0
-const BOOTS_WALK_FPS := 6.0
 
 ## Camera feel. Raise the speed (or disable) if you see pixel jitter.
 const CAMERA_SMOOTHING_SPEED := 7.0
@@ -26,7 +23,6 @@ const HUD_TOP_RESERVE := 48
 
 ## The interactable the HUD should prompt for (null if none in range).
 var current_target = null  # untyped: interactables are duck-typed
-var braced := false
 
 var _director = null
 var _walk_timer := 0.0
@@ -80,21 +76,13 @@ func set_camera_limits(rect: Rect2) -> void:
 func _physics_process(delta: float) -> void:
 	if not GameState.is_playing() or input_blocked():
 		velocity = Vector2.ZERO
-		braced = false
 		current_target = null
 		sprite.frame = IDLE_FRAME
 		queue_redraw()
 		return
 
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var was_braced := braced
-	braced = Input.is_action_pressed("boots")
-	if braced and not was_braced:
-		GameState.note_boots_engaged()
-		Sfx.play("boots", -6.0)
-
-	var speed := BOOTS_SPEED if braced else SPEED
-	velocity = input * speed + _get_director_drift()
+	velocity = input * SPEED + _get_director_drift()
 	move_and_slide()
 
 	_update_room()
@@ -124,7 +112,7 @@ func _get_director_drift() -> Vector2:
 		_director = get_tree().get_first_node_in_group("gravity_director")
 	if _director == null:
 		return Vector2.ZERO
-	return _director.get_drift(braced)
+	return _director.get_drift()
 
 
 ## Nearest valid interactable within reach (handles overlapping targets).
@@ -152,7 +140,7 @@ func _update_visuals(input: Vector2, delta: float) -> void:
 	# 6-frame walk cycle facing right; flip for left. Up/down keep the last
 	# facing. No rotation (keeps pixels on the grid).
 	if input.length() > 0.1:
-		_walk_timer += delta * (BOOTS_WALK_FPS if braced else WALK_FPS)
+		_walk_timer += delta * WALK_FPS
 		sprite.frame = int(_walk_timer) % WALK_FRAMES
 		if absf(input.x) > 0.1:
 			sprite.flip_h = input.x < 0.0
@@ -178,12 +166,9 @@ func _update_visuals(input: Vector2, delta: float) -> void:
 
 
 func _draw() -> void:
-	# Floor shadow + mag-boots ring, squashed for the 3/4 floor plane.
+	# Floor shadow, squashed for the 3/4 floor plane.
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4))
 	draw_circle(Vector2.ZERO, 12.0, Color(0, 0, 0, 0.35))
-	if braced:
-		draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 24, Color(0.16, 0.68, 1.0), 3.0)
-		draw_arc(Vector2.ZERO, 11.0, 0.0, TAU, 20, Color(0.16, 0.68, 1.0, 0.5), 2.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

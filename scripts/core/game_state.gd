@@ -33,7 +33,7 @@ const OBJECTIVES := [
 	{
 		"id": "start_evacuation", "room": "cockpit",
 		"text": "Restore emergency power",
-		"hint": "Use the cockpit terminal (E). Hold SPACE during a surge to brace with mag-boots.",
+		"hint": "Use the cockpit terminal (E). When the arrow turns red, the pull drags you, so keep clear of debris.",
 	},
 	{
 		"id": "restore_power", "room": "engineering",
@@ -90,6 +90,8 @@ var time_left := START_TIME
 var objective_index := 0
 var inventory: Array[String] = []
 var current_room := "cockpit"
+## Always 0: mag-boots were removed, but the backend schema (boots_uses) and
+## ECHO's state still carry the field, so it stays for compatibility.
 var boots_use_count := 0
 var hit_count := 0
 var recent_event := ""
@@ -261,15 +263,6 @@ func apply_debris_hit() -> bool:
 	if is_timer_running():
 		_set_time(time_left - DEBRIS_PENALTY)
 	return true
-
-
-## Called by the player each time the boots are engaged (key pressed).
-func note_boots_engaged() -> void:
-	if phase != Phase.PLAYING:
-		return
-	boots_use_count += 1
-	if boots_use_count == 6 or boots_use_count == 14:
-		_fire_event("boots_frequent")
 
 
 func set_room(room_id: String) -> void:

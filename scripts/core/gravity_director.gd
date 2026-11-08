@@ -18,8 +18,7 @@ const CALM_TIME := 7.0
 ## Calm before the very first warning, so the player can read the cockpit.
 const FIRST_CALM_TIME := 6.0
 
-const PULL_DRIFT := 90.0       # px/s pushed while not braced
-const BOOTS_DRIFT := 18.0      # px/s pushed while braced
+const PULL_DRIFT := 90.0       # px/s pushed during a pull (the player walks at 150)
 
 ## Order matters: the cargo sled slides DOWN, so DOWN comes first.
 var directions: Array[Vector2] = [Vector2.DOWN, Vector2.UP]
@@ -80,10 +79,10 @@ func is_pulling() -> bool:
 
 
 ## Drift to add to a body's velocity this frame.
-func get_drift(braced: bool) -> Vector2:
+func get_drift() -> Vector2:
 	if state != State.PULL:
 		return Vector2.ZERO
-	return current_direction * (BOOTS_DRIFT if braced else PULL_DRIFT)
+	return current_direction * PULL_DRIFT
 
 
 ## Seconds until the state changes (HUD countdown).

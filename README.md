@@ -49,7 +49,6 @@ If anything errors, paste the exact error into chat (with the file and line) and
 |---|---|
 | WASD / arrows | Move |
 | E | Interact (prompt appears only near a valid target; nearest wins) |
-| Hold SPACE | Mag-boots: walk 60 px/s, drift only 18 px/s instead of 90 |
 | H | Ask ECHO for help |
 | Esc / P | Pause (then R restart, M mute, V reduced shake/flash) |
 | R | Restart on the end screens |
@@ -134,7 +133,7 @@ art_source/, tools/import_astronaut_skins.py           D   suit drawings -> grid
 | `interact(player)` and `can_interact(player)` on every interactable; it asks GameState and never sets state itself | `scripts/interactables/interactable.gd` |
 | `GameState.complete_objective(id) -> bool` is idempotent and rejects out-of-order completion | `game_state.gd` |
 | Signals `objective_changed(id)`, `inventory_changed()`, `time_changed(seconds)`, `run_ended(won)`, plus `phase_changed`, `damaged`, `room_changed`, `paused_changed`, `game_event(event_id)` | `game_state.gd` |
-| `gravity_warning(direction)`, `gravity_changed(direction, drift_speed)`; `get_drift(braced)` | `gravity_director.gd` |
+| `gravity_warning(direction)`, `gravity_changed(direction, drift_speed)`; `get_drift()` | `gravity_director.gd` |
 | `GameState.get_canonical()` returns `{id, text, hint}`: the authoritative objective and hint, never from the model | `game_state.gd` |
 | Phases: BRIEFING, PLAYING, WON, LOST. Pause stops the countdown and the gravity cycle | `game_state.gd` |
 | Launch and timer expiry are validated centrally; after PLAYING ends, damage and launch are ignored | `game_state.gd` |

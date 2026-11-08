@@ -340,13 +340,13 @@ func _build_how_panel() -> void:
 		+ "     Then grab the navigation core.\n"
 		+ "4   Release the pod clamp and board the pod.\n\n"
 		+ "Amber arrow = surge coming.   Red arrow = pulling.\n"
-		+ "Hold SPACE for mag-boots: slower, but the pull barely moves you.\n"
+		+ "A pull drags you: walk against it or let it carry you, but mind the walls.\n"
 		+ "Red lanes carry debris. Each hit costs 10 seconds.\n"
 		+ "Press H to ask ECHO for help.",
 		11)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(body)
-	var keys := UiStyle.label("WASD / arrows  move    E  interact    SPACE  boots    H  ECHO    Esc  pause", 10, UiStyle.AMBER)
+	var keys := UiStyle.label("WASD / arrows  move    E  interact    H  ECHO    Esc  pause", 10, UiStyle.AMBER)
 	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(keys)
 	_add_back_button(vbox)

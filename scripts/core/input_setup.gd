@@ -10,7 +10,6 @@ const ACTIONS := {
 	"move_up": [KEY_W, KEY_UP],
 	"move_down": [KEY_S, KEY_DOWN],
 	"interact": [KEY_E],
-	"boots": [KEY_SPACE],
 	"help": [KEY_H],
 	"pause": [KEY_ESCAPE, KEY_P],
 	"confirm": [KEY_E, KEY_ENTER, KEY_KP_ENTER],
