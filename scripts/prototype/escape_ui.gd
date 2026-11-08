@@ -46,6 +46,7 @@ var voice_status: Label
 var mode := ""
 var toast_time := 0.0
 var hint_time := 0.0
+var _hint_queue: Array = []      # [text, seconds] waiting for the current hint to finish
 var pause_was_active := false
 var content_width := 490.0
 var _quick_replies := false
@@ -243,9 +244,20 @@ func _refresh_hints() -> void:
 func show_talk_hint() -> void:
 	var b := Settings.button_label
 	var how := "speak (press %s) or type" % b.call("talk") if Settings.voice_chat and radio.speech_supported() else "type what you want to say"
-	hint.text = "Talk to the crew in your own words: press %s next to them, or radio Aaron %s · Dhan %s · M.A.R.V.I.S. %s, then %s." % [
-		b.call("interact"), b.call("radio_1"), b.call("radio_2"), b.call("radio_3"), how]
-	hint_time = 14.0
+	show_hint("Talk to the crew in your own words: press %s next to them, or radio Aaron %s · Dhan %s · M.A.R.V.I.S. %s, then %s." % [
+		b.call("interact"), b.call("radio_1"), b.call("radio_2"), b.call("radio_3"), how], 14.0)
+
+## Right after the intro: the ship is dark.
+func show_light_hint() -> void:
+	show_hint("It's dark. Press %s for your flashlight." % Settings.button_label("flashlight"), 5.0)
+
+## Show a hint above the HUD; if one is showing, this one waits its turn.
+func show_hint(text: String, seconds: float) -> void:
+	if hint_time > 0.5:
+		_hint_queue.append([text, seconds])
+		return
+	hint.text = text
+	hint_time = seconds
 
 func _on_device_changed() -> void:
 	_refresh_hints()
@@ -264,6 +276,9 @@ func _process(delta: float) -> void:
 	toast.modulate.a = clampf(toast_time / 0.5, 0.0, 1.0)
 	if hint_time > 0.0:
 		hint_time = maxf(0.0, hint_time - delta)
+	elif not _hint_queue.is_empty():
+		var next: Array = _hint_queue.pop_front()
+		show_hint(str(next[0]), float(next[1]))
 	hint.visible = hint_time > 0.0 and not is_open() and not mission.ending
 	hint.modulate.a = clampf(hint_time / 1.0, 0.0, 1.0)
 	_update_float_prompt()

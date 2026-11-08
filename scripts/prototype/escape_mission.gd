@@ -191,6 +191,7 @@ func _begin() -> void:
 		_resume_tasks()
 	elif not state.has_flag("dhan_free"):
 		_aftershock()
+	if not state.powered() and not darkness.flashlight: ui.show_light_hint()
 	refresh()
 	_save_ready = true
 	save_progress()
@@ -466,6 +467,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("flashlight") and not seated:
 		darkness.toggle_flashlight()
 		Haptics.play("tick")
+		if ui.hint.text.contains("flashlight"): ui.hint_time = minf(ui.hint_time, 0.6)  # got it: on to the next hint
 	else: return
 	get_viewport().set_input_as_handled()
 
