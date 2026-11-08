@@ -1,34 +1,46 @@
 #!/usr/bin/env python3
-"""Render Back2Earth's 30-second opening story. Owner: D.
+"""Render Back2Earth's opening story (~38 s). Owner: D.
 
     pip install pillow numpy scipy     # and ffmpeg with libtheora + libvorbis on PATH
-    python3 tools/make_intro.py                    # all four suits + soundtrack
+    python3 tools/make_intro.py                    # all four suits + soundtrack + timing
     python3 tools/make_intro.py --preview DIR      # key frames as PNGs (classic only)
 
 Writes
-    assets/video/intro_<suit>.ogv   640x360, 30 fps, 30 s, no audio track
-    assets/audio/intro.ogg          soundtrack; scripts/ui/intro_cutscene.gd plays
-                                    it alongside the video
+    assets/video/intro_<suit>.ogv   640x360, 30 fps, no audio track
+    assets/audio/intro.ogg          music and effects, no voices; scripts/ui/intro_cutscene.gd
+                                    plays it alongside the video
+    data/intro_timing.json          film length and when each spoken line starts/ends;
+                                    intro_cutscene.gd reads it to play voice-over files
 
-The player wears the suit they picked. The crewmate who survives wears the same
-suit as the in-game crewmate (SUIT_PREFERENCE in scripts/interactables/crewmate.gd)
-and the lost crewmate wears the next one. Everything is drawn here from the
-game's own sprites at 320x180 "art pixels" (shown 2x2, like the rest of the
-game). Retime beats or rewrite lines in CAPTIONS / MONITOR_LINES and re-run.
+Voice-over: nothing in the soundtrack plays under the spoken lines (effects are left
+out and the rest is turned down), so recorded voices sit on top cleanly. Put the
+recordings in assets/audio/intro_vo/ as crew_1, system_1 and crew_2 (.ogg/.wav/.mp3);
+Godot plays each one when its caption appears.
+
+Four astronauts, one per suit: the player wears the suit they picked; the one who
+survives wears the in-game crewmate's suit (SUIT_PREFERENCE in
+scripts/interactables/crewmate.gd), the next one is pulled out into space, and the
+last one reaches the pod hatch first and is locked in when the breach hits.
 
 Beats (script by the team):
-  0-2.4   ship cruises toward Earth          2.4-8   cabin: crew asleep, monitor,
-  8-13    impact, lights out, red alarm,             one wakes: "Real food. Finally."
-          "Hull damage. Evacuate.", crew       13-16  corridor: second impact, breach,
-          heads for the pods                         the player reaches and misses
-  16-19   outside: one tiny astronaut drifts   19-24  crewmate pulls the player through,
-          against Earth. Silence.                    emergency control, door slams, breathing
-  24-28   MAIN POWER OFFLINE, face the door,   28-30  black, logo
-          "Power first. Then we find them."
+  0-3.2     THE YEAR 2126, slowly dissolving into space
+  2-5.2     the ship cruises past stars and small, far-off planets
+  5.2-9     cabin: four crew asleep; monitor: MARS SPACE STATION / REPAIRS MISSION: SUCCESS /
+            RETURNING HOME
+  9-11.4    dashboard: nav map, DISTANCE TO EARTH 67,670 MI
+  11.4-19.3 one wakes ("Real food. Finally."), impact, lights fail, red alarm,
+            "Collision detected. Evacuate now.", crew unbuckle and hurry aft
+  19.3-24.2 corridor: the 4th crewmate ducks into the pod hatch; second impact locks it,
+            tears the hull open; one crewmate is pulled out, the player reaches and misses
+  24.2-27.2 outside: the same ship, breached; a tiny astronaut tumbles away. Silence.
+  27.2-36.2 pulled through the bulkhead, door slams, breathing, MAIN POWER OFFLINE,
+            "Power first. Then we find them."
+  36.2-38.2 black, logo
 """
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import subprocess
 import sys
@@ -44,23 +56,43 @@ from scipy import signal as sps
 ROOT = Path(__file__).resolve().parent.parent
 W, H = 320, 180          # art pixels; the video is 2x (640x360)
 FPS = 30
-LENGTH = 30.0
 LB = 16                  # letterbox bar height
 FEET = 131               # floor line for standing crew (cabin + corridor)
 SUITS = ["classic", "hazard", "nebula", "mint"]
 SUIT_PREFERENCE = ["hazard", "mint", "nebula", "classic"]   # keep in sync with crewmate.gd
 SR = 22050
 
-CAPTIONS = [  # start, end, speaker, line, style
-    (5.6, 8.0, "CREWMATE:", "REAL FOOD. FINALLY.", "crew"),
-    (9.2, 12.8, "SYSTEM:", "HULL DAMAGE. EVACUATE.", "system"),
-    (25.4, 28.0, "CREWMATE:", "POWER FIRST. THEN WE FIND THEM.", "crew"),
+# --- Timeline (seconds). Retime here; captions and voice cues are separate below. --------
+T_YEAR_IN = 0.3          # "THE YEAR 2126" starts to appear
+T_EXT_IN = 2.0           # ...and starts dissolving into space
+T_EXT_FULL = 3.2         # space shot fully up
+T_CABIN_A = 5.2          # crew asleep, monitor types
+T_NAV = 9.0              # dashboard insert
+T_CABIN_B = 11.4         # back in the cabin
+T_WAKE = 11.7            # front-seat crewmate wakes
+T_IMPACT = 14.7          # first impact
+T_STAND = 17.3           # restraints off, everyone up
+T_WALK = 17.7            # hurrying aft
+T_CORR = 19.3            # corridor
+T_HIT2 = 21.4            # second impact, breach
+T_OUT = 24.2             # outside, silence
+T_SEAL = 27.2            # pulled through the bulkhead
+T_LOGO = 36.2
+LENGTH = 38.2
+SEAL_OFF = T_SEAL - 19.0  # the seal shot and logo keep their original 19.0-30.0 timings + this
+
+CAPTIONS = [  # start, end, speaker, line, style, voice-over id (assets/audio/intro_vo/<id>.ogg)
+    (12.2, 14.5, "CREWMATE:", "REAL FOOD. FINALLY.", "crew", "crew_1"),
+    (15.9, 19.4, "SYSTEM:", "COLLISION DETECTED. EVACUATE NOW.", "system", "system_1"),
+    (25.4 + SEAL_OFF, 28.0 + SEAL_OFF, "CREWMATE:", "POWER FIRST. THEN WE FIND THEM.", "crew", "crew_2"),
 ]
 CPS = 30.0               # caption typing speed (chars per second)
-MONITOR_LINES = [(2.8, "LUNAR STATION: REPAIRS COMPLETE"), (4.15, "RETURNING HOME")]
+MONITOR_LINES = [(5.6, "MARS SPACE STATION"), (6.45, "REPAIRS MISSION:"), (7.9, "RETURNING HOME")]
+SUCCESS_AT = 7.2         # "SUCCESS" lights up, glowing green, after line 2
 MONITOR_CPS = 26.0
+DISTANCE_MI = 67670      # nav dashboard readout
 FLICKER = [(24.0, 24.08), (24.16, 24.22), (24.35, 24.7), (24.76, 24.8),
-           (24.9, 26.4), (26.47, 26.52), (26.6, 28.0)]   # terminal on-times
+           (24.9, 26.4), (26.47, 26.52), (26.6, 28.0)]   # terminal on-times (seal-shot clock)
 
 # --- Palette (PICO-8 based, like the game) -------------------------------------------
 SPACE = (5, 6, 20)
@@ -105,7 +137,7 @@ FONT = {
     ":": "00000 01100 01100 00000 01100 01100 00000", "!": "00100 00100 00100 00100 00100 00000 00100",
     "?": "01110 10001 00001 00010 00100 00000 00100", "-": "00000 00000 00000 11111 00000 00000 00000",
     "'": "00100 00100 01000 00000 00000 00000 00000", " ": "00000 00000 00000 00000 00000 00000 00000",
-    "_": "00000 00000 00000 00000 00000 00000 11111",
+    "_": "00000 00000 00000 00000 00000 00000 11111", "/": "00001 00010 00010 00100 01000 01000 10000",
 }
 GLYPHS = {k: np.array([[c == "1" for c in row] for row in v.split()]) for k, v in FONT.items()}
 
@@ -133,6 +165,28 @@ def draw_text(img, x, y, s, color, shadow=None):
         if shadow is not None:
             _stamp(img, g, x + 6 * i + 1, y + 1, shadow)
         _stamp(img, g, x + 6 * i, y, color)
+
+
+def draw_text_big(img, x, y, s, color, k):
+    """The same font with every pixel k x k."""
+    for i, ch in enumerate(s.upper()):
+        g = GLYPHS.get(ch)
+        if g is not None:
+            _stamp(img, np.kron(g, np.ones((k, k), bool)).astype(bool), x + 6 * k * i, y, color)
+
+
+def glow_text(img, x, y, s, core, glow, a):
+    """Text with a soft two-step halo (a = halo strength 0-1)."""
+    pad = 3
+    layer = np.zeros((7 + 2 * pad, text_w(s) + 2 * pad, 3), np.uint8)
+    draw_text(layer, pad, pad, s, (255, 255, 255))
+    m = layer[..., 0] > 0
+    near = ndimage.binary_dilation(m, iterations=1) & ~m
+    far = ndimage.binary_dilation(m, iterations=2) & ~m & ~near
+    for mask, alpha in ((far, a * 0.45), (near, a)):
+        for yy, xx in zip(*np.where(mask)):
+            blend_px(img, x - pad + xx, y - pad + yy, glow, min(1.0, alpha))
+    draw_text(img, x, y, s, core)
 
 
 # --- Drawing helpers ------------------------------------------------------------------
@@ -260,6 +314,11 @@ ICE = [(70, 82, 112), (168, 178, 200), (220, 226, 236), (255, 255, 255)]
 CLOUD = [(60, 70, 104), (160, 170, 192), (222, 228, 238), (255, 255, 255)]
 MOON = [(40, 40, 52), (95, 92, 112), (150, 150, 160), (210, 210, 216)]
 MOON_D = [(28, 28, 38), (70, 68, 84), (112, 110, 124), (160, 160, 170)]
+MARS = [(46, 16, 14), (120, 44, 28), (176, 80, 42), (222, 128, 76)]
+MARS_D = [(30, 10, 10), (84, 30, 22), (132, 58, 34), (178, 96, 58)]
+GAS_A = [(36, 26, 42), (104, 74, 84), (166, 126, 112), (218, 188, 156)]
+GAS_B = [(28, 26, 54), (74, 66, 116), (124, 106, 156), (186, 166, 206)]
+ICE_P = [(26, 46, 70), (60, 110, 140), (120, 180, 200), (200, 236, 240)]
 
 
 def render_planet(R, kind="earth", lon=0.5, light=(-0.62, -0.5, 0.6), tilt=0.3):
@@ -294,6 +353,18 @@ def render_planet(R, kind="earth", lon=0.5, light=(-0.62, -0.5, 0.6), tilt=0.3):
         rng = np.random.default_rng(11)
         city = land & ~cloud & (lam < -0.12) & (rng.random((S, S)) < 0.035)
         rgb[city] = (255, 214, 120)
+    elif kind == "mars":
+        mn = _fbm(41, X * 2.2 + 5, Y * 2.2 + 5, Z * 2.2 + 5, 4)
+        rgb[:] = np.array(MARS, np.float32)[idx]
+        dark = mn > 0.56
+        rgb[dark] = np.array(MARS_D, np.float32)[idx][dark]
+    elif kind == "gas":
+        bn = _fbm(31, X * 1.5 + 3, Y * 1.5 + 3, Z * 1.5 + 3, 3)
+        band = np.sin(Y * 10 + bn * 4) > 0.2
+        rgb[:] = np.array(GAS_A, np.float32)[idx]
+        rgb[band] = np.array(GAS_B, np.float32)[idx][band]
+    elif kind == "ice":
+        rgb[:] = np.array(ICE_P, np.float32)[idx]
     else:  # moon
         mn = _fbm(21, X * 2.5 + 2, Y * 2.5 + 2, Z * 2.5 + 2, 4)
         rgb[:] = np.array(MOON, np.float32)[idx]
@@ -422,39 +493,89 @@ TINY = [  # the lost crewmate, far away (big -> small)
 
 
 def crew_for(player):
+    """Who wears which suit: (survivor, lost, ahead). The survivor matches the in-game crewmate."""
     others = [s for s in SUIT_PREFERENCE if s != player]
-    return others[0], others[1]  # survivor (matches the in-game crewmate), lost
+    return others[0], others[1], others[2]
 
 
 # --- Exterior ship ------------------------------------------------------------------------
 
-def make_ship():
-    im = Image.new("RGBA", (62, 24), (0, 0, 0, 0))
+def make_ship(s=1):
+    """The ship, drawn at s art px per design px with 1 px outlines, so the close-up
+    outside the breach is the same ship that flies through the opening."""
+    im = Image.new("RGBA", (62 * s, 24 * s), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    d.polygon([(12, 8), (22, 8), (16, 3)], fill=STEEL_L, outline=INK)          # dorsal fin
-    d.polygon([(12, 16), (22, 16), (15, 21)], fill=STEEL_L, outline=INK)       # ventral fin
-    d.rectangle([4, 10, 9, 15], fill=STEEL_D, outline=INK)                     # nozzle
-    d.polygon([(8, 9), (38, 7), (50, 9), (57, 12), (50, 15), (38, 17), (8, 16)], fill=GRAY, outline=INK)
-    d.polygon([(9, 13), (54, 13), (50, 15), (38, 16), (9, 15)], fill=STEEL_LL)
-    d.line([(10, 9), (38, 8)], fill=WHITE)
-    d.line([(14, 13), (40, 13)], fill=RED)
-    d.polygon([(43, 9), (50, 10), (54, 12), (43, 12)], fill=BLUE)
-    d.point((46, 10), fill=WHITE)
+
+    def P(pts):
+        return [(x * s, y * s) for x, y in pts]
+
+    def R(x0, y0, x1, y1, **kw):  # design-px box, inclusive
+        d.rectangle([x0 * s, y0 * s, (x1 + 1) * s - 1, (y1 + 1) * s - 1], **kw)
+
+    d.polygon(P([(12, 8), (22, 8), (16, 3)]), fill=STEEL_L, outline=INK)          # dorsal fin
+    d.polygon(P([(12, 16), (22, 16), (15, 21)]), fill=STEEL_L, outline=INK)       # ventral fin
+    R(4, 10, 9, 15, fill=STEEL_D, outline=INK)                                    # nozzle
+    d.polygon(P([(8, 9), (38, 7), (50, 9), (57, 12), (50, 15), (38, 17), (8, 16)]), fill=GRAY, outline=INK)
+    d.polygon(P([(9, 13), (54, 13), (50, 15), (38, 16), (9, 15)]), fill=STEEL_LL)
+    if s > 1:  # panel seams, only visible up close
+        for x in (16, 27, 35):
+            d.line([(x * s, int(8.4 * s)), (x * s, 13 * s - 1)], fill=(160, 160, 170))
+        d.line(P([(9, 15), (38, 16)]), fill=STEEL, width=1)
+    d.line(P([(10, 9), (38, 8)]), fill=WHITE, width=max(1, s // 2))
+    d.line(P([(14, 13), (40, 13)]), fill=RED, width=s)
+    d.polygon(P([(43, 9), (50, 10), (54, 12), (43, 12)]), fill=BLUE)
+    R(46, 10, 46, 10, fill=WHITE)
     for px in (19, 25, 31):
-        d.rectangle([px, 10, px + 1, 11], fill=BLUE)
+        R(px, 10, px + 1, 11, fill=BLUE)
     return np.asarray(im).copy()
+
+
+def draw_engine(img, sx, sy, s, t):
+    """Engine glow and trail behind a ship drawn at (sx, sy) with make_ship(s)."""
+    for k in range(10 + 4 * (s - 1)):
+        blend_px(img, int(sx + 2 * s - k * 3), int(sy + 12 * s), AMBER, 0.5 * (1 - k / (10 + 4 * (s - 1))))
+        if s > 1:
+            blend_px(img, int(sx + 2 * s - k * 3), int(sy + 12 * s + 1), AMBER, 0.35 * (1 - k / (10 + 4 * (s - 1))))
+    fl = (4 + (int(t * FPS) % 3)) * s
+    for k in range(fl):
+        rect(img, int(sx + 3 * s - k), int(sy + 11 * s), int(sx + 4 * s - k), int(sy + 14 * s),
+             AMBER if k > s else YELLOW)
+
+
+def ringed_planet(R, ring_rx, ring_ry):
+    """A small banded gas giant with a thin ring (RGBA sprite)."""
+    body = render_planet(R, kind="gas", lon=0.7, tilt=0.25)
+    S = body.shape[0]
+    pad = ring_rx - S // 2 + 2
+    out = np.zeros((S + 2 * max(0, pad), S + 2 * max(0, pad), 4), np.uint8)
+    o = max(0, pad)
+    c = out.shape[0] / 2.0
+    ring = [(c + ring_rx * math.cos(a), c + ring_ry * math.sin(a) + 0.25 * ring_rx * math.cos(a) * 0.3)
+            for a in np.linspace(0, 2 * math.pi, 220)]
+    for x, y in ring:  # back half
+        if y < c:
+            out[int(y), int(x)] = (150, 132, 110, 255)
+    m = body[..., 3] > 0
+    out[o:o + S, o:o + S][m] = body[m]
+    for x, y in ring:  # front half
+        if y >= c:
+            out[int(y), int(x)] = (200, 178, 146, 255)
+    return out
 
 
 # --- Static scenes --------------------------------------------------------------------------
 
 CABIN_W = 420
-SEAT_X = {"survivor": 150, "player": 214, "lost": 278}   # rear -> front (facing right)
-MONITOR = (112, 38, 322, 70)
-WINDOW = (356, 40, 420, 130)
-CAB_GLASS = (WINDOW[0] + 4, WINDOW[1] + 4, WINDOW[2], WINDOW[3] - 4)
+ROLES = ("ahead", "survivor", "player", "lost")                      # rear -> front (facing right)
+SEAT_X = {"ahead": 104, "survivor": 168, "player": 232, "lost": 296}
+MONITOR = (112, 35, 322, 77)
+NAVSCR = (341, 49, 409, 101)          # the nav screen at the front of the cabin
+CAB_DOOR = (15, 69, 49, 132)          # door leaf to the corridor (aft)
+PORTHOLES = (136, 200, 264)
 
 
 def build_cabin():
+    global PORT_MASK
     img = np.zeros((H, CABIN_W, 3), np.uint8)
     img[:] = SPACE
     rect(img, 0, 16, CABIN_W, 31, STEEL_D)
@@ -466,38 +587,40 @@ def build_cabin():
         rect(img, x, 32, x + 1, 124, NAVY_D)
     rect(img, 0, 76, CABIN_W, 78, NAVY_L)
     rect(img, 0, 124, CABIN_W, 132, NAVY_D)
-    for x in range(40, 340, 48):
+    for x in range(40, 330, 48):
         rect(img, x, 82, x + 1, 83, GREEN)
     yy, xx = np.mgrid[0:H, 0:CABIN_W]
-    for px in (180, 244):  # portholes between the seats
+    PORT_MASK = np.zeros((H, CABIN_W), bool)
+    stars = make_stars(60, CABIN_W, H, 4)
+    for px in PORTHOLES:  # little windows between the seats: just stars
         d2 = (xx - px) ** 2 + (yy - 92) ** 2
         img[d2 <= 49] = STEEL_L
         img[d2 <= 25] = SPACE
-        img[(d2 <= 25) & ((xx + yy) % 11 == 0) & ((xx * 3 + yy) % 7 == 0)] = GRAY
+        PORT_MASK |= d2 <= 25
         rect(img, px - 3, 89, px - 1, 90, (60, 70, 110))
+    glass = img.copy()
+    draw_stars(glass, stars, 0)
+    img[PORT_MASK] = glass[PORT_MASK]
     rect(img, 0, 132, CABIN_W, H, STEEL)
     rect(img, 0, 132, CABIN_W, 133, STEEL_L)
     for x in range(0, CABIN_W, 8):
         rect(img, x, 137, x + 1, H, (48, 46, 60))
-    # Rear door to the pods.
+    # Aft door to the corridor (the pods are further on, past the corridor).
     rect(img, 12, 66, 52, 132, STEEL_L)
-    rect(img, 15, 69, 49, 132, STEEL)
-    rect(img, 31, 69, 33, 132, STEEL_D)
-    rect(img, 19, 80, 27, 92, STEEL_D)
-    rect(img, 37, 80, 45, 92, STEEL_D)
-    draw_text(img, 21, 56, "PODS", AMBER)
-    # Front window with Earth.
-    wx0, wy0, wx1, wy1 = WINDOW
-    rect(img, wx0, wy0, wx1, wy1, STEEL_L)
-    gx0, gy0, gx1, gy1 = CAB_GLASS
-    rect(img, gx0, gy0, gx1, gy1, SPACE)
-    draw_stars(img, make_stars(40, CABIN_W, H, 4), 0, clip=CAB_GLASS)
-    earth = render_planet(54, lon=0.9)
-    blit(img, earth, 434 - earth.shape[1] // 2, 98 - earth.shape[0] // 2, clip=CAB_GLASS)
-    rect(img, gx0, gy0, gx1, gy0 + 1, STEEL_LL)
+    draw_cabin_door(img, 0.0)
+    draw_text(img, 32 - text_w("CORRIDOR") // 2, 56, "CORRIDOR", AMBER)
+    # Front: nav console and screen (screen contents drawn per frame).
+    rect(img, 334, 40, 418, 108, STEEL_L)
+    rect(img, 337, 43, 415, 105, STEEL)
+    rect(img, NAVSCR[0] - 1, NAVSCR[1] - 1, NAVSCR[2] + 1, NAVSCR[3] + 1, INK)
+    rect(img, 330, 106, 420, 132, STEEL)
+    rect(img, 330, 106, 420, 108, STEEL_L)
+    for i, x in enumerate(range(338, 414, 7)):
+        rect(img, x, 113, x + 3, 115, (GREEN, AMBER, CYAN, RED)[i % 4])
+    rect(img, 344, 120, 404, 122, STEEL_D)
     # Overhead monitor.
-    rect(img, 140, 31, 143, 38, STEEL)
-    rect(img, 290, 31, 293, 38, STEEL)
+    rect(img, 140, 31, 143, MONITOR[1], STEEL)
+    rect(img, 290, 31, 293, MONITOR[1], STEEL)
     mx0, my0, mx1, my1 = MONITOR
     rect(img, mx0, my0, mx1, my1, STEEL)
     rect(img, mx0 + 1, my0 + 1, mx1 - 1, my1 - 1, (20, 22, 34))
@@ -514,10 +637,57 @@ def build_cabin():
     return img
 
 
+def draw_cabin_door(img, u, m=None):
+    """Aft door, u = how far open (0 shut, 1 open: the leaves slide into the wall)."""
+    x0, y0, x1, y1 = CAB_DOOR
+    half = (x1 - x0) // 2
+    rect(img, x0, y0, x1, y1, tint_color((8, 10, 16), m))
+    gap = int(round(half * u))
+    if gap < half:
+        rect(img, x0, y0, x0 + half - gap, y1, tint_color(STEEL, m))
+        rect(img, x0 + half + gap, y0, x1, y1, tint_color(STEEL, m))
+        rect(img, x0 + half - gap - 1, y0, x0 + half - gap, y1, tint_color(STEEL_D, m))
+        rect(img, x0 + half + gap, y0, x0 + half + gap + 1, y1, tint_color(STEEL_D, m))
+        if gap == 0:
+            rect(img, x0 + 4, 80, x0 + 12, 92, tint_color(STEEL_D, m))
+            rect(img, x1 - 12, 80, x1 - 4, 92, tint_color(STEEL_D, m))
+
+
+def nav_point(u, p0, p1, p2):
+    """Point u along a quadratic curve (the route from Mars to Earth)."""
+    return ((1 - u) ** 2 * p0[0] + 2 * (1 - u) * u * p1[0] + u * u * p2[0],
+            (1 - u) ** 2 * p0[1] + 2 * (1 - u) * u * p1[1] + u * u * p2[1])
+
+
+NAV_SHIP_U = 0.9   # where the ship marker sits along the route (not to scale: "almost home")
+
+
+def draw_nav_mini(img, t):
+    """The small nav screen at the front of the cabin."""
+    x0, y0, x1, y1 = NAVSCR
+    rect(img, x0, y0, x1, y1, (4, 12, 18))
+    for gx in range(x0 + 8, x1, 12):
+        rect(img, gx, y0, gx + 1, y1, (10, 26, 34))
+    p0, p1, p2 = (x0 + 7, y0 + 34), (x0 + 30, y0 + 4), (x1 - 8, y0 + 18)
+    for k in range(40):
+        u = k / 39
+        if u > NAV_SHIP_U and k % 2:
+            continue
+        px, py = nav_point(u, p0, p1, p2)
+        img[int(py), int(px)] = CYAN if u <= NAV_SHIP_U else (40, 110, 130)
+    rect(img, int(p0[0]) - 1, int(p0[1]) - 1, int(p0[0]) + 2, int(p0[1]) + 2, (200, 80, 44))
+    rect(img, int(p2[0]) - 2, int(p2[1]) - 2, int(p2[0]) + 2, int(p2[1]) + 2, BLUE)
+    if int(t * 3) % 2 == 0:
+        sx, sy = nav_point(NAV_SHIP_U, p0, p1, p2)
+        rect(img, int(sx) - 1, int(sy) - 1, int(sx) + 2, int(sy) + 2, WHITE)
+    label = f"{DISTANCE_MI:,} MI"
+    draw_text(img, (x0 + x1) // 2 - text_w(label) // 2, y1 - 10, label, CYAN)
+
+
 def draw_console(img, sx, t, m=None):
     rect(img, sx + 7, 117, sx + 18, 132, tint_color(STEEL, m))
     rect(img, sx + 7, 117, sx + 18, 118, tint_color(STEEL_L, m))
-    if t < 8.0:
+    if t < T_IMPACT:
         rect(img, sx + 8, 120, sx + 10, 121, GREEN if int(t * 2 + sx) % 3 else STEEL_D)
         rect(img, sx + 12, 120, sx + 14, 121, AMBER)
     rect(img, sx + 8, 124, sx + 17, 125, tint_color(STEEL_D, m))
@@ -548,11 +718,8 @@ def build_corridor():
     rect(img, 0, 132, W, 133, STEEL_L)
     for x in range(0, W, 8):
         rect(img, x, 137, x + 1, H, (48, 46, 60))
-    # Pod hatch (left).
+    # Pod hatch (left); the leaf is drawn per frame (draw_hatch).
     rect(img, 4, 72, 32, 132, STEEL_L)
-    rect(img, 7, 75, 29, 132, STEEL)
-    rect(img, 13, 84, 23, 94, STEEL_D)
-    rect(img, 15, 86, 21, 92, (20, 40, 80))
     draw_text(img, 6, 62, "PODS", AMBER)
     # Terminal frame (screen drawn per frame).
     tx0, ty0, tx1, ty1 = CORR_TERM
@@ -574,6 +741,47 @@ def build_corridor():
     for i in range(0, d1 - d0, 4):
         rect(img, d0 + i, 43, d0 + i + 2, 45, AMBER)
     return img
+
+
+HATCH = (7, 75, 29, 132)
+HATCH_OPEN = (T_CORR + 1.15, T_CORR + 1.35)   # slides up for the crewmate in front
+HATCH_SHUT = (T_HIT2 - 0.05, T_HIT2 + 0.05)   # slams with the second impact and locks
+
+
+def hatch_open_amount(t):
+    if t < HATCH_OPEN[0] or t >= HATCH_SHUT[1]:
+        return 0.0
+    if t < HATCH_OPEN[1]:
+        return ease_out((t - HATCH_OPEN[0]) / (HATCH_OPEN[1] - HATCH_OPEN[0]))
+    if t < HATCH_SHUT[0]:
+        return 1.0
+    return 1.0 - (t - HATCH_SHUT[0]) / (HATCH_SHUT[1] - HATCH_SHUT[0])
+
+
+def draw_hatch(img, t):
+    """Pod hatch leaf (slides up). Takes film time."""
+    x0, y0, x1, y1 = HATCH
+    u = hatch_open_amount(t)
+    rect(img, x0, y0, x1, y1, (8, 10, 16))
+    bottom = int(round(y1 - u * (y1 - y0)))
+    if bottom > y0:
+        rect(img, x0, y0, x1, bottom, STEEL)
+        rect(img, x0, bottom - 1, x1, bottom, STEEL_D)
+        wy = 84 - (y1 - bottom)
+        if wy + 10 > y0:
+            rect(img, 13, max(y0, wy), 23, max(y0, wy + 10), STEEL_D)
+
+
+def draw_hatch_light(img, t):
+    """Window lamp in the hatch: green while it works, blinking red once it's locked."""
+    u = hatch_open_amount(t)
+    if u > 0:
+        return
+    if t < T_HIT2:
+        col = (20, 120, 70)
+    else:
+        col = RED if int((t - T_HIT2) * 2.5) % 2 == 0 else (90, 0, 30)
+    rect(img, 15, 86, 21, 92, col)
 
 
 def draw_breach(img, t, m=None):
@@ -598,9 +806,9 @@ def make_flow(t0, t1, rate, xr, yr, seed, vr=(60, 150)):
             "v": rng.uniform(*vr, n), "ln": rng.integers(3, 8, n), "sz": rng.integers(1, 4, n)}
 
 
-AIR1 = make_flow(13.25, 16.0, 80, (120, 300), (46, 128), 1)
-AIR2 = make_flow(19.0, 22.4, 80, (10, 300), (46, 128), 2)
-DEB1 = make_flow(13.25, 14.2, 60, (200, 290), (50, 128), 3, (140, 280))
+AIR1 = make_flow(T_HIT2, T_OUT, 80, (120, 300), (46, 128), 1)              # film time
+DEB1 = make_flow(T_HIT2, T_HIT2 + 0.95, 60, (200, 290), (50, 128), 3, (140, 280))
+AIR2 = make_flow(19.0, 22.4, 80, (10, 300), (46, 128), 2)                  # seal-shot clock
 DEB2 = make_flow(19.0, 21.4, 14, (60, 300), (60, 128), 4, (120, 220))
 
 
@@ -620,7 +828,7 @@ def draw_flow(img, flow, t, debris, x_min=None):
                 blend_px(img, xi - k, yi, (175, 195, 225), 0.55 * (1 - k / ln))
 
 
-SPARK_T = [8.05, 8.9, 9.7, 10.5, 11.6, 12.4]
+SPARK_T = [T_IMPACT + d for d in (0.05, 0.9, 1.7, 2.5, 3.6, 4.4)]
 
 
 def draw_sparks(img, t, ox, oy):
@@ -639,120 +847,212 @@ def draw_sparks(img, t, ox, oy):
 # --- Shots -------------------------------------------------------------------------------------
 
 def shot_exterior(t, cast):
+    """0-5.2: the ship cruises past stars and small, far-off planets."""
     img = np.zeros((H, W, 3), np.uint8)
     img[:] = SPACE
-    draw_stars(img, EXT_STARS_FAR, t, offx=-4 * t, wrap_w=W)
-    draw_stars(img, EXT_STARS_NEAR, t, offx=-10 * t, wrap_w=W)
-    blit(img, MOON_IMG, 54 - MOON_IMG.shape[1] // 2, 46 - MOON_IMG.shape[0] // 2)
-    blit(img, EARTH_EXT, 330 - EARTH_EXT.shape[1] // 2, 98 - EARTH_EXT.shape[0] // 2)
-    sx = lerp(18, 120, t / 2.4)
-    sy = 84 + round(math.sin(t * 2.2))
-    # Engine trail and flame.
-    for k in range(10):
-        blend_px(img, int(sx + 2 - k * 3), int(sy + 12), AMBER, 0.5 * (1 - k / 10))
-    fl = 4 + (int(t * FPS) % 3)
-    for k in range(fl):
-        rect(img, int(sx + 3 - k), int(sy + 11), int(sx + 4 - k), int(sy + 14), AMBER if k > 1 else YELLOW)
-    blit(img, SHIP, sx, sy)
-    return img, 0, 0
+    draw_stars(img, EXT_STARS_FAR, t, offx=-3 * t, wrap_w=W)
+    draw_stars(img, EXT_STARS_NEAR, t, offx=-8 * t, wrap_w=W)
+    for spr, (x, y) in FAR_PLANETS:
+        blit(img, spr, x - spr.shape[1] // 2, y - spr.shape[0] // 2)
+    sx = lerp(-130, 150, (t - T_EXT_IN) / (T_CABIN_A - T_EXT_IN))
+    sy = 66 + round(math.sin(t * 2.2))
+    draw_engine(img, sx, sy, 2, t)
+    blit(img, SHIP2, sx, sy)
+    return img
+
+
+def year_card(img, t):
+    """THE YEAR 2126 over black; space fades up behind it, then it dissolves away."""
+    if t < T_EXT_IN:
+        k = 0.3 * ease_io((t - 0.6) / (T_EXT_IN - 0.6))
+    else:
+        k = lerp(0.3, 1.0, ease_io((t - T_EXT_IN) / (T_EXT_FULL - T_EXT_IN)))
+    out = (img.astype(np.float32) * k).astype(np.uint8)
+    text, kk = "THE YEAR 2126", 3
+    tw = (6 * len(text) - 1) * kk
+    layer = np.zeros_like(out)
+    draw_text_big(layer, (W - tw) // 2, 80, text, WHITE, kk)
+    th = np.repeat(np.repeat(bayer((H + 1) // 2, (W + 1) // 2), 2, 0), 2, 1)[:H, :W]  # 2x2 dither cells
+    shown = layer.any(2) & (th < (t - T_YEAR_IN) / 0.8) & (th >= (t - T_EXT_IN) / 1.0)
+    out[shown] = WHITE
+    return out
 
 
 def monitor_text(img, t):
     mx0, my0, mx1, my1 = MONITOR
-    if t < 8.0:
-        for i, (t0, line) in enumerate(MONITOR_LINES):
-            n = int(max(0.0, t - t0) * MONITOR_CPS)
-            if n > 0:
-                draw_text(img, mx0 + 8, my0 + 8 + 12 * i, line[:n], CYAN)
-        last_t0, last = MONITOR_LINES[-1]
-        done = last_t0 + len(last) / MONITOR_CPS
-        if t > done and int(t * 2) % 2 == 0:
-            rect(img, mx0 + 8 + text_w(last) + 3, my0 + 20, mx0 + 8 + text_w(last) + 8, my0 + 27, CYAN)
+    if t >= T_IMPACT:
+        return
+    for i, (t0, line) in enumerate(MONITOR_LINES):
+        n = int(max(0.0, t - t0) * MONITOR_CPS)
+        if n > 0:
+            draw_text(img, mx0 + 8, my0 + 6 + 11 * i, line[:n], CYAN)
+    if t >= SUCCESS_AT:  # "SUCCESS", glowing green
+        x = mx0 + 8 + text_w(MONITOR_LINES[1][1] + " ") + 1
+        pop = max(0.0, 1.0 - (t - SUCCESS_AT) / 0.5)
+        glow = 0.45 + 0.2 * math.sin(2 * math.pi * 1.1 * (t - SUCCESS_AT)) + 0.4 * pop
+        glow_text(img, x, my0 + 17, "SUCCESS", (150, 255, 170), GREEN, glow)
+    last_t0, last = MONITOR_LINES[-1]
+    done = last_t0 + len(last) / MONITOR_CPS
+    if t > done and int(t * 2) % 2 == 0:
+        cx = mx0 + 8 + text_w(last) + 3
+        rect(img, cx, my0 + 28, cx + 5, my0 + 35, CYAN)
 
 
 def monitor_alert(img, t):
     mx0, my0, mx1, my1 = MONITOR
     rect(img, mx0 + 3, my0 + 3, mx1 - 3, my1 - 3, (40, 4, 12))
     if int(t * 2.5) % 2 == 0:
-        s = "! HULL DAMAGE !"
-        draw_text(img, (mx0 + mx1) // 2 - text_w(s) // 2, my0 + 13, s, RED)
+        s = "! COLLISION DETECTED !"
+        draw_text(img, (mx0 + mx1) // 2 - text_w(s) // 2, my0 + 17, s, RED)
 
 
 def cabin_camera(t):
-    if t < 4.9:
-        return lerp(4, 20, (t - 2.4) / 2.5)
-    if t < 8.0:
-        return lerp(20, 100, ease_io((t - 4.9) / 3.1))
-    if t < 10.8:
+    if t < T_NAV:
+        return lerp(0, 50, ease_io((t - T_CABIN_A) / (T_NAV - T_CABIN_A)))
+    if t < T_IMPACT + 2.1:
         return 100
-    return lerp(100, 0, ease_io((t - 10.8) / 1.8))
+    return lerp(100, 0, ease_io((t - (T_IMPACT + 2.1)) / 1.9))
 
 
 def cabin_light(t):
     """(room multiplier, crew multiplier); None = normal light."""
-    if t < 8.15:
+    t0 = T_IMPACT
+    if t < t0 + 0.15:
         return None, None
-    if t < 8.8:
-        k = 0.55 if 8.35 <= t < 8.42 else 0.1
+    if t < t0 + 0.8:
+        k = 0.55 if t0 + 0.35 <= t < t0 + 0.42 else 0.1
         return (k, k, k), (max(k, 0.2),) * 3
-    k = min(1.0, (t - 8.8) / 0.2)
-    pulse = 0.86 + 0.1 * math.sin(2 * math.pi * 1.6 * (t - 8.8))
+    k = min(1.0, (t - t0 - 0.8) / 0.2)
+    pulse = 0.86 + 0.1 * math.sin(2 * math.pi * 1.6 * (t - t0 - 0.8))
     room = np.array([1.0, 0.4, 0.44]) * pulse * k + 0.1 * (1 - k)
     crew = np.array([1.0, 0.68, 0.7]) * pulse * k + 0.2 * (1 - k)
     return tuple(room), tuple(crew)
 
 
+CABIN_RUN = 55.0                       # px/s hurrying aft
+CAB_DOOR_OPEN = (T_WALK + 0.85, T_WALK + 1.15)
+
+
 def shot_cabin(t, cast):
     img = CABIN_BG.copy()
     monitor_text(img, t)
+    draw_nav_mini(img, t)
+    if t >= CAB_DOOR_OPEN[0]:
+        draw_cabin_door(img, ease_out((t - CAB_DOOR_OPEN[0]) / (CAB_DOOR_OPEN[1] - CAB_DOOR_OPEN[0])))
     room, crew = cabin_light(t)
     if room is not None:
-        gx0, gy0, gx1, gy1 = CAB_GLASS
-        glass = img[gy0:gy1, gx0:gx1].copy()
+        glass = img[PORT_MASK].copy()
         img = mul(img, room)
-        img[gy0:gy1, gx0:gx1] = glass  # outside isn't lit by the alarm
-        if t >= 8.8:
+        img[PORT_MASK] = glass  # outside isn't lit by the alarm
+        if t >= T_IMPACT + 0.8:
             monitor_alert(img, t)
             on = int(t * 3.2) % 2 == 0
             for bx in (120, 240, 360):
                 rect(img, bx, 31, bx + 5, 34, (255, 40, 60) if on else (90, 10, 20))
-    roles = ("survivor", "player", "lost")
-    seated = t < 10.6
-    for role in roles:
+    seated = t < T_STAND
+    for role in ROLES:
+        if not seated:
+            break
         a, sx = cast[role], SEAT_X[role]
-        if seated:
-            asleep = t < (5.0 if role == "lost" else 8.0)
-            top = a.draw(img, sx, 124 + (1 if asleep else 0), rows=20, tint=crew)
-            if role == "lost" and not asleep:
-                rect(img, sx + 3, top + 6, sx + 5, top + 7, tint_color(BLUE, crew))  # Earth in her visor
-            if t < 10.4:  # harness
-                for k in range(7):
-                    blend_px(img, sx + 3 - k, top + 12 + k, tint_color(AMBER, crew), 1.0)
-                rect(img, sx, top + 15, sx + 2, top + 17, tint_color(GRAY, crew))
-            if asleep and t >= 2.6:  # floating z's
-                ph = (t + {"survivor": 0.0, "player": 0.5, "lost": 0.9}[role]) % 1.6
-                zx, zy = sx + 6 + int(ph * 3), top - 2 - int(ph * 8)
-                for dy, row in enumerate(("1111", "..1.", ".1..", "1111")):
-                    for dx, ch in enumerate(row):
-                        if ch == "1":
-                            blend_px(img, zx + dx, zy + dy, GRAY, 0.9)
+        asleep = t < (T_WAKE if role == "lost" else T_IMPACT)
+        top = a.draw(img, sx, 124 + (1 if asleep else 0), rows=20, tint=crew)
+        if role == "lost" and not asleep:
+            rect(img, sx + 3, top + 6, sx + 5, top + 7, tint_color(CYAN, crew))  # nav screen in her visor
+        if t < T_STAND - 0.2:  # harness
+            for k in range(7):
+                blend_px(img, sx + 3 - k, top + 12 + k, tint_color(AMBER, crew), 1.0)
+            rect(img, sx, top + 15, sx + 2, top + 17, tint_color(GRAY, crew))
+        if asleep and t >= T_CABIN_A + 0.2:  # floating z's
+            ph = (t + {"ahead": 1.2, "survivor": 0.0, "player": 0.5, "lost": 0.9}[role]) % 1.6
+            zx, zy = sx + 6 + int(ph * 3), top - 2 - int(ph * 8)
+            for dy, row in enumerate(("1111", "..1.", ".1..", "1111")):
+                for dx, ch in enumerate(row):
+                    if ch == "1":
+                        blend_px(img, zx + dx, zy + dy, GRAY, 0.9)
     for sx in SEAT_X.values():
         draw_console(img, sx, t, room)
     if not seated:
-        for role in roles:
+        for i, role in enumerate(ROLES):  # the rear seat goes first
             a, sx = cast[role], SEAT_X[role]
-            if t < 11.0:
-                a.draw(img, sx, FEET, left=t >= 10.85, tint=crew)
+            t0 = T_WALK + 0.08 * i
+            if t < t0:
+                a.draw(img, sx, FEET, left=t >= T_STAND + 0.25, tint=crew)
             else:
-                walk = t - 11.0
-                a.draw(img, sx - 42 * walk, FEET, t_anim=walk, walking=True, left=True, tint=crew)
-    if t >= 8.0:
+                walk = t - t0
+                x = sx - CABIN_RUN * walk
+                clip = (CAB_DOOR[0], 0, CABIN_W, H) if x < CAB_DOOR[2] - 4 else None  # out through the door
+                a.draw(img, x, FEET, t_anim=walk * 1.3, walking=True, left=True, tint=crew, clip=clip)
+    if t >= T_IMPACT:
         draw_sparks(img, t, 232, 31)
-    if 8.0 <= t < 8.067:  # impact flash
+    if T_IMPACT <= t < T_IMPACT + 0.067:  # impact flash
         img = (img.astype(np.float32) * 0.15 + 255 * 0.85).astype(np.uint8)
-    cx = cabin_camera(t)
-    dx, dy = shake(t, 8.0, 0.9, 3, 1)
-    return view(img, cx, dx, dy), 0, 0
+    dx, dy = shake(t, T_IMPACT, 0.9, 3, 1)
+    return view(img, cabin_camera(t), dx, dy)
+
+
+def build_nav():
+    """Static parts of the dashboard close-up."""
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = (14, 16, 26)
+    sx0, sy0, sx1, sy1 = NAV_SCREEN
+    rect(img, sx0 - 4, sy0 - 4, sx1 + 4, sy1 + 4, STEEL_L)
+    rect(img, sx0 - 2, sy0 - 2, sx1 + 2, sy1 + 2, STEEL)
+    rect(img, sx0, sy0, sx1, sy1, (4, 12, 18))
+    for gx in range(sx0 + 12, sx1, 16):
+        rect(img, gx, sy0, gx + 1, sy1, (9, 26, 34))
+    for gy in range(sy0 + 12, sy1, 16):
+        rect(img, sx0, gy, sx1, gy + 1, (9, 26, 34))
+    draw_text(img, sx0 + 6, sy0 + 5, "NAV // RETURN TO EARTH", CYAN)
+    rect(img, sx0 + 6, sy0 + 14, sx1 - 6, sy0 + 15, (30, 90, 110))
+    for spr, (x, y), name in ((NAV_MARS, NAV_P0, "MARS"), (NAV_EARTH, NAV_P2, "EARTH")):
+        blit(img, spr, x - spr.shape[1] // 2, y - spr.shape[0] // 2)
+        draw_text(img, x - text_w(name) // 2, y + spr.shape[0] // 2 + 2, name, (90, 170, 190))
+    blit(img, NAV_MOON, NAV_P2[0] + 14, NAV_P2[1] - 12)
+    # Dashboard strip under the screen.
+    rect(img, 0, sy1 + 6, W, H, (22, 24, 36))
+    rect(img, 0, sy1 + 6, W, sy1 + 7, STEEL)
+    draw_text(img, 24, sy1 + 12, "HULL OK", GREEN)
+    draw_text(img, 24, sy1 + 22, "O2   OK", GREEN)
+    draw_text(img, W - 24 - text_w("COURSE EARTH"), sy1 + 12, "COURSE EARTH", CYAN)
+    return img
+
+
+NAV_SCREEN = (34, 22, 286, 134)
+NAV_P0, NAV_P1, NAV_P2 = (70, 92), (150, 30), (250, 74)
+
+
+def shot_nav(t):
+    """9.0-11.4: the dashboard. The route from Mars, and how far is left."""
+    lt = t - T_NAV
+    img = NAV_BG.copy()
+    sx0, sy0, sx1, sy1 = NAV_SCREEN
+    for k in range(120):  # route: flown part solid, the rest dotted
+        u = k / 119
+        x, y = nav_point(u, NAV_P0, NAV_P1, NAV_P2)
+        if u <= NAV_SHIP_U:
+            rect(img, int(x), int(y), int(x) + 1, int(y) + 1, CYAN)
+        elif k % 3 == 0:
+            rect(img, int(x), int(y), int(x) + 1, int(y) + 1, (60, 140, 160))
+    x, y = nav_point(NAV_SHIP_U, NAV_P0, NAV_P1, NAV_P2)
+    if int(lt * 3) % 2 == 0:  # ship marker
+        for dy in range(-2, 3):
+            rect(img, int(x) - 2 + abs(dy), int(y) + dy, int(x) + 3 - abs(dy), int(y) + dy + 1, WHITE)
+        r = 4 + int(lt * 6) % 4
+        for a in np.linspace(0, 2 * math.pi, 24):
+            blend_px(img, int(x + r * math.cos(a)), int(y + r * math.sin(a)), CYAN, 0.5)
+    # Distance readout: rolls down to the figure, then holds.
+    d = DISTANCE_MI + int(round(30 * (1 - ease_out(lt / 0.7)))) if lt < 0.7 else DISTANCE_MI
+    label = "DISTANCE TO EARTH"
+    draw_text(img, (sx0 + sx1) // 2 - text_w(label) // 2, sy1 - 31, label, (90, 170, 190))
+    figure = f"{d:,} MI"
+    fw = (6 * len(figure) - 1) * 2
+    draw_text_big(img, (sx0 + sx1) // 2 - fw // 2, sy1 - 20, figure, WHITE, 2)
+    for i, x0 in enumerate(range(140, 190, 8)):  # blinking dashboard lights
+        on = (int(lt * 4) + i) % 3 != 0
+        rect(img, x0, sy1 + 14, x0 + 4, sy1 + 17, (GREEN, AMBER, CYAN)[i % 3] if on else STEEL_D)
+    if lt < 0.15:  # screen wakes up
+        img = (img.astype(np.float32) * (0.3 + lt / 0.15 * 0.7)).astype(np.uint8)
+    return img
 
 
 def corridor_light(t):
@@ -795,102 +1095,139 @@ def draw_button(img, t):
     rect(img, px0 + 4, py0 + 4, px1 - 4, py1 - 4, btn)
 
 
+# Corridor run-in: (x as the shot opens, x at the second impact). They come in from the
+# cabin on the right, in the order they left it; the one in front is already well ahead.
+CORR_RUN = {"survivor": (330, 170), "player": (362, 206.5), "lost": (400, 246.5)}
+AHEAD_X0, AHEAD_V = 150, 82.0
+
+
 def shot_breach(t, cast):
-    """13.0-16.0: second impact, the lost crewmate is pulled out."""
+    """19.3-24.2: the 4th crewmate reaches the pods; second impact; one is pulled out."""
     room, crew = corridor_light(t)
     img = CORR_BG.copy()
     draw_slab(img, 0)
+    draw_hatch(img, t)
     img = mul(img, room)
-    draw_button(img, t)
-    hit = t >= 13.25
+    draw_hatch_light(img, t)
+    draw_button(img, 0.0)
+    hit = t >= T_HIT2
     if hit:
         draw_breach(img, t, room)
+    lc = t - T_CORR
+    # The one in front: sprints for the pod hatch and gets through just before it locks.
+    D = cast["ahead"]
+    dx_ = AHEAD_X0 - AHEAD_V * lc
+    if dx_ > -10:
+        clip = (HATCH[0], 0, W, H) if dx_ < HATCH[2] + 5 else None
+        D.draw(img, dx_, FEET, t_anim=lc * 1.4, walking=True, left=True, tint=crew, clip=clip)
     A, P, B = cast["survivor"], cast["player"], cast["lost"]
-    walk = min(t, 13.25) - 13.0
-    # Survivor: walks, stumbles, braces by the door facing back.
+    run = min(lc, T_HIT2 - T_CORR) / (T_HIT2 - T_CORR)
+    walk = min(lc, T_HIT2 - T_CORR) * 1.3
+    to = 13.25 + (t - T_HIT2)  # the struggle keeps the original timings
+    # Survivor: runs in, stumbles at the impact, braces by the door facing back.
     if not hit:
-        A.draw(img, 178 - 30 * walk, FEET, t_anim=walk, walking=True, left=True, tint=crew)
+        A.draw(img, lerp(*CORR_RUN["survivor"], run), FEET, t_anim=walk, walking=True, left=True, tint=crew)
     else:
-        A.draw(img, 170, FEET, left=t < 13.4, lift=-1 if t < 13.6 else 0, tint=crew)
+        A.draw(img, 170, FEET, left=to < 13.4, lift=-1 if to < 13.6 else 0, tint=crew)
     # Player: lunges toward the lost crewmate, reaches, misses.
-    px, p_left = 214 - 30 * walk, True
+    px, p_left = lerp(*CORR_RUN["player"], run), True
     if hit:
-        p_left = t < 13.3
-        if t < 13.45:
+        p_left = to < 13.3
+        if to < 13.45:
             px = 206.5
-        elif t < 14.05:
-            px = lerp(206.5, 243, ease_out((t - 13.45) / 0.6))
+        elif to < 14.05:
+            px = lerp(206.5, 243, ease_out((to - 13.45) / 0.6))
         else:
-            px = 243 + 7 * (t - 14.05) / 1.95
+            px = 243 + 7 * (to - 14.05) / 1.95
     p_top = P.draw(img, px, FEET, t_anim=walk, walking=not hit, left=p_left, tint=crew)
-    if 13.5 <= t < 15.4:
+    if 13.5 <= to < 15.4:
         P.arm(img, px, p_top, 9, tint=crew)
     # Lost crewmate: jolted back, then pulled out through the breach.
-    bx, rot, lift = 254 - 30 * walk, 0, 0
+    bx, rot, lift = lerp(*CORR_RUN["lost"], run), 0, 0
     if hit:
-        if t < 13.4:
-            bx = lerp(246.5, 262, ease_out((t - 13.25) / 0.15))
+        if to < 13.4:
+            bx = lerp(246.5, 262, ease_out((to - 13.25) / 0.15))
         else:
-            bx = 262 + 0.5 * 33 * (t - 13.4) ** 2
-        lift = int(min(6, max(0, (t - 14.2) * 6)))
-        if t >= 14.9:
-            rot = int((t - 14.9) / 0.22) % 4 + 1
+            bx = 262 + 0.5 * 33 * (to - 13.4) ** 2
+        lift = int(min(6, max(0, (to - 14.2) * 6)))
+        if to >= 14.9:
+            rot = int((to - 14.9) / 0.22) % 4 + 1
     b_top = B.draw(img, bx, FEET, t_anim=walk, walking=not hit, left=True, rot=rot % 4, lift=lift, tint=crew)
-    if 13.5 <= t < 14.9:
+    if 13.5 <= to < 14.9:
         B.arm(img, bx, b_top, 7, left=True, tint=crew)
     if hit:
         draw_flow(img, AIR1, t, False)
         draw_flow(img, DEB1, t, True)
-    if 13.25 <= t < 13.317:
+    if T_HIT2 <= t < T_HIT2 + 0.067:
         img = (img.astype(np.float32) * 0.2 + 255 * 0.8).astype(np.uint8)
-    dx, dy = shake(t, 13.25, 0.9, 3, 2)
-    return view(img, 0, dx, dy), 0, 0
+    dx, dy = shake(t, T_HIT2, 0.9, 3, 2)
+    return view(img, 0, dx, dy)
+
+
+# The breach as seen from outside, in make_ship(4) pixels: over the corridor, aft of the windows.
+OUT_SCALE = 4
+OUT_HOLE = [(140, 33), (147, 30), (153, 34), (160, 32), (163, 40), (159, 47), (162, 53),
+            (152, 55), (146, 51), (139, 53), (137, 45), (141, 40)]
 
 
 def shot_outside(t, cast):
-    """16.0-19.0: the lost crewmate drifts away against Earth. Silence."""
+    """24.2-27.2: the same ship from outside, breached; the lost crewmate tumbles away. Silence."""
+    lt = t - T_OUT
     img = np.zeros((H, W, 3), np.uint8)
     img[:] = SPACE
     draw_stars(img, EXT_STARS_FAR, t)
     draw_stars(img, EXT_STARS_NEAR, t)
-    blit(img, EARTH_BIG, 200 - EARTH_BIG.shape[1] // 2, 336 - EARTH_BIG.shape[0] // 2)
-    # Hull of the ship, top-left, with the breach.
-    hull = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(hull).polygon([(0, 16), (118, 16), (112, 30), (96, 46), (70, 60), (36, 68), (0, 72)], fill=255)
-    hm = np.asarray(hull) > 0
-    img[hm] = STEEL
+    spr, (gx, gy) = FAR_PLANETS[0]
+    blit(img, spr, 276 - spr.shape[1] // 2, 40 - spr.shape[0] // 2)
+    ox, oy = -44 + 3 * lt, 28
+    draw_engine(img, ox, oy, OUT_SCALE, t)
+    blit(img, SHIP4, ox, oy)
+    # The hole: dark inside with the corridor's red emergency light, torn edges.
     hole = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(hole).polygon([(70, 30), (80, 26), (90, 32), (94, 42), (86, 50), (76, 48), (68, 40)], fill=255)
-    om = np.asarray(hole) > 0
-    img[om] = (60, 6, 18) if int(t * 3) % 2 else (90, 10, 26)
-    edge = ndimage.binary_dilation(om, iterations=1) & ~om
+    ImageDraw.Draw(hole).polygon([(ox + x, oy + y) for x, y in OUT_HOLE], fill=255)
+    hm = np.asarray(hole) > 0
+    pulse = 0.86 + 0.1 * math.sin(2 * math.pi * 1.6 * t)
+    img[hm] = tint_color((90, 12, 28), (pulse,) * 3)
+    inner = ndimage.binary_erosion(hm, iterations=3)
+    img[inner] = tint_color((150, 20, 44), (pulse,) * 3)
+    edge = ndimage.binary_dilation(hm, iterations=1) & ~hm
     img[edge] = STEEL_LL
-    for x in range(0, 112, 18):
-        rect(img, x, 20, x + 1, 64, STEEL_D)
-    rect(img, 0, 18, 110, 19, STEEL_L)
-    # Debris specks drifting out with her.
+    for x0, y0, x1, y1 in ((140, 33, 134, 28), (160, 32, 166, 27), (162, 53, 168, 58), (139, 53, 133, 57)):
+        for k in range(6):  # bent plates
+            u = k / 5
+            blend_px(img, int(ox + lerp(x0, x1, u)), int(oy + lerp(y0, y1, u)), GRAY, 1.0)
+    hx, hy = ox + 150, oy + 43
+    # Air and debris streaming out with her.
     rng = np.random.default_rng(9)
-    for _ in range(14):
-        sx0, sy0 = rng.uniform(78, 92), rng.uniform(34, 46)
-        vx, vy = rng.uniform(8, 40), rng.uniform(4, 26)
-        dt = t - 16.0 + rng.uniform(0, 1.0)
-        rect(img, int(sx0 + vx * dt), int(sy0 + vy * dt), int(sx0 + vx * dt) + 1, int(sy0 + vy * dt) + 1, GRAY)
-    # Her: tumbling, getting smaller.
-    u = ease_out((t - 16.0) / 3.0)
-    x, y = lerp(96, 214, u), lerp(44, 118, u)
+    for _ in range(26):
+        vx, vy = rng.uniform(10, 46), rng.uniform(4, 30)
+        dt = (lt + rng.uniform(0, 1.6)) % 1.6
+        x, y = hx + vx * dt, hy + vy * dt
+        if rng.random() < 0.5:
+            rect(img, int(x), int(y), int(x) + 1, int(y) + 1, GRAY)
+        else:
+            for k in range(3):
+                blend_px(img, int(x) - k, int(y), (175, 195, 225), 0.5 * (1 - k / 3))
+    # Her: tumbling away, getting smaller.
+    u = ease_out(lt / 3.0)
+    x, y = lerp(hx + 4, 262, u), lerp(hy + 6, 146, u)
     B = cast["lost"]
-    size = 0 if t < 17.0 else (1 if t < 18.1 else 2)
-    spr = np.rot90(B.tiny[size], int((t - 16.0) / 0.4) % 4)
-    blit(img, spr, x - spr.shape[1] / 2, y - spr.shape[0] / 2)
-    return img, 0, 0
+    size = 0 if lt < 1.0 else (1 if lt < 2.1 else 2)
+    tiny = np.rot90(B.tiny[size], int(lt / 0.4) % 4)
+    blit(img, tiny, x - tiny.shape[1] / 2, y - tiny.shape[0] / 2)
+    return img
 
 
-def shot_seal(t, cast):
-    """19.0-28.0: pulled through the bulkhead, door slams, MAIN POWER OFFLINE."""
+def shot_seal(tf, cast):
+    """27.2-36.2: pulled through the bulkhead, door slams, MAIN POWER OFFLINE.
+    Inside, t runs on the original 19.0-28.0 clock (t = film time - SEAL_OFF)."""
+    t = tf - SEAL_OFF
     room, crew = corridor_light(t)
     img = CORR_BG.copy()
     draw_slab(img, t)
+    draw_hatch(img, tf)
     img = mul(img, room)
+    draw_hatch_light(img, tf)  # the pod hatch stays locked: no power
     slammed = t >= 21.45
     if slammed:  # the breach side goes dark behind the door
         dark = min(0.6, (t - 21.5) / 1.5 * 0.6) if t > 21.5 else 0.0
@@ -946,7 +1283,7 @@ def shot_seal(t, cast):
         strength = min(0.5, (t - 21.6) * 0.5) + (0.04 if bob else 0.0)
         img = (img.astype(np.float32) * VIGNETTE(strength)).astype(np.uint8)
     dx, dy = shake(t, 21.47, 0.35, 2, 3)
-    return view(img, 0, dx, dy), 0, 0
+    return view(img, 0, dx, dy)
 
 
 def _vignette_base():
@@ -965,7 +1302,7 @@ def VIGNETTE(strength):  # noqa: N802 (reads like a constant-ish helper)
 # --- Captions and frame assembly -----------------------------------------------------------
 
 def draw_captions(frame, t):
-    for t0, t1, who, line, style in CAPTIONS:
+    for t0, t1, who, line, style, _vo in CAPTIONS:
         if not t0 <= t < t1:
             continue
         n = int((t - t0) * CPS)
@@ -977,19 +1314,22 @@ def draw_captions(frame, t):
 
 
 def scene_frame(t, cast):
-    if t < 2.4:
-        img, _, _ = shot_exterior(t, cast)
-    elif t < 13.0:
-        img, _, _ = shot_cabin(t, cast)
-    elif t < 16.0:
-        img, _, _ = shot_breach(t, cast)
-    elif t < 19.0:
-        img, _, _ = shot_outside(t, cast)
+    if t < T_CABIN_A:
+        img = shot_exterior(t, cast)
+    elif t < T_NAV:
+        img = shot_cabin(t, cast)
+    elif t < T_CABIN_B:
+        img = shot_nav(t)
+    elif t < T_CORR:
+        img = shot_cabin(t, cast)
+    elif t < T_OUT:
+        img = shot_breach(t, cast)
+    elif t < T_SEAL:
+        img = shot_outside(t, cast)
     else:
-        img, _, _ = shot_seal(t, cast)
-    if t < 0.6:  # dithered fade in from black
-        mask = bayer(H, W) >= t / 0.6
-        img[mask] = 0
+        img = shot_seal(t, cast)
+    if t < T_EXT_FULL:
+        img = year_card(img, t)
     img[:LB] = 0
     img[H - LB:] = 0
     draw_captions(img, t)
@@ -997,8 +1337,8 @@ def scene_frame(t, cast):
 
 
 def frame_at(t, cast):
-    if t >= 28.0:
-        return logo_frame(t)
+    if t >= T_LOGO:
+        return logo_frame(t - SEAL_OFF)
     f = scene_frame(t, cast)
     return np.repeat(np.repeat(f, 2, 0), 2, 1)
 
@@ -1055,9 +1395,12 @@ def load_logo():
 # --- Soundtrack -------------------------------------------------------------------------------
 
 def soundtrack():
+    """Music and effects only. Spoken lines get a clear lane: no one-shot effects
+    overlap a caption, and everything else is turned down under it."""
     n = int(SR * LENGTH)
     out = np.zeros(n)
     rng = np.random.default_rng(5)
+    lines = [(c[0], c[1]) for c in CAPTIONS]
 
     def tt(d):
         return np.arange(int(SR * d)) / SR
@@ -1068,6 +1411,13 @@ def soundtrack():
             return
         j = min(n, i + len(sig))
         out[i:j] += sig[:j - i] * gain
+
+    def fx(t0, sig, gain=1.0):
+        """A one-shot effect; dropped if it would play over a spoken line."""
+        t1 = t0 + len(sig) / SR
+        if any(t0 < b + 0.1 and t1 > a - 0.1 for a, b in lines):
+            return
+        add(t0, sig, gain)
 
     def filt(x, kind, fc):
         b, a = sps.butter(2, np.array(fc) / (SR / 2), kind)
@@ -1097,36 +1447,6 @@ def soundtrack():
     def decay(d, k):
         return np.exp(-tt(d) * k)
 
-    # 0-2.4 engine rumble outside; 2.4-8.15 cabin hum.
-    rumble = filt(noise(2.4), "low", 140) * 2.2 + 0.25 * sine(45, 2.4)
-    add(0.0, fade(rumble, 0.6, 0.02), 0.32)
-    hum = 0.5 * sine(60, 5.75) + 0.2 * sine(120, 5.75) + filt(noise(5.75), "low", 220) * 0.8
-    add(2.4, fade(hum, 0.05, 0.01), 0.22)
-    add(8.15, fade(sweep(60, 18, 0.35) * decay(0.35, 6), 0.002, 0.05), 0.25)
-    # Monitor typing and caption voice blips.
-    for t0, line in MONITOR_LINES:
-        for i, ch in enumerate(line):
-            if ch != " ":
-                add(t0 + i / MONITOR_CPS, fade(sq(1150, 0.012), 0.001, 0.004), 0.06)
-    for t0, _t1, _who, line, style in CAPTIONS:
-        for i, ch in enumerate(line):
-            if ch in " .,":
-                continue
-            if style == "crew":
-                f = 620 + 90 * ((i * 7) % 5)
-                add(t0 + i / CPS, fade(sq(f, 0.028), 0.002, 0.01), 0.07)
-            else:
-                add(t0 + i / CPS, fade(sweep(260, 220, 0.03, "sq"), 0.002, 0.01), 0.09)
-    # 8.0 impact.
-    boom = sweep(95, 28, 1.2) * decay(1.2, 3.2)
-    crash = filt(noise(0.8), "low", 900) * decay(0.8, 5) * 2.0
-    clang = sum(np.sin(2 * np.pi * f * tt(1.4)) * decay(1.4, 2.5 + i) for i, f in enumerate((233, 367, 521, 690)))
-    add(8.0, boom, 0.9)
-    add(8.0, crash, 0.55)
-    add(8.02, clang, 0.07)
-    for t0 in (8.15, 8.35, 8.42):  # lights fail
-        add(t0, fade(filt(noise(0.06), "high", 2500), 0.001, 0.02), 0.35)
-    # Alarm.
     def alarm(t0, t1, gain, muffle=False):
         cyc = fade(sweep(520, 880, 0.5, "sq"), 0.01, 0.05)
         t = t0
@@ -1136,52 +1456,99 @@ def soundtrack():
                 seg = filt(seg, "low", 600)
             add(t, seg, gain)
             t += 0.75
-    alarm(8.8, 13.0, 0.09)
-    alarm(13.25, 16.0, 0.05)
-    alarm(19.0, 21.45, 0.08, muffle=True)
-    for t0 in (10.40, 10.46, 10.52):  # restraints release
-        add(t0, fade(filt(noise(0.008), "high", 3000), 0.0005, 0.004), 0.4)
-    for k, t0 in enumerate(np.arange(11.0, 13.0, 0.23)):  # footsteps
-        add(t0 + 0.03 * (k % 3), fade(filt(noise(0.04), "low", 300), 0.001, 0.02), 0.5)
-    # 13.25 second impact: boom + tearing metal + rushing air.
-    add(13.25, sweep(110, 25, 1.3) * decay(1.3, 2.6), 1.0)
-    tear = filt(noise(1.0), "band", [300, 2200]) * decay(1.0, 2.2) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 23 * tt(1.0))))
-    add(13.27, tear, 0.6)
 
     def wind(t0, t1, gain):
         d = t1 - t0
         w = filt(noise(d), "band", [180, 1400]) * 2.2
         swell = 0.75 + 0.25 * np.sin(2 * np.pi * 0.7 * tt(d))
         add(t0, fade(w * swell, 0.15, 0.003), gain)
-    wind(13.3, 16.0, 0.5)
-    wind(19.0, 21.45, 0.45)
-    # 21.3 button, 21.45 door slam.
-    add(21.3, fade(sq(988, 0.09), 0.002, 0.02), 0.18)
-    add(21.45, sweep(75, 32, 0.6) * decay(0.6, 5), 1.0)
-    add(21.45, filt(noise(0.35), "low", 500) * decay(0.35, 9) * 2, 0.6)
-    add(21.46, sum(np.sin(2 * np.pi * f * tt(0.9)) * decay(0.9, 4 + i) for i, f in enumerate((180, 287, 410))), 0.08)
-    # Helmet breathing.
-    t = 21.8
-    while t < 27.6:
+
+    def steps(t0, t1, every, gain):
+        for k, t in enumerate(np.arange(t0, t1, every)):
+            fx(t + 0.03 * (k % 3), fade(filt(noise(0.04), "low", 300), 0.001, 0.02), gain)
+
+    # The year: a low pad swelling in, handing over to the engine as the ship passes.
+    d = T_EXT_FULL + 0.8
+    pad = (0.6 * sine(55, d) + 0.35 * sine(82.4, d) + 0.15 * sine(164.8, d)) * (0.8 + 0.2 * sine(0.5, d))
+    add(0.0, fade(pad, 1.4, 1.2), 0.2)
+    d = T_CABIN_A - T_EXT_IN + 0.1
+    rumble = filt(noise(d), "low", 140) * 2.2 + 0.25 * sine(45, d)
+    add(T_EXT_IN - 0.1, fade(rumble * np.sin(np.pi * tt(d) / d) ** 0.7, 0.4, 0.02), 0.32)
+    # Cabin hum (also under the dashboard), until the power dies.
+    d = T_IMPACT + 0.15 - T_CABIN_A
+    hum = 0.5 * sine(60, d) + 0.2 * sine(120, d) + filt(noise(d), "low", 220) * 0.8
+    add(T_CABIN_A, fade(hum, 0.05, 0.01), 0.22)
+    add(T_IMPACT + 0.15, fade(sweep(60, 18, 0.35) * decay(0.35, 6), 0.002, 0.05), 0.25)
+    # Monitor typing, then a bright two-note chime for SUCCESS.
+    for t0, line in MONITOR_LINES:
+        for i, ch in enumerate(line):
+            if ch != " ":
+                fx(t0 + i / MONITOR_CPS, fade(sq(1150, 0.012), 0.001, 0.004), 0.06)
+    fx(SUCCESS_AT, fade(sq(784, 0.09) * decay(0.09, 8), 0.002, 0.02), 0.08)
+    fx(SUCCESS_AT + 0.1, fade(sq(1047, 0.22) * decay(0.22, 7), 0.002, 0.05), 0.08)
+    # Dashboard wakes up; the distance digits roll.
+    fx(T_NAV + 0.02, fade(sweep(900, 1500, 0.08), 0.002, 0.02), 0.06)
+    for k in range(12):
+        fx(T_NAV + 0.1 + k * 0.05, fade(sq(1800, 0.008), 0.001, 0.003), 0.035)
+    # First impact.
+    boom = sweep(95, 28, 1.2) * decay(1.2, 3.2)
+    crash = filt(noise(0.8), "low", 900) * decay(0.8, 5) * 2.0
+    clang = sum(np.sin(2 * np.pi * f * tt(1.4)) * decay(1.4, 2.5 + i) for i, f in enumerate((233, 367, 521, 690)))
+    add(T_IMPACT, boom, 0.9)
+    add(T_IMPACT, crash, 0.55)
+    add(T_IMPACT + 0.02, clang, 0.07)
+    for dt in (0.15, 0.35, 0.42):  # lights fail
+        fx(T_IMPACT + dt, fade(filt(noise(0.06), "high", 2500), 0.001, 0.02), 0.35)
+    alarm(T_IMPACT + 0.8, T_HIT2, 0.09)
+    fx(T_STAND - 0.2, fade(filt(noise(0.008), "high", 3000), 0.0005, 0.004), 0.4)  # restraints
+    steps(T_WALK, T_CORR, 0.2, 0.5)
+    # Corridor: running feet, the pod hatch opening for the one in front.
+    steps(T_CORR, T_HIT2, 0.17, 0.55)
+    fx(HATCH_OPEN[0], fade(filt(noise(0.25), "band", [400, 2500]) * decay(0.25, 6), 0.01, 0.05), 0.25)
+    # Second impact: boom, tearing metal, the hatch slamming shut, rushing air.
+    add(T_HIT2, sweep(110, 25, 1.3) * decay(1.3, 2.6), 1.0)
+    tear = filt(noise(1.0), "band", [300, 2200]) * decay(1.0, 2.2) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 23 * tt(1.0))))
+    add(T_HIT2 + 0.02, tear, 0.6)
+    add(T_HIT2 + 0.03, sum(np.sin(2 * np.pi * f * tt(0.6)) * decay(0.6, 6 + i) for i, f in enumerate((210, 330))), 0.06)
+    wind(T_HIT2 + 0.05, T_OUT, 0.5)
+    alarm(T_HIT2, T_OUT, 0.05)
+    # Seal (original 19.0-28.0 timings + SEAL_OFF): muffled alarm, wind, button, door slam.
+    o = SEAL_OFF
+    alarm(19.0 + o, 21.45 + o, 0.08, muffle=True)
+    wind(19.0 + o, 21.45 + o, 0.45)
+    fx(21.3 + o, fade(sq(988, 0.09), 0.002, 0.02), 0.18)
+    add(21.45 + o, sweep(75, 32, 0.6) * decay(0.6, 5), 1.0)
+    add(21.45 + o, filt(noise(0.35), "low", 500) * decay(0.35, 9) * 2, 0.6)
+    add(21.46 + o, sum(np.sin(2 * np.pi * f * tt(0.9)) * decay(0.9, 4 + i) for i, f in enumerate((180, 287, 410))), 0.08)
+    # Helmet breathing (only breathing), stopping before the last line.
+    t = 21.8 + o
+    while t + 2.7 < CAPTIONS[-1][0]:
         inhale = filt(noise(1.1), "band", [500, 2400]) * np.sin(np.pi * tt(1.1) / 1.1) ** 2
         exhale = filt(noise(1.4), "band", [240, 1200]) * np.sin(np.pi * tt(1.4) / 1.4) ** 2
         add(t, inhale, 0.55)
         add(t + 1.3, exhale, 0.7)
         t += 3.2
-    # Terminal buzz, in time with its flicker.
-    for a, b in FLICKER:
-        d = b - a
-        add(a, fade((sq(100, d) * 0.6 + sq(200, d) * 0.2), 0.002, 0.004), 0.05)
+    for a, b in FLICKER:  # terminal buzz, in time with its flicker
+        add(a + o, fade((sq(100, b - a) * 0.6 + sq(200, b - a) * 0.2), 0.002, 0.004), 0.05)
     for t0 in (24.95, 25.18):
-        add(t0, fade(filt(noise(0.04), "low", 300), 0.001, 0.02), 0.5)
+        fx(t0 + o, fade(filt(noise(0.04), "low", 300), 0.001, 0.02), 0.5)
+    # Under each spoken line: everything down to a fifth, eased in and out.
+    env = np.ones(n)
+    ramp = int(0.15 * SR)
+    for a, b in lines:
+        i0, i1 = int(a * SR), min(n, int(b * SR))
+        env[i0:i1] = np.minimum(env[i0:i1], 0.2)
+        env[max(0, i0 - ramp):i0] = np.minimum(env[max(0, i0 - ramp):i0], np.linspace(1, 0.2, i0 - max(0, i0 - ramp)))
+        env[i1:min(n, i1 + ramp)] = np.minimum(env[i1:min(n, i1 + ramp)], np.linspace(0.2, 1, min(n, i1 + ramp) - i1))
+    out *= env
     # Hard silences from the script.
-    out[int(16.0 * SR):int(19.0 * SR)] = 0
-    out[int(28.0 * SR):] = 0
-    # 28.4 logo chime.
+    out[int(T_OUT * SR):int(T_SEAL * SR)] = 0
+    out[int(T_LOGO * SR):] = 0
+    # Logo chime.
     for k, f in enumerate((523.25, 659.25, 783.99, 1046.5)):
         note = fade(sq(f, 0.6) * decay(0.6, 5), 0.003, 0.05)
-        add(28.4 + 0.12 * k, note, 0.12)
-        add(28.4 + 0.12 * k + 0.18, note, 0.05)
+        add(T_LOGO + 0.4 + 0.12 * k, note, 0.12)
+        add(T_LOGO + 0.4 + 0.12 * k + 0.18, note, 0.05)
     out = out / max(1e-6, np.abs(out).max()) * 0.89
     return out
 
@@ -1189,31 +1556,48 @@ def soundtrack():
 # --- Main -----------------------------------------------------------------------------------
 
 def build_globals():
-    global CABIN_BG, CORR_BG, SHIP, EARTH_EXT, EARTH_BIG, MOON_IMG, EXT_STARS_FAR, EXT_STARS_NEAR
-    global BREACH_STARS, BREACH_EARTH, BREACH_MASK, BREACH_EDGE, BREACH_SKY_BASE, LOGO
-    SHIP = make_ship()
-    EARTH_EXT = render_planet(108, lon=0.4)
-    EARTH_BIG = render_planet(255, lon=1.1, tilt=-1.2)
-    MOON_IMG = render_planet(10, kind="moon")
+    global CABIN_BG, CORR_BG, NAV_BG, SHIP2, SHIP4, FAR_PLANETS, EXT_STARS_FAR, EXT_STARS_NEAR
+    global NAV_MARS, NAV_EARTH, NAV_MOON
+    global BREACH_STARS, BREACH_MASK, BREACH_EDGE, BREACH_SKY_BASE, LOGO
+    SHIP2 = make_ship(2)
+    SHIP4 = make_ship(OUT_SCALE)
+    # Small and far away: a ringed gas giant, a red dot (Mars, behind them), an icy speck.
+    FAR_PLANETS = [(ringed_planet(9, 17, 4), (252, 46)),
+                   (render_planet(4, kind="mars", lon=1.3), (54, 138)),
+                   (render_planet(2, kind="ice"), (176, 32))]
     EXT_STARS_FAR = make_stars(90, W, H, 1)
     EXT_STARS_NEAR = make_stars(30, W, H, 2)
+    NAV_MARS = render_planet(7, kind="mars", lon=1.3)
+    NAV_EARTH = render_planet(9, lon=0.6)
+    NAV_MOON = render_planet(2, kind="moon")
     BREACH_STARS = make_stars(40, W, H, 3)
-    BREACH_EARTH = render_planet(60, lon=2.0)
     poly = Image.new("L", (W, H), 0)
     ImageDraw.Draw(poly).polygon(BREACH, fill=255)
     BREACH_MASK = np.asarray(poly) > 0
     BREACH_EDGE = ndimage.binary_dilation(BREACH_MASK, iterations=2) & ~BREACH_MASK
     BREACH_SKY_BASE = np.zeros((H, W, 3), np.uint8)
-    BREACH_SKY_BASE[:] = SPACE
-    blit(BREACH_SKY_BASE, BREACH_EARTH, 332 - BREACH_EARTH.shape[1] // 2, 150 - BREACH_EARTH.shape[0] // 2)
+    BREACH_SKY_BASE[:] = SPACE  # just space through the hole
     CABIN_BG = build_cabin()
     CORR_BG = build_corridor()
+    NAV_BG = build_nav()
     LOGO = load_logo()
 
 
 def cast_for(player):
-    survivor, lost = crew_for(player)
-    return {"player": Astro(player), "survivor": Astro(survivor), "lost": Astro(lost)}
+    survivor, lost, ahead = crew_for(player)
+    return {"player": Astro(player), "survivor": Astro(survivor), "lost": Astro(lost), "ahead": Astro(ahead)}
+
+
+def write_timing(path):
+    """What intro_cutscene.gd needs: the film length and when each line is spoken."""
+    data = {
+        "_note": "Generated by tools/make_intro.py; edit the timings there and re-run. "
+                 "Voice-over files go in assets/audio/intro_vo/<id>.ogg (or .wav/.mp3).",
+        "length": round(LENGTH, 2),
+        "lines": [{"id": vo, "at": round(a, 2), "end": round(b, 2), "speaker": who.rstrip(":"), "text": line}
+                  for a, b, who, line, _style, vo in CAPTIONS],
+    }
+    path.write_text(json.dumps(data, indent=2) + "\n")
 
 
 def encode_video(path, cast, quality):
@@ -1252,8 +1636,9 @@ def main():
         out = Path(args.preview)
         out.mkdir(parents=True, exist_ok=True)
         cast = cast_for("classic")
-        for t in (0.3, 1.6, 3.4, 4.6, 6.4, 7.6, 8.03, 8.5, 9.6, 10.3, 11.8, 12.9, 13.1, 13.3, 13.95, 14.6,
-                  15.3, 16.4, 17.6, 18.6, 19.5, 20.3, 21.2, 21.48, 22.8, 24.5, 25.1, 26.5, 28.7, 29.5):
+        for t in (0.6, 1.5, 2.6, 3.4, 4.6, 6.3, 7.6, 8.8, 9.5, 10.6, 12.6, 14.73, 15.2, 16.4, 17.5, 18.4, 19.1,
+                  19.6, 20.5, 20.9, 21.3, 21.45, 22.1, 23.4, 24.6, 25.6, 26.8, 27.7, 28.5, 29.7, 31.0, 33.2, 34.4,
+                  36.9, 37.7):
             Image.fromarray(frame_at(t, cast)).save(out / f"t{t:05.2f}.png")
         return
     video_dir = ROOT / "assets/video"
@@ -1263,6 +1648,8 @@ def main():
         print("wrote", path.relative_to(ROOT))
     write_audio(ROOT / "assets/audio/intro.ogg")
     print("wrote assets/audio/intro.ogg")
+    write_timing(ROOT / "data/intro_timing.json")
+    print("wrote data/intro_timing.json")
 
 
 if __name__ == "__main__":

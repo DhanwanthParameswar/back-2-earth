@@ -347,6 +347,13 @@ func _test_intro() -> void:
 		_check(ResourceLoader.exists(IntroCutscene.VIDEO_PATH % skin["id"]), "%s suit has its intro video" % skin["id"])
 	_check(ResourceLoader.exists(IntroCutscene.AUDIO_PATH), "intro soundtrack is in the build")
 	_check(IntroCutscene.video_path_for("no_such_suit") == IntroCutscene.VIDEO_PATH % "classic", "unknown suit falls back to the classic intro")
+	var timing: Dictionary = IntroCutscene.load_timing()
+	var ids := []
+	for line in timing.get("lines", []):
+		ids.append(line["id"])
+	_check(ids == ["crew_1", "system_1", "crew_2"], "intro timing lists the three voice-over lines")
+	_check(float(timing.get("length", 0.0)) > 30.0, "intro timing has the film length")
+	_check(IntroCutscene.vo_path_for("no_such_line") == "", "missing voice-over files are skipped")
 
 	# From the main menu: suit picker -> story -> gameplay.
 	Settings.intro_pending = true
