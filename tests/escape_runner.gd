@@ -125,9 +125,11 @@ func _run() -> void:
 	await get_tree().process_frame
 	check(not intro_mission.active, "Existing intro blocks gameplay")
 	check(intro_mission._intro != null, "Original cutscene instantiated unchanged")
-	intro_mission._intro.skip()
-	await get_tree().process_frame
+	var cutscene = intro_mission._intro
+	cutscene.skip()
+	await cutscene.finished
 	check(intro_mission.active, "Original cutscene hands off to prototype")
+	await cutscene.tree_exited
 	intro_mission.queue_free()
 	await get_tree().process_frame
 	Sfx.stop_ambient()
