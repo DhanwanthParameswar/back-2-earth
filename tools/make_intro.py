@@ -32,10 +32,10 @@ safe side of the barrier first and waits, facing back toward the rescue.
 Beats (script by the team):
   0-3.2     THE YEAR 2126, slowly dissolving into space
   2-5.2     the ship cruises past stars and small, far-off planets
-  5.2-9     cabin: four crew asleep; monitor: MARS SPACE STATION / REPAIRS MISSION: SUCCESS /
+  5.2-9     cabin: four crew asleep; monitor: MARS SPACE STATION / REPAIR MISSION: SUCCESS /
             RETURNING HOME
   9-11.4    dashboard: nav map, DISTANCE TO EARTH 676,767 MI
-  11.4-19.3 Kien wakes ("Real food. Finally."), impact, lights fail, red alarm,
+  11.4-19.3 Kien wakes ("Real food. Finally."), impact, main lights go out, emergency-screen warning,
             "Collision detected. Evacuate now.", crew unbuckle and hurry aft
   19.3-24.2 corridor: Dhan stops beyond the barrier, where a fallen locker blocks the
             hallway aft, and looks back; the second impact
@@ -82,6 +82,9 @@ T_NAV = 9.0              # dashboard insert
 T_CABIN_B = 11.4         # back in the cabin
 T_WAKE = 11.7            # front-seat crewmate wakes
 T_IMPACT = 14.7          # first impact
+# Residual light from space keeps silhouettes readable after the main lights fail.
+POWER_OUT_ROOM = (0.09, 0.11, 0.18)
+POWER_OUT_CREW = (0.32, 0.38, 0.50)
 T_STAND = 17.3           # restraints off, everyone up
 T_WALK = 17.7            # hurrying aft
 T_CORR = 19.3            # corridor
@@ -102,7 +105,7 @@ CAPTIONS = [
 ]
 JOHNNY_TURNS = 33.6      # Johnny turns to face Aaron as he starts talking
 CPS = 30.0               # caption typing speed (chars per second)
-MONITOR_LINES = [(5.6, "MARS SPACE STATION"), (6.45, "REPAIRS MISSION:"), (7.9, "RETURNING HOME")]
+MONITOR_LINES = [(5.6, "MARS SPACE STATION"), (6.45, "REPAIR MISSION:"), (7.9, "RETURNING HOME")]
 SUCCESS_AT = 7.2         # "SUCCESS" lights up, glowing green, after line 2
 MONITOR_CPS = 26.0
 DISTANCE_MI = 676767     # nav dashboard readout
@@ -920,17 +923,9 @@ def cabin_camera(t):
 
 def cabin_light(t):
     """(room multiplier, crew multiplier); None = normal light."""
-    t0 = T_IMPACT
-    if t < t0 + 0.15:
+    if t < T_IMPACT:
         return None, None
-    if t < t0 + 0.8:
-        k = 0.55 if t0 + 0.35 <= t < t0 + 0.42 else 0.1
-        return (k, k, k), (max(k, 0.2),) * 3
-    k = min(1.0, (t - t0 - 0.8) / 0.2)
-    pulse = 0.86 + 0.1 * math.sin(2 * math.pi * 1.6 * (t - t0 - 0.8))
-    room = np.array([1.0, 0.4, 0.44]) * pulse * k + 0.1 * (1 - k)
-    crew = np.array([1.0, 0.68, 0.7]) * pulse * k + 0.2 * (1 - k)
-    return tuple(room), tuple(crew)
+    return POWER_OUT_ROOM, POWER_OUT_CREW
 
 
 CABIN_RUN = 55.0                       # px/s hurrying aft
@@ -950,9 +945,6 @@ def shot_cabin(t, cast):
         img[PORT_MASK] = glass  # outside isn't lit by the alarm
         if t >= T_IMPACT + 0.8:
             monitor_alert(img, t)
-            on = int(t * 3.2) % 2 == 0
-            for bx in (120, 240, 360):
-                rect(img, bx, 31, bx + 5, 34, (255, 40, 60) if on else (90, 10, 20))
     seated = t < T_STAND
     for role in ROLES:
         if not seated:
@@ -1059,8 +1051,8 @@ def shot_nav(t):
 
 
 def corridor_light(t):
-    pulse = 0.88 + 0.1 * math.sin(2 * math.pi * 1.6 * t)
-    return (1.0 * pulse, 0.42 * pulse, 0.46 * pulse), (1.0 * pulse, 0.7 * pulse, 0.72 * pulse)
+    # Main power stays off; the emergency screen is drawn separately.
+    return POWER_OUT_ROOM, POWER_OUT_CREW
 
 
 def terminal_on(t):
