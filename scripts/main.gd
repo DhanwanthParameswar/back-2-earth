@@ -16,6 +16,9 @@ const Hud = preload("res://scripts/ui/hud.gd")
 const PlayerScene = preload("res://scenes/player/player.tscn")
 const Art = preload("res://scripts/ship/art.gd")
 const SpaceWindow = preload("res://scripts/ship/space_window.gd")
+const Starfield = preload("res://scripts/ship/starfield.gd")
+## How far past the nose the camera may look (so the black hole ahead is visible).
+const LOOK_AHEAD := 320.0
 
 const LAYOUT_PATH := "res://data/ship_layout.txt"
 
@@ -30,8 +33,6 @@ var hud
 func _ready() -> void:
 	GameState.new_run()
 
-	_add_backdrop()
-
 	director = GravityDirector.new()
 	director.name = "GravityDirector"
 	add_child(director)
@@ -40,6 +41,7 @@ func _ready() -> void:
 	ship.name = "Ship"
 	add_child(ship)
 	ship.build_from_file(LAYOUT_PATH)
+	_add_backdrop()
 
 	# A looping nebula video behind every `W` window in the layout.
 	for rect in ship.space_windows:
@@ -51,7 +53,7 @@ func _ready() -> void:
 	player = PlayerScene.instantiate()
 	player.position = ship.player_start
 	ship.add_child(player)
-	player.set_camera_limits(ship.get_bounds())
+	player.set_camera_limits(ship.get_bounds().grow_individual(0, 0, LOOK_AHEAD, 0))
 	player.snap_camera()
 
 	companion = CompanionClient.new()
@@ -82,17 +84,23 @@ func _ready() -> void:
 		Sfx.start_ambient()
 
 
-## The black hole sits in world space just outside the cockpit, so you see it
-## through the cockpit windows (`w` tiles are left transparent).
+## Space around the ship (seen through the `~` cells) and the black hole just
+## ahead of the nose, where the ship is being pulled.
 func _add_backdrop() -> void:
-	var t := Art.tex("res://assets/backdrops/black_hole.png")
+	var stars = Starfield.new()
+	stars.name = "Starfield"
+	stars.setup(ship.get_bounds().grow(800.0))
+	add_child(stars)
+	move_child(stars, 0)
+	var t := Art.tex("res://assets/backdrops/black_hole_space.png")
 	if t == null:
 		return
 	var bh := Sprite2D.new()
 	bh.name = "BlackHole"
 	bh.texture = t
 	bh.z_index = -10
-	# The hole is drawn 80 px right of the image center; park it behind the
-	# cockpit windows (layout rows 4-9).
-	bh.position = Vector2(16 - 80, 224)
+	# The hole is drawn 80 px right of the image center; its disk reaches ~146 px
+	# out, so park the hole ~190 px past the nose.
+	bh.position = ship.nose_point() + Vector2(190 - 80, 0)
 	add_child(bh)
+	move_child(bh, 1)

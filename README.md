@@ -110,6 +110,8 @@ scenes/player/, scripts/player/    A   movement, boots, interaction targeting, c
 
 data/ship_layout.txt               B   THE LEVEL: edit the ASCII and press F5 (legend: data/LAYOUT_LEGEND.md)
 tools/preview_layout.py            B   re-render docs/map_preview.png after editing the layout
+tools/make_ship_tiles.py           D   map tiles in the opening film's look (navy walls, steel deck, hull)
+scripts/ship/starfield.gd          D   space around the ship (shows through `~` cells)
 scripts/ship/ship_builder.gd       B   turns the ASCII into walls, doors, objects
 scripts/interactables/             B   consoles, sled puzzle, core, pod, doors, debris
 
@@ -308,7 +310,7 @@ The crew: **Johnny** (the player, classic suit), **Aaron** (pulls Johnny to safe
 
 ## Art and sound
 
-**One pixel size everywhere:** art is drawn at 16 px per tile and saved at 2×, so one art pixel = 2×2 screen pixels for tiles, props, and suits alike. Placeholders come from `tools/gen_placeholder_assets.py` (PICO-8 palette). To replace one, draw a new file **at the same size** with the same name; collisions never depend on art. See `CREDITS.md`.
+**One pixel size everywhere:** art is drawn at 16 px per tile and saved at 2×, so one art pixel = 2×2 screen pixels for tiles, props, and suits alike. Map tiles come from `tools/make_ship_tiles.py`, using the opening film's palette (navy cabin walls with the light stripe and green lights, steel decking, bulkhead doors with amber dashes, light-gray hull plating on top of walls, and the red-striped hull side where the ship meets space). Other placeholders come from `tools/gen_placeholder_assets.py` (PICO-8 palette). To replace one, draw a new file **at the same size** with the same name; collisions never depend on art. See `CREDITS.md`.
 
 Display settings: 640×360 base, `canvas_items` stretch, integer scaling, nearest filtering, 2D pixel snap. Don't rotate sprites (use flip). For a pixel font, add a theme with antialiasing off and log its license in `CREDITS.md`.
 

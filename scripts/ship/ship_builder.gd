@@ -15,6 +15,12 @@ extends Node2D
 ##     grid). assets/tiles/floor.png can be any size that is a multiple of 32.
 ##   - `W` cells form windows onto space: main.gd puts a SpaceWindow (video)
 ##     behind each one; this script draws the frame, sill, and glare on top.
+##   - `~` is open space outside the hull: blocking, drawn as nothing, so the
+##     Starfield (and the black hole) behind the ship shows through. A wall
+##     with space below it draws the hull's side (`hull` tile), so the outline
+##     of the map reads as the ship from the opening film.
+##   - Rooms can be any shape: they're found by flood fill from `@` through
+##     doors 1, 2, 3 (cockpit, engineering, cargo, pod bay), not by columns.
 
 const Art = preload("res://scripts/ship/art.gd")
 const Door = preload("res://scripts/interactables/door.gd")
@@ -26,7 +32,8 @@ const Debris = preload("res://scripts/interactables/debris.gd")
 const Crewmate = preload("res://scripts/interactables/crewmate.gd")
 
 const TILE := Art.TILE
-const BLOCKING := "#wW|CS"
+const VOID := "~"
+const BLOCKING := "#wW|CS~"
 const SOLID_WALL := "#wW"
 ## How far below a cell's center an object's base (y-sort point) sits.
 const CONSOLE_BASE := 14.0
@@ -51,26 +58,39 @@ const CONSOLES := {
 	"L": ["release_clamp", "Release pod clamp", "res://assets/sprites/clamp_console.png", Art.AMBER],
 }
 
-## Rooms, left to right, split at the columns of doors 1, 2, 3.
+## Rooms in the order you reach them: the one with `@`, then through door 1, 2, 3.
 const ROOM_ORDER := ["cockpit", "engineering", "cargo", "pod_bay"]
-const ROOM_SPLIT_DOORS := ["1", "2", "3"]
+const ROOM_DOORS := ["1", "2", "3"]
 
 ## Used only if data/ship_layout.txt is missing (e.g. a build that forgot the
 ## export filter). Keep in sync when the layout settles.
 const DEFAULT_LAYOUT := """
-##WWWWWWW#####################################
-##WWWWWWW#####################################
-#.........#.........#.C...x..#....#..x.......#
-#M...T....#.........#.|......#.N..#....L.....#
-w.........#.........#.|......#....#..........#
-w.........#.........#.S......##KK##..........#
-w.........1.........2.............3..........#
-w..@......1.........2.............3.......O..#
-w.........#.........#.............#..........#
-w.........#.........#.............#..........#
-#.........#....P....#.............#..........#
-#.........#.........#......x......#..........#
-##############################################
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~###~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~##C##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~#.|.##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~##.|..##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~##..|...#~~~~~#################~~~~~~~~~~~~~~~~
+~~~~~~~~~#...|...########################WWWW~~~~~~~~~~~
+~~~~~#####...|....#####..#.........P...##WWWW###~~~~~~~~
+~#########...S......x....#.............#..T..#####~~~~~~
+~####.L..#...............#..x..........#M.......###~~~~~
+~#.......3...............2.....####....1..........###~~~
+~#.......3...............2.....####....1....@......##~~~
+~#.O.....#...............#.......##....#.........###~~~~
+~#.......#.............x.#...........x.#.......###~~~~~~
+~#####...#...............#.............#....####~~~~~~~~
+~~~~~#####...............#.............######~~~~~~~~~~~
+~~~~~~~~~###KK###################..#####~~~~~~~~~~~~~~~~
+~~~~~~~~~##.....##~~~~~~~~~~~~~~####~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~#..N.##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~##..##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~#.##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~###~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
 var grid: Array[String] = []
@@ -80,7 +100,7 @@ var player_start := Vector2(64, 64)
 ## World rects of each `W` window (one per connected group of cells).
 var space_windows: Array[Rect2] = []
 var _side_windows: Array[Rect2] = []  # `w` groups (black-hole view)
-var _room_split_cols: Array[int] = []
+var _room_of := {}  # Vector2i cell -> room id
 var _debris_cols: Array[int] = []
 
 var _tex := {}
@@ -110,20 +130,20 @@ func build_from_text(text: String) -> void:
 	for row in grid:
 		width = maxi(width, row.length())
 	for i in height:
-		grid[i] = grid[i].rpad(width, "#")
+		grid[i] = grid[i].rpad(width, VOID)
 
 	_load_textures()
 	_build_walls()
 	_build_doors()
 	_build_objects()
-	_find_room_splits()
+	_find_rooms()
 	_find_space_windows()
 	queue_redraw()
 
 
 func cell(c: int, r: int) -> String:
 	if r < 0 or r >= height or c < 0 or c >= width:
-		return "#"
+		return VOID
 	return grid[r][c]
 
 
@@ -136,12 +156,29 @@ func get_bounds() -> Rect2:
 
 
 ## Room id for a world position (used by the player -> GameState.set_room).
+## Off the walkable cells (e.g. inside a wall), the nearest room within 2 cells.
 func room_at(world_pos: Vector2) -> String:
-	var col := int(floor(world_pos.x / TILE))
-	for i in _room_split_cols.size():
-		if col <= _room_split_cols[i]:
-			return ROOM_ORDER[i]
-	return ROOM_ORDER[mini(_room_split_cols.size(), ROOM_ORDER.size() - 1)]
+	var here := Vector2i(int(floor(world_pos.x / TILE)), int(floor(world_pos.y / TILE)))
+	for radius in 3:
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				var key := here + Vector2i(dx, dy)
+				if _room_of.has(key):
+					return _room_of[key]
+	return ROOM_ORDER[0]
+
+
+## The tip of the nose (right edge of the rightmost hull cell), in world px.
+## main.gd parks the black hole just ahead of it.
+func nose_point() -> Vector2:
+	for c in range(width - 1, -1, -1):
+		var rows: Array[int] = []
+		for r in height:
+			if cell(c, r) != VOID:
+				rows.append(r)
+		if not rows.is_empty():
+			return Vector2((c + 1) * TILE, (rows[0] + rows[-1] + 1) * TILE / 2.0)
+	return Vector2(width * TILE, height * TILE / 2.0)
 
 
 # --- Building -----------------------------------------------------------------
@@ -243,18 +280,36 @@ func _build_objects() -> void:
 		push_warning("Layout has no @ player start.")
 
 
-func _find_room_splits() -> void:
-	_room_split_cols.clear()
-	for door_char in ROOM_SPLIT_DOORS:
-		var col := -1
+## Label every walkable cell with its room: flood from `@` without crossing
+## doors 1/2/3 (cockpit), then from beyond door 1 (engineering), and so on.
+## Door cells belong to the room they open into.
+func _find_rooms() -> void:
+	_room_of.clear()
+	var start := Vector2i(int(player_start.x / TILE), int(player_start.y / TILE))
+	_flood_room(start, ROOM_ORDER[0])
+	for i in ROOM_DOORS.size():
+		var room: String = ROOM_ORDER[mini(i + 1, ROOM_ORDER.size() - 1)]
 		for r in height:
-			var idx := grid[r].find(door_char)
-			if idx >= 0:
-				col = idx
-				break
-		if col >= 0:
-			_room_split_cols.append(col)
-	_room_split_cols.sort()
+			for c in width:
+				if cell(c, r) != ROOM_DOORS[i]:
+					continue
+				_room_of[Vector2i(c, r)] = room
+				for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+					var n: Vector2i = Vector2i(c, r) + d
+					if not _room_of.has(n):
+						_flood_room(n, room)
+
+
+func _flood_room(from: Vector2i, room: String) -> void:
+	var stack: Array[Vector2i] = [from]
+	while not stack.is_empty():
+		var p: Vector2i = stack.pop_back()
+		var ch := cell(p.x, p.y)
+		if _room_of.has(p) or BLOCKING.contains(ch) or ROOM_DOORS.has(ch):
+			continue
+		_room_of[p] = room
+		for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			stack.append(p + d)
 
 
 func _find_space_windows() -> void:
@@ -291,6 +346,8 @@ func _find_groups(ch: String) -> Array[Rect2]:
 ## Which wall tile to draw (3/4 view): a front face where the floor is visible
 ## below it, the upper half of a 2-tall face above that, otherwise the top cap.
 func wall_kind(c: int, r: int) -> String:
+	if cell(c, r + 1) == VOID:
+		return "hull"
 	if not SOLID_WALL.contains(cell(c, r + 1)):
 		return "wall_face" if cell(c, r - 1) == "#" else "wall_face_single"
 	if cell(c, r + 1) == "#" and not SOLID_WALL.contains(cell(c, r + 2)):
@@ -299,7 +356,7 @@ func wall_kind(c: int, r: int) -> String:
 
 
 func _load_textures() -> void:
-	for key in ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "rail"]:
+	for key in ["floor", "wall", "wall_face", "wall_face_upper", "wall_face_single", "rail", "hull"]:
 		_tex[key] = Art.tex("res://assets/tiles/%s.png" % key)
 
 
@@ -309,6 +366,8 @@ func _draw() -> void:
 			var ch := cell(c, r)
 			var pos := Vector2(c * TILE, r * TILE)
 			var rect := Rect2(pos, Vector2(TILE, TILE))
+			if ch == VOID:
+				continue  # open space: the Starfield behind shows through
 			if ch == "#":
 				var kind := wall_kind(c, r)
 				_draw_tile(kind, pos, rect, Art.STEEL if kind == "wall" else Art.STEEL_LIGHT.darkened(0.4))
