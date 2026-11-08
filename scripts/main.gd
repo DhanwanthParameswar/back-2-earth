@@ -80,7 +80,7 @@ func _ready() -> void:
 	board.name = "LeaderboardPanel"
 	add_child(board)
 
-	if not hud.is_intro_playing():  # the opening film has its own sound; the HUD starts the hum after it
+	if not hud.is_intro_playing():  # the opening film has its own sound; the HUD starts the music after it
 		Sfx.start_ambient()
 
 

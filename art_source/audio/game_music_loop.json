@@ -1,0 +1,17 @@
+{
+  "source": "~/Downloads/5c455b38-353f-4152-aabf-4e637482a285.mp4",
+  "source_start_seconds": 10.4,
+  "source_end_seconds": 46.293083333333335,
+  "loop_duration_seconds": 35.89308333333334,
+  "sample_rate": 48000,
+  "channels": 2,
+  "crossfade_seconds": 0.56,
+  "crossfade": "Raised cosine, final beat blended into the beat immediately before the start; no silence or end fade.",
+  "waveform_match_correlation": 0.5176122457765854,
+  "loop_boundary_step": [
+    -0.012715709870028152,
+    -0.011883597976692944
+  ],
+  "gain_db": -1.390366279114241,
+  "peak_dbfs": -1.4999999999999996
+}
