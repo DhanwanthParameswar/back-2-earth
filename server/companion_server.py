@@ -587,7 +587,28 @@ class Handler(BaseHTTPRequestHandler):
             if self._limited("npc"):
                 return
             voice_id = os.environ.get("PILOT_VOICE_ID", NPC_VOICE_ID) if isinstance(data, dict) and data.get("npc_id") == "ivo" else NPC_VOICE_ID
-            self._send(*escape_dialogue.reply(data, generate_text, MOCK, AUDIO.register if ELEVEN_API_KEY else None, voice_id))
+            # Each crewmate has its own memory of each player (database); without one, the
+            # client's recent history is used instead.
+            key, memory = None, None
+            npc_id = data.get("npc_id") if isinstance(data, dict) else None
+            if GAME is not None and npc_id in escape_dialogue.PERSONAS:
+                try:
+                    key = GAME.npc_player_key(self._token(), data.get("guest_id"))
+                    memory = GAME.store.npc_memory(key, npc_id) if key else None
+                except game_db.DbError as exc:
+                    print(f"[memory] load failed: {exc!r}", file=sys.stderr)
+            code, body = escape_dialogue.reply(data, generate_text, MOCK, AUDIO.register if ELEVEN_API_KEY else None,
+                                               voice_id, memory)
+            remember = body.pop("_remember", None)
+            if code == 200 and key and memory is not None and body.get("source") == "live":
+                rows = [("turn", "player", str(data.get("message", "")).strip()), ("turn", "npc", body["line"])]
+                if remember:
+                    rows.append(("note", None, remember))
+                try:
+                    GAME.store.npc_remember(key, npc_id, rows)
+                except game_db.DbError as exc:
+                    print(f"[memory] save failed: {exc!r}", file=sys.stderr)
+            self._send(code, body)
             return
         if self.path == "/companion":
             snapshot, reason = validate_snapshot(data)

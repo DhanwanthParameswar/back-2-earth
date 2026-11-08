@@ -42,6 +42,9 @@ MAX_EVENTS = 300
 LOGIN_MAX_FAILS = 5
 LOGIN_LOCK_SECONDS = 300
 CLAIM_WINDOW = "1 hour"
+# Crew memory: what goes into each prompt, and how much is kept per player + crewmate.
+MEMORY_TURNS, MEMORY_NOTES = 8, 12
+MEMORY_KEEP_TURNS, MEMORY_KEEP_NOTES = 60, 20
 OUTCOMES = ("won", "lost", "quit")
 _EVENT_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 _SHORT_RE = re.compile(r"^[a-z0-9_]{0,32}$")
@@ -282,6 +285,28 @@ class Store:
         return {"rank": int(row[0]), "seconds": float(row[1]), "player": row[2]} if row else None
 
 
+    # Crew memory (one crewmate, one player) -------------------------------------------
+    def npc_memory(self, player_key: str, npc_id: str, turns: int = MEMORY_TURNS, notes: int = MEMORY_NOTES) -> dict:
+        """{"turns": [{"role", "text"}, ...] oldest first, "notes": [text, ...] oldest first}."""
+        t_rows = self._query("SELECT role, text FROM npc_memory WHERE player_key = %s AND npc_id = %s AND kind = 'turn' "
+                             "ORDER BY created_at DESC, id DESC LIMIT %s", (player_key, npc_id, turns), "all")
+        n_rows = self._query("SELECT text FROM npc_memory WHERE player_key = %s AND npc_id = %s AND kind = 'note' "
+                             "ORDER BY created_at DESC, id DESC LIMIT %s", (player_key, npc_id, notes), "all")
+        return {"turns": [{"role": r[0], "text": r[1]} for r in reversed(t_rows)],
+                "notes": [r[0] for r in reversed(n_rows)]}
+
+    def npc_remember(self, player_key: str, npc_id: str, rows: list) -> None:
+        """rows = [(kind, role, text), ...]; keeps the newest MEMORY_KEEP_* per player + crewmate."""
+        if not rows:
+            return
+        self._query("INSERT INTO npc_memory (player_key, npc_id, kind, role, text) VALUES (%s, %s, %s, %s, %s)",
+                    many=[(player_key, npc_id, kind, role, text[:500]) for kind, role, text in rows])
+        for kind, keep in (("turn", MEMORY_KEEP_TURNS), ("note", MEMORY_KEEP_NOTES)):
+            self._query("DELETE FROM npc_memory WHERE id IN (SELECT id FROM npc_memory WHERE player_key = %s AND "
+                        "npc_id = %s AND kind = %s ORDER BY created_at DESC, id DESC OFFSET %s)",
+                        (player_key, npc_id, kind, keep))
+
+
 # --- Rules -------------------------------------------------------------------------------
 
 class Service:
@@ -316,6 +341,15 @@ class Service:
 
     def _account(self, token: str):
         return self.store.account_by_token(token) if token else None
+
+    def npc_player_key(self, token: str, guest_id: object) -> str | None:
+        """Whose memory a crew chat uses: the logged-in account, else the device's guest id."""
+        account = self._account(token)
+        if account is not None:
+            return player_key(account[0], None)
+        if isinstance(guest_id, str) and _GUEST_RE.match(guest_id):
+            return player_key(None, guest_id)
+        return None
 
     # Endpoints --------------------------------------------------------------------------
     def register(self, data: object) -> tuple[int, dict]:

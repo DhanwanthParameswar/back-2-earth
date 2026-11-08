@@ -87,6 +87,15 @@ class FakeStore:
         return [{"rank": n + 1, "key": k, "player": name, "seconds": round(d, 1)}
                 for n, (k, (d, name)) in enumerate(ordered)]
 
+    def npc_memory(self, player_key, npc_id, turns=8, notes=12):
+        rows = [r for r in getattr(self, "memory", []) if r[0] == player_key and r[1] == npc_id]
+        t = [{"role": r[3], "text": r[4]} for r in rows if r[2] == "turn"][-turns:]
+        n = [r[4] for r in rows if r[2] == "note"][-notes:]
+        return {"turns": t, "notes": n}
+
+    def npc_remember(self, player_key, npc_id, rows):
+        self.memory = getattr(self, "memory", []) + [(player_key, npc_id, k, role, text) for k, role, text in rows]
+
     def leaderboard(self, limit):
         return [{k: e[k] for k in ("rank", "player", "seconds")} for e in self._board()[:limit]]
 
@@ -298,6 +307,45 @@ class HttpTests(unittest.TestCase):
         code, data = self.call("/runs/end", body)
         self.assertEqual((code, data["player"], data["best"]["rank"]), (200, "Guest0123", 1))
         self.assertEqual(len(self.store.events), game_db.MAX_EVENTS)
+
+    def test_each_crewmate_has_its_own_memory(self):
+        """Aaron (mara) and Dhan (ivo) remember each player separately; they don't share."""
+        import escape_dialogue
+        seen = []
+
+        def fake_generate(system, turns, max_tokens, timeout):
+            seen.append(turns)
+            said = json.loads(turns[-1][1])["message"]
+            note = "Johnny wants to save the samples" if "samples" in said else None
+            return json.dumps({"line": "Copy that: " + said, "action": "none", **({"remember": note} if note else {})})
+
+        old = (cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY)
+        cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = False, fake_generate, ""
+        try:
+            def talk(npc, msg, guest="beef0001"):
+                body = {"npc_id": npc, "state_version": 1, "message": msg, "objective": "Clear the doorway.",
+                        "flags": {}, "history": [], "guest_id": guest,
+                        "available_actions": {"none": "Answer.", "light_on": "Turn on your flashlight."}}
+                code, data = self.call("/escape/talk", body)
+                self.assertEqual(code, 200, data)
+                self.assertNotIn("_remember", data, "internal field never reaches the game")
+                return data
+
+            talk("mara", "I want to save the samples")
+            talk("ivo", "turn your flashlight on")
+            talk("mara", "what do you remember?")
+            mara_ctx = [t[1] for t in seen[2]]
+            self.assertIn("I want to save the samples", " ".join(mara_ctx), "Aaron remembers his own conversation")
+            self.assertNotIn("turn your flashlight on", " ".join(mara_ctx), "...but not what Johnny told Dhan")
+            self.assertIn("Johnny wants to save the samples", mara_ctx[-1], "Aaron's story notes are in his prompt")
+            talk("ivo", "what do you remember?")
+            ivo_ctx = " ".join(t[1] for t in seen[3])
+            self.assertIn("turn your flashlight on", ivo_ctx)
+            self.assertNotIn("samples", ivo_ctx, "Dhan doesn't know Aaron's notes")
+            talk("mara", "hello", guest="cafe0002")
+            self.assertNotIn("samples", " ".join(t[1] for t in seen[4]), "another player starts with a fresh memory")
+        finally:
+            cs.MOCK, cs.generate_text, cs.ELEVEN_API_KEY = old
 
     def test_offline_database_is_503(self):
         cs.GAME = None

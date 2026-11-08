@@ -111,3 +111,27 @@ SELECT room, event, count(*) AS times
 FROM events
 GROUP BY room, event
 ORDER BY times DESC;
+
+-- Crew memory: each crewmate (npc_id 'mara' = Aaron, 'ivo' = Dhan) remembers each
+-- player (player_key 'a<account id>' or 'g<guest id>') separately. 'turn' rows are
+-- the conversation; 'note' rows are the player's story as that crewmate understood
+-- it ("Johnny wants to save the samples"). Crewmates never see each other's memory.
+CREATE TABLE IF NOT EXISTS npc_memory (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    player_key  text        NOT NULL,
+    npc_id      text        NOT NULL,
+    kind        text        NOT NULL CHECK (kind IN ('turn', 'note')),
+    role        text        CHECK (role IN ('player', 'npc')),
+    text        text        NOT NULL CHECK (char_length(text) <= 500),
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS npc_memory_lookup ON npc_memory (player_key, npc_id, kind, created_at DESC);
+
+-- Readable view: player -> crewmate -> story notes and recent conversation.
+CREATE OR REPLACE VIEW npc_memory_story AS
+SELECT coalesce(a.username, 'Guest' || upper(left(substr(m.player_key, 2), 4))) AS player,
+       CASE m.npc_id WHEN 'mara' THEN 'Aaron' WHEN 'ivo' THEN 'Dhan' ELSE m.npc_id END AS crewmate,
+       m.kind, m.role, m.text, m.created_at
+FROM npc_memory m
+LEFT JOIN accounts a ON m.player_key = 'a' || a.id
+ORDER BY player, crewmate, m.kind DESC, m.created_at;

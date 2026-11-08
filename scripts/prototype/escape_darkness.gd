@@ -1,89 +1,61 @@
-extends CanvasLayer
-## Ship lighting for the escape mission. Without power the ship is dark:
-##   - you always see about 6 x 6 tiles around Johnny;
+extends Node
+## Ship lighting for the escape mission, using Godot's 2D lights and shadows.
+## Without power the ship is dark:
+##   - a soft light of about 6 x 6 tiles always surrounds Johnny;
 ##   - F toggles a flashlight BEAM pointing the way you face (up/down/left/right);
-##     it swings smoothly when you turn, and widens out from your light circle;
-##   - crewmates can be asked to point their own flashlight a direction;
-##   - people and objects (crew, consoles, the locker...) only appear when light
-##     reaches them; the floor stays faintly visible so you can find your way.
+##     it swings smoothly when you turn and widens out from your light circle;
+##   - crewmates can be asked to turn on their own flashlight; it points the way
+##     they walk (or the direction you asked for while they stand still);
+##   - WALLS BLOCK LIGHT: every wall casts shadows, so you can't see through walls
+##     (doorways let light through; the jammed locker blocks it until it's pushed);
+##   - unlit people and objects stay in the dark;
 ##   - name labels (AARON, DHAN, SPARE FUSE...) show only within E range.
-## When power comes back the dark fades out and everything is visible again.
-## Sits above the ship and below the HUD (layer 10), so text stays readable.
+## When power comes back the ship lights up and the flashlights switch off.
 
 const TILE := 32.0
 const BASE_RADIUS := 3.0 * TILE         # always lit around you: ~6 x 6 tiles
-const SOFT_EDGE := 0.9 * TILE
 const BEAM_RANGE := 8.0 * TILE          # how far a flashlight beam reaches
 const BEAM_HALF_ANGLE := deg_to_rad(24.0)
 const BEAM_START_WIDTH := BASE_RADIUS * 0.75  # beam leaves your circle this wide: no sharp tip
-const TURN_SPEED := 10.0                      # how fast a beam swings to a new direction
-const LABEL_RANGE := 52.0                     # names show within E range (player reach 44)
-const DARKNESS := 0.96                  # how black the unlit floor is
+const TURN_SPEED := 10.0                # how fast a beam swings to a new direction
+const LABEL_RANGE := 52.0               # names show within E range (player reach 44)
+const DARK_TINT := Color(0.035, 0.04, 0.07)  # how the unlit ship looks
 const FADE_SECONDS := 1.5
+const TEX := 256                        # light texture size
+
+static var _glow_tex: Texture2D
+static var _beam_tex: Texture2D
 
 var mission
 var flashlight := false
 ## Direction you face (last way you moved), snapped to up/down/left/right.
 var facing := Vector2.RIGHT
-## Beam directions as drawn (they swing toward facing / the crew's light_dir).
+## Beam directions as drawn ("player" and crew ids); they swing toward their target.
 var _beam_dirs := {}
-var _rect: ColorRect
-var _material: ShaderMaterial
-var _alpha := DARKNESS
-
-const SHADER := """
-shader_type canvas_item;
-uniform vec2 rect_size;
-uniform vec2 center;          // Johnny, in this rect's pixels
-uniform float radius;
-uniform float softness;
-uniform float darkness;
-uniform vec4 beam0;           // xy = origin, zw = direction (zero = off)
-uniform vec4 beam1;
-uniform vec4 beam2;
-uniform float beam_range;
-uniform float beam_spread;    // tan(half angle): how fast the beam widens
-
-uniform float start_width;   // beam width where it leaves your circle
-
-// A flashlight beam: starts as wide as the light circle and widens with
-// distance, with soft sides and a soft far end (no triangle tip).
-float beam_light(vec2 p, vec4 b) {
-	if (length(b.zw) < 0.5) return 0.0;
-	vec2 dir = normalize(b.zw);
-	vec2 d = p - b.xy;
-	float along = dot(d, dir);
-	float perp = abs(d.x * dir.y - d.y * dir.x);
-	float half_w = start_width + max(along, 0.0) * beam_spread;
-	float side = 1.0 - smoothstep(half_w * 0.5, half_w, perp);
-	float back = smoothstep(-start_width * 0.5, start_width * 0.6, along);
-	float reach = 1.0 - smoothstep(beam_range * 0.55, beam_range, along);
-	return side * back * reach;
-}
-
-void fragment() {
-	vec2 p = UV * rect_size;
-	float light = 1.0 - smoothstep(radius - softness, radius, distance(p, center));
-	// Soft union, so the circle and the beam blend instead of meeting at a hard line.
-	light = 1.0 - (1.0 - light) * (1.0 - beam_light(p, beam0));
-	light = 1.0 - (1.0 - light) * (1.0 - beam_light(p, beam1));
-	light = 1.0 - (1.0 - light) * (1.0 - beam_light(p, beam2));
-	COLOR = vec4(0.0, 0.01, 0.03, darkness * (1.0 - light));
-}
-"""
+var _tint: CanvasModulate
+var _glow: PointLight2D
+var _beam: PointLight2D
+var _crew_beams := {}        # crew id -> PointLight2D
+var _locker_occluder: LightOccluder2D
+var occluder_count := 0
+var _dark := 1.0             # 1 = no power, 0 = lights on (fades between)
 
 
 func _ready() -> void:
-	layer = 5
-	_rect = ColorRect.new()
-	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var shader := Shader.new()
-	shader.code = SHADER
-	_material = ShaderMaterial.new()
-	_material.shader = shader
-	_rect.material = _material
-	add_child(_rect)
-	_alpha = 0.0 if is_powered() else DARKNESS
+	_make_textures()
+	_tint = CanvasModulate.new()
+	mission.add_child(_tint)
+	_build_occluders()
+	_glow = _make_light(_glow_tex, BASE_RADIUS / (TEX / 2.0), 1.0)
+	mission.player.add_child(_glow)
+	_beam = _make_light(_beam_tex, BEAM_RANGE / (TEX / 2.0), 1.15)
+	mission.player.add_child(_beam)
+	for id in mission.crew.keys():
+		var light := _make_light(_beam_tex, BEAM_RANGE / (TEX / 2.0), 1.0)
+		mission.crew[id].add_child(light)
+		_crew_beams[id] = light
+	_dark = 0.0 if is_powered() else 1.0
+	_apply(0.0)
 
 
 func is_powered() -> bool:
@@ -92,7 +64,7 @@ func is_powered() -> bool:
 
 ## True while the ship is dark (flashlights matter).
 func is_dark() -> bool:
-	return _alpha > 0.01
+	return _dark > 0.01
 
 
 func toggle_flashlight() -> void:
@@ -108,100 +80,148 @@ static func snap_direction(v: Vector2) -> Vector2:
 	return Vector2.DOWN if v.y >= 0.0 else Vector2.UP
 
 
+## The direction a beam is pointing right now ("player", "mara", "ivo").
+func beam_direction(id: String) -> Vector2:
+	return _beam_dirs.get(id, Vector2.ZERO)
+
+
+func is_beam_on(id: String) -> bool:
+	if id == "player":
+		return _beam.enabled
+	return _crew_beams.has(id) and _crew_beams[id].enabled
+
+
 func _process(delta: float) -> void:
-	var view := get_viewport().get_visible_rect().size
-	_rect.position = Vector2.ZERO
-	_rect.size = view
-	var target_alpha := 0.0 if is_powered() else DARKNESS
-	_alpha = move_toward(_alpha, target_alpha, delta * DARKNESS / FADE_SECONDS)
 	if mission == null or mission.player == null:
 		return
+	_dark = move_toward(_dark, 0.0 if is_powered() else 1.0, delta / FADE_SECONDS)
 	if mission.player.velocity.length() > 5.0:
 		facing = snap_direction(mission.player.velocity)
-	_turn_beams(delta)
-	_rect.visible = _alpha > 0.01
-	var beams := _beams()
-	if _rect.visible:
-		_material.set_shader_parameter("rect_size", view)
-		_material.set_shader_parameter("center", _screen(mission.player))
-		_material.set_shader_parameter("radius", BASE_RADIUS)
-		_material.set_shader_parameter("softness", SOFT_EDGE)
-		_material.set_shader_parameter("darkness", _alpha)
-		_material.set_shader_parameter("beam_range", BEAM_RANGE)
-		_material.set_shader_parameter("beam_spread", tan(BEAM_HALF_ANGLE))
-		_material.set_shader_parameter("start_width", BEAM_START_WIDTH)
-		for i in 3:
-			_material.set_shader_parameter("beam%d" % i, beams[i] if i < beams.size() else Vector4.ZERO)
-	_update_object_visibility(beams)
+	_apply(delta)
+	_update_labels()
 
 
-## Light origin on screen for a character (their body, not their feet).
-func _screen(node: Node2D) -> Vector2:
-	return node.get_global_transform_with_canvas().origin + Vector2(0, -16)
-
-
-## Up to 3 beams as (origin.x, origin.y, dir.x, dir.y): yours, then the crew's.
-func _beams() -> Array:
-	var out := []
-	if flashlight:
-		var o := _screen(mission.player)
-		var d: Vector2 = _beam_dirs.get("player", facing)
-		out.append(Vector4(o.x, o.y, d.x, d.y))
-	for id in mission.crew.keys():
-		var actor = mission.crew[id]
-		if actor.light_dir != Vector2.ZERO:
-			var o := _screen(actor)
-			var d: Vector2 = _beam_dirs.get(id, actor.light_dir)
-			out.append(Vector4(o.x, o.y, d.x, d.y))
-	return out
-
-
-## Swing each beam toward where it should point (D then W = right, then round to up).
-func _turn_beams(delta: float) -> void:
-	var weight := 1.0 - exp(-TURN_SPEED * delta)
+func _apply(delta: float) -> void:
+	_tint.color = DARK_TINT.lerp(Color.WHITE, 1.0 - _dark)
+	_tint.visible = _dark > 0.001
+	var weight := 1.0 - exp(-TURN_SPEED * delta) if delta > 0.0 else 1.0
+	# Your light circle and flashlight.
+	_glow.enabled = _dark > 0.001
+	_glow.energy = _dark
 	_beam_dirs["player"] = _swing(_beam_dirs.get("player", facing), facing, weight)
-	for id in mission.crew.keys():
-		var want: Vector2 = mission.crew[id].light_dir
-		if want == Vector2.ZERO:
-			_beam_dirs.erase(id)
-		else:
+	_beam.enabled = flashlight and _dark > 0.001
+	_beam.energy = 1.15 * _dark
+	_beam.rotation = _beam_dirs["player"].angle()
+	# Crew flashlights: they point where the crewmate walks.
+	for id in _crew_beams.keys():
+		var actor = mission.crew[id]
+		var light: PointLight2D = _crew_beams[id]
+		if actor.light_on and _dark > 0.001:
+			var want: Vector2 = actor.facing
 			_beam_dirs[id] = _swing(_beam_dirs.get(id, want), want, weight)
+			light.rotation = _beam_dirs[id].angle()
+			light.energy = _dark
+			light.enabled = true
+		else:
+			_beam_dirs.erase(id)
+			light.enabled = false
+	if _locker_occluder != null:
+		_locker_occluder.visible = not mission.state.has_flag("locker_clear")
+	if not is_dark():
+		flashlight = false
 
 
 static func _swing(current: Vector2, target: Vector2, weight: float) -> Vector2:
 	return Vector2.from_angle(lerp_angle(current.angle(), target.angle(), weight))
 
 
-## How lit a screen point is (0..1), matching the shader.
-func light_at(p: Vector2, beams: Array) -> float:
-	var light := 1.0 - smoothstep(BASE_RADIUS - SOFT_EDGE, BASE_RADIUS, p.distance_to(_screen(mission.player)))
-	for b in beams:
-		var dir := Vector2(b.z, b.w).normalized()
-		var d: Vector2 = p - Vector2(b.x, b.y)
-		var along := d.dot(dir)
-		var perp := absf(d.cross(dir))
-		var half_w := BEAM_START_WIDTH + maxf(along, 0.0) * tan(BEAM_HALF_ANGLE)
-		var side := 1.0 - smoothstep(half_w * 0.5, half_w, perp)
-		var back := smoothstep(-BEAM_START_WIDTH * 0.5, BEAM_START_WIDTH * 0.6, along)
-		var reach := 1.0 - smoothstep(BEAM_RANGE * 0.55, BEAM_RANGE, along)
-		light = 1.0 - (1.0 - light) * (1.0 - side * back * reach)
+func _make_light(texture: Texture2D, scale: float, energy: float) -> PointLight2D:
+	var light := PointLight2D.new()
+	light.texture = texture
+	light.texture_scale = scale
+	light.energy = energy
+	light.position = Vector2(0, -16)  # from the body, not the feet
+	light.shadow_enabled = true
+	light.shadow_filter = Light2D.SHADOW_FILTER_PCF5
+	light.shadow_filter_smooth = 1.5
+	light.shadow_color = Color(0, 0, 0, 1)
+	light.enabled = false
 	return light
 
 
-## Crewmates, consoles and the locker show only where light reaches them.
-func _update_object_visibility(beams: Array) -> void:
-	var things: Array = mission.crew.values() + mission.props.values()
-	if mission.locker_visual != null:
-		things.append(mission.locker_visual)
-	for node in things:
-		if not is_instance_valid(node):
-			continue
-		var target := 1.0
-		if _rect.visible:
-			var lit := light_at(_screen(node), beams)
-			target = lerpf(1.0, clampf(lit * 1.4, 0.0, 1.0), _alpha / DARKNESS)
-		node.modulate.a = target
-	_update_labels()
+## Walls cast shadows: one occluder per horizontal run of wall cells.
+func _build_occluders() -> void:
+	var walls: Dictionary = mission.walls
+	var rows := {}
+	for cell in walls.keys():
+		if not rows.has(cell.y):
+			rows[cell.y] = []
+		rows[cell.y].append(cell.x)
+	for y in rows.keys():
+		var xs: Array = rows[y]
+		xs.sort()
+		var start: int = xs[0]
+		var prev: int = xs[0]
+		for i in range(1, xs.size() + 1):
+			if i < xs.size() and xs[i] == prev + 1:
+				prev = xs[i]
+				continue
+			_add_occluder(Rect2(Vector2(start, y) * TILE, Vector2(prev - start + 1, 1) * TILE))
+			if i < xs.size():
+				start = xs[i]
+				prev = xs[i]
+	# The jammed locker blocks light until it's pushed out of the doorway.
+	var cells: Array = mission._locker_cells()
+	if not cells.is_empty():
+		var r := Rect2(Vector2(cells[0]) * TILE, Vector2(TILE, TILE))
+		for c in cells:
+			r = r.merge(Rect2(Vector2(c) * TILE, Vector2(TILE, TILE)))
+		_locker_occluder = _add_occluder(r)
+
+
+func _add_occluder(r: Rect2) -> LightOccluder2D:
+	var poly := OccluderPolygon2D.new()
+	poly.polygon = PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
+	var occ := LightOccluder2D.new()
+	occ.occluder = poly
+	mission.add_child(occ)
+	occluder_count += 1
+	return occ
+
+
+## Light textures, made once: a soft round glow and a flashlight beam that
+## starts as wide as the glow and widens with distance (no triangle tip).
+static func _make_textures() -> void:
+	if _glow_tex != null:
+		return
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1, 1, 1, 1))
+	grad.set_color(1, Color(1, 1, 1, 0))
+	grad.add_point(0.55, Color(1, 1, 1, 0.9))
+	var glow := GradientTexture2D.new()
+	glow.gradient = grad
+	glow.fill = GradientTexture2D.FILL_RADIAL
+	glow.fill_from = Vector2(0.5, 0.5)
+	glow.fill_to = Vector2(1.0, 0.5)
+	glow.width = TEX
+	glow.height = TEX
+	_glow_tex = glow
+	# Beam: the texture's centre is the light's origin; it points to +x.
+	var half := TEX / 2.0
+	var px_per_world := half / BEAM_RANGE
+	var start_w := BEAM_START_WIDTH * px_per_world
+	var spread := tan(BEAM_HALF_ANGLE)
+	var img := Image.create(TEX, TEX, false, Image.FORMAT_RGBA8)
+	for y in TEX:
+		for x in TEX:
+			var along := x - half
+			var perp := absf(y - half)
+			var half_w := start_w + maxf(along, 0.0) * spread
+			var side := 1.0 - smoothstep(half_w * 0.5, half_w, perp)
+			var back := smoothstep(-start_w * 0.5, start_w * 0.6, along)
+			var reach := 1.0 - smoothstep(half * 0.55, half, along)
+			img.set_pixel(x, y, Color(1, 1, 1, side * back * reach))
+	_beam_tex = ImageTexture.create_from_image(img)
 
 
 ## Names under crew and objects show only when you're close enough to press E.
