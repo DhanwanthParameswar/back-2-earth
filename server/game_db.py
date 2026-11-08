@@ -243,6 +243,24 @@ class Store:
     def delete_session(self, token: str) -> None:
         self._query("DELETE FROM sessions WHERE token_hash = %s", (token_hash(token),))
 
+    def delete_account(self, account_id: int) -> None:
+        """Remove owned data atomically; sessions and saves cascade from accounts."""
+        if psycopg is None:
+            raise DbError("psycopg is not installed")
+        with self._lock:
+            try:
+                if self._conn is None or self._conn.closed:
+                    self._conn = psycopg.connect(self.url, autocommit=True, connect_timeout=5)
+                with self._conn.transaction():
+                    # Serialize against inserts that reference this account.
+                    self._conn.execute("SELECT id FROM accounts WHERE id = %s FOR UPDATE", (account_id,))
+                    self._conn.execute("DELETE FROM events WHERE run_token IN (SELECT run_token FROM runs WHERE account_id = %s)", (account_id,))
+                    self._conn.execute("DELETE FROM runs WHERE account_id = %s", (account_id,))
+                    self._conn.execute("DELETE FROM npc_memory WHERE player_key = %s", (player_key(account_id, None),))
+                    self._conn.execute("DELETE FROM accounts WHERE id = %s", (account_id,))
+            except psycopg.Error as exc:
+                raise DbError(str(exc)) from exc
+
     def load_save(self, account_id):
         row = self._query("SELECT snapshot, revision, extract(epoch FROM updated_at) FROM game_saves WHERE account_id = %s", (account_id,), "one")
         return {"snapshot": row[0], "revision": row[1], "updated_at": float(row[2])} if row else {"snapshot": None, "revision": 0, "updated_at": None}
@@ -398,6 +416,24 @@ class Service:
     def logout(self, token: str) -> tuple[int, dict]:
         if token:
             self.store.delete_session(token)
+        return 200, {"ok": True}
+
+    def delete_account(self, data: object, token: str) -> tuple[int, dict]:
+        account = self._account(token)
+        if account is None:
+            return 401, {"error": "not_logged_in", "message": "Sign in again to delete your account."}
+        if not isinstance(data, dict) or data.get("confirm") is not True or not isinstance(data.get("password"), str) or not 8 <= len(data["password"]) <= MAX_PASSWORD:
+            return 400, {"error": "invalid", "message": "Enter your password to confirm permanent deletion."}
+        key = account[1].lower()
+        wait = self._locked_for(key)
+        if wait > 0:
+            return 429, {"error": "locked", "message": f"Too many tries. Wait {int(wait) + 1} s"}
+        row = self.store.account_by_name(account[1])
+        if row is None or row[0] != account[0] or not verify_password(data["password"], row[2]):
+            self._note_fail(key)
+            return 401, {"error": "wrong", "message": "Incorrect password. Your account has not been deleted."}
+        self.store.delete_account(account[0])
+        self._clear_fails(key)
         return 200, {"ok": True}
 
     def me(self, token: str) -> tuple[int, dict]:

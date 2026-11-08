@@ -28,6 +28,7 @@ send "Authorization: Bearer <token>".
 POST /auth/register {"username", "password"} -> {"username", "token"}
 POST /auth/login    {"username", "password"} -> {"username", "token"}
 POST /auth/logout   (bearer)                 -> {"ok": true}
+POST /auth/delete   (bearer) {"password", "confirm": true} -> {"ok": true}
 GET  /auth/me       (bearer)                 -> {"username", "best"}
 GET  /save          (bearer)                 -> {"snapshot", "revision", "updated_at"}
 POST /save          {"snapshot", "revision"}  -> {"revision", "updated_at"} (bearer)
@@ -574,6 +575,7 @@ class Handler(BaseHTTPRequestHandler):
         "/auth/register": ("auth", lambda h, d: GAME.register(d)),
         "/auth/login": ("auth", lambda h, d: GAME.login(d)),
         "/auth/logout": ("auth", lambda h, d: GAME.logout(h._token())),
+        "/auth/delete": ("auth", lambda h, d: GAME.delete_account(d, h._token())),
         "/runs/start": ("runs", lambda h, d: GAME.start_run(d, h._token())),
         "/runs/end": ("runs", lambda h, d: GAME.end_run(d)),
         "/runs/claim": ("runs", lambda h, d: GAME.claim_run(d, h._token())),
