@@ -32,6 +32,9 @@ const T_NAV := 9.0
 const T_CABIN_B := 11.4
 const T_WAKE := 11.7
 const T_IMPACT := 14.7
+# Residual light from space keeps silhouettes readable after the main lights fail.
+const POWER_OUT_ROOM := [0.09, 0.11, 0.18]
+const POWER_OUT_CREW := [0.32, 0.38, 0.50]
 const T_STAND := 17.3
 const T_WALK := 17.7
 const T_CORR := 19.3
@@ -43,7 +46,7 @@ const T_FADE_OUT := LENGTH - 0.4
 const SEAL_OFF := T_SEAL - 19.0
 const JOHNNY_TURNS := 33.6
 const CPS := 30.0
-const MONITOR_LINES := [[5.6, "MARS SPACE STATION"], [6.45, "REPAIRS MISSION:"], [7.9, "RETURNING HOME"]]
+const MONITOR_LINES := [[5.6, "MARS SPACE STATION"], [6.45, "REPAIR MISSION:"], [7.9, "RETURNING HOME"]]
 const SUCCESS_AT := 7.2
 const MONITOR_CPS := 26.0
 const DISTANCE_MI := 676767
@@ -654,18 +657,9 @@ func _cabin_camera(t: float) -> float:
 
 ## (room multiplier, crew multiplier) after the impact; [null, null] before.
 func _cabin_light(t: float) -> Array:
-	var t0 := T_IMPACT
-	if t < t0 + 0.15:
+	if t < T_IMPACT:
 		return [null, null]
-	if t < t0 + 0.8:
-		var k := 0.55 if (t0 + 0.35 <= t and t < t0 + 0.42) else 0.1
-		var c := maxf(k, 0.2)
-		return [[k, k, k], [c, c, c]]
-	var k2 := minf(1.0, (t - t0 - 0.8) / 0.2)
-	var pulse := 0.86 + 0.1 * sin(2 * PI * 1.6 * (t - t0 - 0.8))
-	var room := [1.0 * pulse * k2 + 0.1 * (1 - k2), 0.4 * pulse * k2 + 0.1 * (1 - k2), 0.44 * pulse * k2 + 0.1 * (1 - k2)]
-	var crew := [1.0 * pulse * k2 + 0.2 * (1 - k2), 0.68 * pulse * k2 + 0.2 * (1 - k2), 0.7 * pulse * k2 + 0.2 * (1 - k2)]
-	return [room, crew]
+	return [POWER_OUT_ROOM, POWER_OUT_CREW]
 
 
 func _sparks(t: float, ox: float, oy: float) -> void:
@@ -695,9 +689,6 @@ func _shot_cabin(t: float) -> void:
 		_canvas.draw_texture(_tex["cabin_glass"], Vector2.ZERO)  # outside isn't lit by the alarm
 		if t >= T_IMPACT + 0.8:
 			_monitor_alert(t)
-			var on := int(t * 3.2) % 2 == 0
-			for bx in [120, 240, 360]:
-				_rect(bx, 31, bx + 5, 34, Color8(255, 40, 60) if on else Color8(90, 10, 20))
 	var seated := t < T_STAND
 	if seated:
 		for role in ROLES:
@@ -778,9 +769,9 @@ func _shot_nav(t: float) -> void:
 		_darken(0.3 + lt / 0.15 * 0.7)
 
 
-func _corridor_light(t: float) -> Array:
-	var pulse := 0.88 + 0.1 * sin(2 * PI * 1.6 * t)
-	return [[1.0 * pulse, 0.42 * pulse, 0.46 * pulse], [1.0 * pulse, 0.7 * pulse, 0.72 * pulse]]
+func _corridor_light(_t: float) -> Array:
+	# Main power never returns during the intro; emergency screens draw separately.
+	return [POWER_OUT_ROOM, POWER_OUT_CREW]
 
 
 func _slab(t: float, m) -> void:
