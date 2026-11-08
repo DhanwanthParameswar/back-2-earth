@@ -424,10 +424,12 @@ func available_actions(id: String) -> Dictionary:
 		if state.has_flag("battery_out") and not state.has_flag("battery_loaded"): actions["load_battery"] = "Help the player lift the lab battery onto the cart. Player must be beside the cart."
 	if id == "ivo" and state.has_flag("assessed") and not state.has_flag("case_requested") and not state.has_flag("battery_out"):
 		actions["fetch_case"] = "Fetch the insulated case from the shuttle and deliver it to the lab freezer."
-	if not state.powered():  # dark ship: the crew can aim their flashlights
+	if not state.powered():  # dark ship: the crew have flashlights
+		if crew.has(id) and not crew[id].light_on:
+			actions["light_on"] = "Turn on your flashlight; it points wherever you walk."
 		for dir in ["up", "down", "left", "right"]:
 			actions["light_" + dir] = "Turn on your flashlight and point it " + dir + " (on the screen)."
-		if crew.has(id) and crew[id].light_dir != Vector2.ZERO:
+		if crew.has(id) and crew[id].light_on:
 			actions["light_off"] = "Turn your flashlight off."
 	return actions
 
@@ -436,10 +438,13 @@ func act_on_dialogue(id: String, action: String) -> String:
 	if not available_actions(id).has(action): return "That task is no longer available. " + state.objective()
 	var actor = crew[id]
 	match action:
+		"light_on":
+			actor.light_on = true
 		"light_up", "light_down", "light_left", "light_right":
-			actor.light_dir = {"light_up": Vector2.UP, "light_down": Vector2.DOWN, "light_left": Vector2.LEFT, "light_right": Vector2.RIGHT}[action]
+			actor.light_on = true
+			actor.facing = {"light_up": Vector2.UP, "light_down": Vector2.DOWN, "light_left": Vector2.LEFT, "light_right": Vector2.RIGHT}[action]
 		"light_off":
-			actor.light_dir = Vector2.ZERO
+			actor.light_on = false
 		"follow":
 			if find_path(actor.position, player.position).is_empty(): return "The hallway is blocked by the locker. Clear it with Aaron first."
 			actor.following = true
@@ -489,7 +494,12 @@ func offline_response(id: String, message: String) -> Dictionary:
 		for word in dirs.keys():
 			if _mentions(m, [word]) and available_actions(id).has(dirs[word]): action = dirs[word]
 		if _mentions(m, ["off", "turn it off", "kill"]) and available_actions(id).has("light_off"): action = "light_off"
-		line = "Light off." if action == "light_off" else ("Pointing my light that way." if action != "none" else "Which way should I point my flashlight? Up, down, left or right?")
+		elif action == "none" and available_actions(id).has("light_on"): action = "light_on"
+		match action:
+			"light_off": line = "Light off."
+			"light_on": line = "Light's on. It'll point wherever I walk."
+			"none": line = "My light's already on."
+			_: line = "Pointing my light that way."
 	elif _mentions(m, ["your name", "who are you"]):
 		line = "I'm %s. " % crew[id].display_name.split(" · ")[0].capitalize() + state.objective()
 	elif negative:

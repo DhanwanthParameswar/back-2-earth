@@ -61,7 +61,13 @@ func ask(id: String, message: String) -> void:
 	var body: Dictionary = mission.snapshot(id)
 	body["message"] = pending_message
 	body["history"] = histories[id]
-	var error := request.request(Settings.backend_url() + "/escape/talk", PackedStringArray(["Content-Type: application/json"]), HTTPClient.METHOD_POST, JSON.stringify(body))
+	# Who is talking: the server keeps each crewmate's own memory of each player
+	# (logged-in account, else this device's guest id).
+	body["guest_id"] = Settings.guest_id
+	var headers := PackedStringArray(["Content-Type: application/json"])
+	if Settings.account_token != "":
+		headers.append("Authorization: Bearer " + Settings.account_token)
+	var error := request.request(Settings.backend_url() + "/escape/talk", headers, HTTPClient.METHOD_POST, JSON.stringify(body))
 	if error != OK: _fallback()
 
 func cancel(stop_voice := true) -> void:

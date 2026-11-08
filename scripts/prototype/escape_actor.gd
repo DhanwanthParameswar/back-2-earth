@@ -13,8 +13,10 @@ var arrived: Callable
 var following := false
 var walking_time := 0.0
 var bubble_left := 0.0
-## Their flashlight direction while the ship is dark (ZERO = off). Set by asking them on the radio.
-var light_dir := Vector2.ZERO
+## Flashlight (dark ship only): on/off by asking on the radio. It points where they walk;
+## standing still, it keeps the last direction (or the one you asked for).
+var light_on := false
+var facing := Vector2.DOWN
 const BUBBLE_WIDTH := 190.0
 var name_label: Label
 var cargo: Sprite2D
@@ -102,6 +104,8 @@ func _process(delta: float) -> void:
 		path = mission.find_path(position, mission.player.position + Vector2(35, 20))
 	if not path.is_empty():
 		var direction := position.direction_to(path[0])
+		if direction.length() > 0.1:
+			facing = Vector2.RIGHT if absf(direction.x) >= absf(direction.y) and direction.x >= 0.0 else Vector2.LEFT if absf(direction.x) >= absf(direction.y) else Vector2.DOWN if direction.y >= 0.0 else Vector2.UP
 		position = position.move_toward(path[0], delta * 125.0)
 		walking_time += delta * 9.0
 		sprite.frame = int(walking_time) % 6
