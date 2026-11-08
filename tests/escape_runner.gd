@@ -31,6 +31,7 @@ func _run() -> void:
 	_test_condition_math()
 	_test_endings()
 	_test_marvis_words()
+	await _test_darkness()
 	await _test_opening()
 	await _test_engineering()
 	await _test_battery(true)
@@ -348,6 +349,10 @@ func _board_and_launch(mission) -> void:
 		check(mission.player.position.distance_to(mission.anchor("board_dhan")) < start_gap - 50.0, "Johnny walks with them")
 		check(s.has_flag("dhan_aboard") and not mission.crew.ivo.visible and not mission.scripted, "Dhan is aboard")
 	check(mission.act_on_dialogue("mara", "release_clamps") != "", "Aaron won't release with nobody at the helm")
+	check(mission.ship.hatch == 0.0, "The launch hatch is in the floor, closed, before launch")
+	mission.player.position = mission.props.shuttle.position + Vector2(-60, 60)
+	mission.player.snap_camera()
+	await _capture("bay-closed-hatch")
 	mission.player.position = mission.props.shuttle.position + Vector2(0, 20)
 	mission.use_prop("shuttle")
 	check(mission.seated and mission.ui.closeup_panel == "pilot", "Johnny takes the pilot seat")
@@ -362,7 +367,14 @@ func _board_and_launch(mission) -> void:
 	check(mission.ship.sealed >= 1.0, "Every door seals")
 	await get_tree().create_timer(1.2).timeout
 	check(mission.ship.hatch > 0.5, "The hatch opens under the shuttle")
+	var hole: Rect2 = mission.ship.hatch_rect()
+	var hull: Texture2D = load("res://assets/ship/shuttle.png")
+	check(hole.size.x > hull.get_width() and hole.size.y > hull.get_height(), "The hatch is big enough for the wings")
 	await _capture("launch-" + s.ending())
+	await get_tree().create_timer(2.0).timeout
+	check(not mission.props.shuttle.visible and mission.ship.drop >= 1.0, "The shuttle falls through the hatch (not just vanishing)")
+	check(mission.ship.thrust > 0.0, "...then its engines push it forward under the hull")
+	await _capture("launch-burn-" + s.ending())
 	for i in 80:
 		if mission.outro != null: break
 		await get_tree().create_timer(0.1).timeout
@@ -499,7 +511,15 @@ func _test_guardrail_and_live() -> void:
 	var wrong: String = ["A", "B", "C"].filter(func(b): return b != s.right_fuse())[0]
 	check(mission.check_reply("ivo", "Grab box %s." % wrong, "which fuse?").contains("not guessing"), "Dhan can't name a box he wasn't asked about")
 	check(mission.check_reply("ivo", "Box %s, Captain." % s.right_fuse(), "it says " + s.fault_code()) == "Box %s, Captain." % s.right_fuse(), "...but can once the code is read")
-	check(mission.check_reply("ivo", "Position %s." % s.right_selector(), "what setting").contains("socket"), "No selector answer before the battery is out")
+	check(not mission.check_reply("ivo", "Position %s." % s.right_selector(), "what setting").contains("Position"), "No selector answer before the battery is out")
+	var mixed: String = mission.check_reply("ivo", "Ah, spare fuse box %s. Try toggle four up, Captain." % s.right_fuse(), "the screen says " + s.fault_code())
+	check(mixed == "Ah, spare fuse box %s." % s.right_fuse(), "An invented switch tip is cut; the right part stays (got: %s)" % mixed)
+	check(mission.check_reply("ivo", "Hang in there. I'm fine.", "how are you") == "Hang in there. I'm fine.", "Ordinary replies pass untouched")
+	check(mission.check_reply("ivo", "Kill the freezer switch if you have to.", "what now") == "Kill the freezer switch if you have to.", "Mentioning a switch isn't a guess")
+	var extra: String = mission.check_reply("ivo", "Ah, spare fuse box %s. Captain, flip the primary breaker on that panel." % s.right_fuse(), "it says " + s.fault_code())
+	check(extra == "Ah, spare fuse box %s." % s.right_fuse(), "A made-up extra step is cut (got: %s)" % extra)
+	var wrong_side: String = ["left", "middle", "right"][(s.right_toggle() + 1) % 3]
+	check(mission.check_reply("ivo", "Flip the %s-hand toggle." % wrong_side, "it says " + s.short_branch()).contains("Say that again"), "A wrong toggle is never shown")
 	# A live reply goes through the same check, and the voice is dropped.
 	var radio = mission.ui.radio
 	radio.pending_id = "ivo"
@@ -631,6 +651,72 @@ func _test_outro_film() -> void:
 		check(finished[0], "The film ends by itself: " + id)
 		layer.queue_free()
 		await get_tree().process_frame
+
+## The dark ship (team's lighting): your light, the flashlight beam, crew lights,
+## labels only within reach, and power bringing the lights back.
+func _test_darkness() -> void:
+	var mission = await _new_mission()
+	await _advance(mission, 2.0)
+	var dark = mission.darkness
+	var fuse_pos: Vector2 = mission.props["fuse"].position
+	var storage: Rect2
+	for room in mission.map_data.rooms:
+		if room.name == "STORAGE":
+			storage = Rect2(Vector2(room.rect[0], room.rect[1]) * 32.0, Vector2(room.rect[2], room.rect[3]) * 32.0)
+	check(storage.has_point(fuse_pos), "Spare fuses are in the storage room")
+	check(dark.is_dark(), "No power: the ship is dark")
+	check(absf(dark.BASE_RADIUS * 2.0 - 4.0 * 32.0) < 1.0, "Without a flashlight your bright circle is about 4 x 4 tiles")
+	for i in 3: await get_tree().process_frame
+	var src: Vector2i = dark._cell(mission.player.position + Vector2(0, -8))
+	var walls_lit := 0
+	var leaks := 0
+	for cell in dark.lit.keys():
+		if dark.is_opaque(cell): walls_lit += 1
+		elif not dark.line_of_sight(src, cell): leaks += 1
+	check(walls_lit > 0, "Walls within your light are visible")
+	check(leaks == 0, "No lit floor has a wall between it and you (can't see through walls)")
+	check(dark.is_opaque(Vector2i(-5, -5)) and "D" in dark.OPAQUE, "Doorways and outside the ship stop light")
+	check(dark.DARK_COLOR.v < 0.03, "Unlit areas are black (nothing shows beyond your light)")
+	dark.facing = Vector2.RIGHT
+	dark.toggle_flashlight()
+	for i in 40: await get_tree().process_frame
+	check(dark.is_beam_on("player"), "F turns your flashlight on")
+	dark.facing = Vector2.UP
+	await get_tree().process_frame
+	check(dark.beam_direction("player").dot(Vector2.UP) < 0.95, "Turning from right to up swings the beam (no instant snap)")
+	for i in 40: await get_tree().process_frame
+	check(dark.beam_direction("player").dot(Vector2.UP) > 0.99, "...and it settles pointing up")
+	dark.toggle_flashlight()
+	await get_tree().process_frame
+	check(not dark.is_beam_on("player"), "F again turns it off")
+	# Crew lights: Dhan (pinned) can still turn his on; Aaron's points where he walks.
+	check(mission.available_actions("ivo").has("light_on"), "Dhan offers his flashlight while it's dark")
+	check(mission.offline_response("ivo", "turn your flashlight on").action == "light_on", "Asking Dhan for his light is understood")
+	check(mission.offline_response("mara", "turn your flashlight on").action == "light_on", "...and Aaron")
+	mission.act_on_dialogue("mara", "light_on")
+	var aaron = mission.crew.mara
+	aaron.path = PackedVector2Array([aaron.position + Vector2(64, 0)])  # walk right
+	for i in 50:
+		aaron._process(0.02)
+		await get_tree().process_frame
+	check(dark.is_beam_on("mara") and dark.beam_direction("mara").dot(Vector2.RIGHT) > 0.95, "Aaron's beam points the way he walks")
+	check(not dark.is_beam_on("ivo"), "Asking Aaron doesn't turn on Dhan's light")
+	mission.act_on_dialogue("mara", "light_off")
+	await get_tree().process_frame
+	check(not dark.is_beam_on("mara"), "...and it turns off when asked")
+	mission.player.position = aaron.position + Vector2(300, 0)
+	await get_tree().process_frame
+	check(not aaron.name_label.visible, "Aaron's name is hidden when you're far away")
+	mission.player.position = aaron.position + Vector2(30, 0)
+	await get_tree().process_frame
+	check(aaron.name_label.visible, "...and shows once you're close enough to press E")
+	check(not mission.props["fuse"].caption.visible, "Far objects' labels are hidden too")
+	check(mission.alarm != null, "The corridor's alarm beacons are in the scene")
+	mission.state.flags["engineering_power"] = true
+	await get_tree().create_timer(1.8).timeout
+	check(not dark.is_dark(), "Power restored: the lights come back")
+	check(not mission.available_actions("ivo").has("light_on"), "No flashlight actions once the lights are on")
+	await _free(mission)
 
 func _capture(label: String) -> void:
 	if not visual: return

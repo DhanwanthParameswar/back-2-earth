@@ -4,7 +4,8 @@ extends Node2D
 ## frames, the film's sealed barrier and the torn hull past it, room signs,
 ## floor and wall decals. Furniture becomes y-sorted sprites in the world
 ## (build_decor). Lighting: dim emergency light until the shuttle bay has power,
-## red alarm lamps in the corridor, a pulsing reactor. Art: tools/make_ship_art.py.
+## rotating red alarm beacons spread around the ship (escape_alarm.gd), a pulsing reactor.
+## Art: tools/make_ship_art.py.
 
 const UiStyle = preload("res://scripts/ui/ui_style.gd")
 const ART := "res://assets/ship/"
@@ -20,6 +21,12 @@ var _modulate: CanvasModulate
 var _t := 0.0
 var _stars: Array[Vector3] = []
 var _outside_crew: Sprite2D
+## Rotating alarm beacons: about one per this many tiles of a room's width ...
+const ALARM_WALL_PER_LAMP := 12.0
+## ... and never closer together than this (tiles).
+const ALARM_SPACING := 6.0
+var _alarm_cells := {}
+var _alarm_cells_ready := false
 ## Launch (escape_mission._launch): every door seals, then a hatch opens under the shuttle.
 var sealed := 0.0:
 	set(v):
@@ -28,6 +35,14 @@ var sealed := 0.0:
 var hatch := 0.0:
 	set(v):
 		hatch = v
+		queue_redraw()
+var drop := 0.0:
+	set(v):
+		drop = v
+		queue_redraw()
+var thrust := 0.0:
+	set(v):
+		thrust = v
 		queue_redraw()
 
 
@@ -126,6 +141,107 @@ func _is_floorish(ch: String) -> bool:
 	return ch in [".", "D", "L", "s", "B"]
 
 
+## A plain wall with its front face showing (floor below it, not the barrier).
+func is_wall_face(x: int, y: int) -> bool:
+	var below := _ch(x, y + 1)
+	return _ch(x, y) == "#" and _is_floorish(below) and below != "B"
+
+
+## Where the rotating alarm beacons hang (escape_alarm.gd makes them spin and flash).
+func is_alarm_cell(x: int, y: int) -> bool:
+	return alarm_cells().has(Vector2i(x, y))
+
+
+## The beacons' wall tiles (Vector2i -> true), worked out once from the map:
+## spread along the back wall of every open room, about one per ALARM_WALL_PER_LAMP
+## tiles of room width and at least ALARM_SPACING tiles apart, never on a door
+## frame, a wall screen or poster, or a room's name plate.
+func alarm_cells() -> Dictionary:
+	if not _alarm_cells_ready:
+		_alarm_cells_ready = true
+		_place_alarms()
+	return _alarm_cells
+
+
+func _place_alarms() -> void:
+	var blocked := _alarm_blocked_rects()
+	var placed: Array[Vector2i] = []
+	var size: Vector2i = mission.map_size
+	for room in mission.rooms:
+		if room.sealed:
+			continue
+		var candidates: Array[Vector2i] = []
+		for y in size.y:
+			for x in size.x:
+				if _alarm_spot_ok(x, y, room, blocked):
+					candidates.append(Vector2i(x, y))
+		if candidates.is_empty():
+			continue  # no plain back wall (the observation lounge is all window)
+		var rr: Array = room.rect
+		var left: float = float(rr[0])
+		var width: float = float(rr[2])
+		var count: int = maxi(1, roundi(width / ALARM_WALL_PER_LAMP))
+		# Each beacon gets an equal share of the room's width and hangs at the free
+		# wall tile nearest its share's middle (ties: furthest from other beacons).
+		var share: float = width / count
+		for i in count:
+			var target: float = left + (i + 0.5) * share
+			var best := Vector2i(-1, -1)
+			var best_d := INF
+			var best_gap := -1.0
+			for c in candidates:
+				var d := absf(c.x + 0.5 - target)
+				var gap := _gap(c, placed)
+				if d > maxf(share / 2.0, 2.0) or gap < ALARM_SPACING:
+					continue
+				if d < best_d - 0.01 or (absf(d - best_d) <= 0.01 and gap > best_gap):
+					best = c
+					best_d = d
+					best_gap = gap
+			if best.x >= 0:
+				placed.append(best)
+				_alarm_cells[best] = true
+
+
+func _alarm_spot_ok(x: int, y: int, room: Dictionary, blocked: Array[Rect2]) -> bool:
+	if _ch(x, y) != "#" or _ch(x, y + 1) != ".":
+		return false  # a plain wall with this room's floor right below
+	if _room_at_cell(x, y + 1).get("key", "") != room.key:
+		return false
+	if _ch(x - 1, y) == "D" or _ch(x + 1, y) == "D":
+		return false  # door frame
+	var r := Rect2(x * TILE, y * TILE, TILE, TILE)
+	for b in blocked:
+		if b.intersects(r):
+			return false
+	return true
+
+
+## Distance (tiles) from `c` to the nearest beacon already placed (INF if none).
+func _gap(c: Vector2i, placed: Array[Vector2i]) -> float:
+	var nearest := INF
+	for p in placed:
+		nearest = minf(nearest, Vector2(c - p).length())
+	return nearest
+
+
+## Wall decorations (screens, posters, boards) and the room name plates.
+func _alarm_blocked_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for d in mission.map_data.decor:
+		if d.layer == "wall":
+			var t := tex(d.sprite)
+			if t != null:
+				out.append(Rect2(d.pos[0] - t.get_width() / 2.0, d.pos[1] - t.get_height(), t.get_width(), t.get_height()).grow(4.0))
+	var font := UiStyle.font()
+	for room in mission.rooms:
+		var rr: Array = room.rect
+		var label: String = room.name
+		var plate := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 8)
+		out.append(Rect2(rr[0] * TILE + 5, rr[1] * TILE - 23, plate.x + 6, 12).grow(4.0))  # as _draw_signs
+	return out
+
+
 func _room_at_cell(x: int, y: int) -> Dictionary:
 	if y < 0 or y >= mission._room_grid.size() or x < 0 or x >= mission._room_grid[y].length():
 		return {}
@@ -169,7 +285,7 @@ func _draw() -> void:
 			if room.name == "CABIN":
 				var rr: Array = room.rect
 				draw_rect(Rect2(rr[0] * TILE, rr[1] * TILE, rr[2] * TILE, rr[3] * TILE), Color(0, 0, 0, 0.45))
-	if hatch > 0.0: _draw_hatch()
+	_draw_hatch()  # part of the bay floor, closed until launch
 	if mission.state.powered():  # bay guide lights come on
 		var bay := _room_rect("SHUTTLE BAY")
 		var x0 := bay.position.x + 16
@@ -190,11 +306,20 @@ func _draw_seal(_x: int, _y: int, r: Rect2, vertical_frame: bool) -> void:
 		draw_rect(stripe, Color("ffa300") if int(k / 8.0) % 2 == 0 else Color("201a08"))
 		k += 8.0
 
-## The launch hatch under the shuttle: hazard frame, then doors parting onto space.
-func _draw_hatch() -> void:
+## The launch hatch under the shuttle: a hazard frame big enough for the whole craft
+## (wings included), doors parting onto space, then the shuttle seen through it:
+## falling away (drop 0..1), then firing its engines and flying forward under the
+## hull until it passes the hatch's far edge (thrust 0..1).
+func hatch_rect() -> Rect2:
 	var s: Dictionary = mission.map_data.props.shuttle
-	var c := Vector2(s.pos[0], s.pos[1] - 40)
-	var full := Rect2(c - Vector2(96, 34), Vector2(192, 68))
+	var t := tex("shuttle")
+	var w := (t.get_width() if t != null else 192) + 28.0
+	var h := (t.get_height() if t != null else 112) + 14.0
+	return Rect2(Vector2(s.pos[0] - w / 2.0, s.pos[1] - h + 4.0), Vector2(w, h))
+
+func _draw_hatch() -> void:
+	var full := hatch_rect()
+	var c := full.get_center()
 	draw_rect(full.grow(6), Color("201a08"))
 	var x := full.position.x - 6
 	while x < full.end.x + 6:
@@ -207,11 +332,43 @@ func _draw_hatch() -> void:
 		var sp := Vector2(full.position.x + fposmod(st.x, full.size.x), full.position.y + fposmod(st.y, full.size.y))
 		if absf(sp.x - c.x) < full.size.x * open / 2.0:
 			draw_rect(Rect2(sp, Vector2.ONE * (2 if st.z > 0.9 else 1)), Color(0.6, 0.7, 0.95, 0.4 + 0.5 * st.z))
-	# Two doors sliding apart from the middle.
+	if drop > 0.0: _draw_falling_shuttle(full)
 	var door_w := full.size.x / 2.0 * (1.0 - open)
 	for door in [Rect2(full.position, Vector2(door_w, full.size.y)), Rect2(Vector2(full.end.x - door_w, full.position.y), Vector2(door_w, full.size.y))]:
 		draw_rect(door, Color("3a3848"))
 		if door.size.x > 8.0: draw_rect(door.grow(-4), Color("4a4858"))
+
+## Below the floor: smaller as it falls, darker away from the bay lights; the hatch
+## edge hides whatever is outside the opening.
+func _draw_falling_shuttle(clip: Rect2) -> void:
+	var t := tex("shuttle")
+	if t == null: return
+	var d := clampf(drop, 0.0, 1.0)
+	var k := lerpf(1.0, 0.62, d * d)
+	var size := t.get_size() * k
+	var push := clampf(thrust, 0.0, 1.0)
+	var centre := clip.get_center() + Vector2(push * push * (clip.size.x + size.x) * 0.9, d * 6.0)
+	var dest := Rect2(centre - size / 2.0, size)
+	var shade := lerpf(1.0, 0.62, d)
+	if push > 0.0:  # engines at the stern (left), pushing it forward (right)
+		var nozzle := dest.position + Vector2(6.0, 55.0) * k
+		var flicker := 0.75 + 0.25 * sin(_t * 47.0)
+		var reach := (26.0 + 70.0 * push) * k * flicker
+		for band in [[1.0, Color("ff4d1f")], [0.7, Color("ffa300")], [0.4, Color("ffec27")]]:
+			var flame: float = reach * float(band[0])
+			var hgt: float = 22.0 * k * float(band[0])
+			_clipped_rect(Rect2(nozzle.x - flame, nozzle.y - hgt / 2.0, flame, hgt), clip, band[1])
+	_clipped_texture(t, dest, clip, Color(shade, shade, shade * 1.05))
+
+func _clipped_rect(r: Rect2, clip: Rect2, color: Color) -> void:
+	var cut := r.intersection(clip)
+	if cut.has_area(): draw_rect(cut, color)
+
+func _clipped_texture(t: Texture2D, dest: Rect2, clip: Rect2, modulate: Color) -> void:
+	var cut := dest.intersection(clip)
+	if not cut.has_area(): return
+	var k := dest.size / t.get_size()
+	draw_texture_rect_region(t, cut, Rect2((cut.position - dest.position) / k, cut.size / k), modulate)
 
 func _room_rect(name: String) -> Rect2:
 	for room in mission.rooms:
@@ -246,7 +403,7 @@ func _draw_wall(x: int, y: int, ch: String, r: Rect2) -> void:
 			draw_texture_rect(tex("window"), r, false)
 		else:
 			var kind: String = FACE_KINDS[_hash(x, y) % FACE_KINDS.size()]
-			if room.get("name", "") == "CORRIDOR" and x >= 34 and x % 3 == 0:
+			if is_alarm_cell(x, y):
 				kind = "alarm"
 			draw_texture_rect(tex("wall_face_" + kind), r, false, tint)
 	elif (below == "#" or below == "w") and _is_floorish(below2) and below2 != "B":
@@ -338,7 +495,7 @@ func _draw_signs() -> void:
 		draw_string(font, p, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(room.color))
 
 
-## Things that move every frame: alarm lamps, the reactor glow, the flickering
+## Things that move every frame: the reactor glow, the flickering
 ## MAIN POWER OFFLINE screen, the red wash past the barrier.
 class FX extends Node2D:
 	var ship
@@ -352,18 +509,8 @@ class FX extends Node2D:
 			return
 		var t: float = ship._t
 		var powered: bool = m.state.powered()
-		# Corridor alarm lamps: red pulses on the wall and floor below them.
+		# The corridor's rotating alarm beacons are escape_alarm.gd (above the dark).
 		var pulse := 0.5 + 0.5 * sin(t * TAU * 1.6)
-		for y in m.map_size.y:
-			for x in m.map_size.x:
-				if m.cell_char(Vector2i(x, y)) != "#" or x < 34 or x % 3 != 0:
-					continue
-				var room: Dictionary = ship._room_at_cell(x, y + 1)
-				if room.get("name", "") != "CORRIDOR" or not ship._is_floorish(m.cell_char(Vector2i(x, y + 1))):
-					continue
-				var c := Vector2(x * TILE + 16, y * TILE + 8)
-				draw_circle(c, 6 + 3 * pulse, Color(1, 0.1, 0.25, 0.25 + 0.2 * pulse))
-				draw_rect(Rect2(x * TILE - 8, (y + 1) * TILE, 48, 26), Color(1, 0.05, 0.2, 0.06 + 0.06 * pulse))
 		# The reactor breathes; brighter once power is restored.
 		for d in m.map_data.decor:
 			if d.sprite == "reactor":

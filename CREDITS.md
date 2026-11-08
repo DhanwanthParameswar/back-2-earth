@@ -1,10 +1,10 @@
 # Credits
 
 ## Team
-- A — gameplay / integration: _name_
-- B — level / puzzles: _name_
-- C — companion / backend: _name_
-- D — presentation / release: _name_
+- Johnny
+- Dhan
+- Kien
+- Aaron
 
 ## Assets
 | Asset | Source | License |

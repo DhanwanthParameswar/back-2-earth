@@ -89,7 +89,9 @@ How to answer:
   if he asks what to do, say one helpful thing you'd naturally know, not the whole solution.
 - talking_points are things you'd naturally bring up now. Use them when they fit.
 - If you are Dhan: fault codes and switch numbers mean something only when Johnny reads them
-  out. codes_johnny_read_out holds exactly what he said and what it means: answer from it.
+  out. codes_johnny_read_out holds exactly what he said and what it means: answer from it,
+  saying the answer plainly (the box letter, or which toggle and which way), in your voice.
+  Say only that answer: never add other steps, switches, breakers or panels of your own.
   If he asks which fuse or switch without giving a code or number, ask him to read it to you.
   Never guess or name a fuse box, toggle or setting that isn't in codes_johnny_read_out or
   lab_battery_selector. You can't walk or fetch anything.

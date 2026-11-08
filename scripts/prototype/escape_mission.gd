@@ -14,6 +14,7 @@ const PlayerScene = preload("res://scenes/player/player.tscn")
 const Intro = preload("res://scripts/ui/intro_cutscene.gd")
 const Outro = preload("res://scripts/ui/outro_film.gd")
 const Darkness = preload("res://scripts/prototype/escape_darkness.gd")
+const Alarm = preload("res://scripts/prototype/escape_alarm.gd")
 const ShipMap = preload("res://scripts/prototype/escape_ship.gd")
 const Haptics = preload("res://scripts/core/haptics.gd")
 const TILE := 32
@@ -71,6 +72,7 @@ var voice: AudioStreamPlayer
 var _intro = null
 var _busy := {}                 # crew id -> task
 var _task_arg := {}             # crew id -> extra (the fuse box Aaron is fetching)
+var alarm                       # escape_alarm.gd: the corridor's rotating beacons
 var _save_ready := false
 var _autosave_clock := 0.0
 var _resumed := false
@@ -130,6 +132,9 @@ func _ready() -> void:
 	darkness = Darkness.new()
 	darkness.mission = self
 	add_child(darkness)
+	alarm = Alarm.new()  # drawn above the dark: the beacons are light sources
+	alarm.mission = self
+	add_child(alarm)
 	ui = Interface.new()
 	ui.mission = self
 	add_child(ui)
@@ -919,6 +924,9 @@ func available_actions(id: String) -> Dictionary:
 	if _busy.has(id): return {"none": "You are in the middle of a task (%s). Report progress; don't start another." % _busy[id]}
 	a["follow"] = "Follow Johnny."
 	a["wait"] = "Stay where you are."
+	if not state.powered():
+		a["light_on"] = "Turn on your flashlight; it points where you walk."
+		a["light_off"] = "Turn your flashlight off."
 	if not state.has_flag("dhan_free"):
 		a["lift_locker"] = "Lift the fallen locker off Dhan's leg so Johnny can pull him out."
 		return a
@@ -934,9 +942,6 @@ func available_actions(id: String) -> Dictionary:
 		a["carry_dhan"] = "Help Johnny carry Dhan to the shuttle."
 	if state.powered() and not state.has_flag("clamps"):
 		a["release_clamps"] = "Release the docking clamps from the bay console, then board the shuttle."
-	if not state.powered():
-		a["light_on"] = "Turn on your flashlight; it points where you walk."
-		a["light_off"] = "Turn your flashlight off."
 	return a
 
 ## Carry out what a crewmate agreed to. Returns a corrected line when the
@@ -1191,7 +1196,7 @@ func talking_points(id: String) -> Array:
 	var pts: Array = []
 	var step := next_step()
 	if id == "mara":
-		pts.append("Kien died in the breach. You and Kien collected the lab samples together. Mention him briefly if it fits; never a speech.")
+		pts.append("Kien died in the breach; you and he collected the lab samples together. Bring him up rarely: only when Johnny mentions him or the samples, and not again if you already have in this conversation.")
 		if not state.has_flag("freezer_off"):
 			pts.append("The lab battery could power the clamps, but it keeps the freezer and the samples alive.")
 			pts.append("Only if Johnny asks about saving the samples or other options: there's an insulated case aboard the shuttle that fits one rack. You can fetch it.")
@@ -1228,7 +1233,7 @@ func snapshot(id: String, message := "") -> Dictionary:
 		var code: int = Rules.parse_code(message)
 		if code > 0: told["E-%d" % code] = "spare fuse box " + state.fuse_for(code)
 		var aux: int = Rules.parse_aux(message)
-		if aux > 0: told["AUX-%d" % aux] = "the %s toggle" % ["left", "middle", "right"][state.toggle_for(aux)]
+		if aux > 0: told["AUX-%d" % aux] = "flip the %s toggle down (of the three under the guard cover)" % ["left", "middle", "right"][state.toggle_for(aux)].to_upper()
 		snap["codes_johnny_read_out"] = told
 		if state.has_flag("battery_out") or state.carrying == "battery cart":
 			snap["lab_battery_selector"] = "position " + state.right_selector()
@@ -1238,28 +1243,43 @@ func snapshot(id: String, message := "") -> Dictionary:
 	return snap
 
 ## Guardrail on live replies: Dhan may only name a fuse box, toggle or selector
-## setting that follows from what Johnny actually read out. Returns the line to show.
+## setting that follows from what Johnny actually read out. A sentence that names
+## anything else is dropped; the rest of the reply stays. Returns the line to show.
 func check_reply(id: String, line: String, message: String) -> String:
 	if id != "ivo": return line
-	var l := line.to_lower()
-	var allowed_boxes: Array = []
 	var code: int = Rules.parse_code(message)
-	if code > 0: allowed_boxes.append(state.fuse_for(code).to_lower())
-	var re := RegEx.new()
-	re.compile("\\bbox\\s+([abc])\\b")
-	for hit in re.search_all(l):
-		if not hit.get_string(1) in allowed_boxes: return "Read me the code off the cabinet first. I'm not guessing."
 	var aux: int = Rules.parse_aux(message)
-	var allowed_toggle: String = ["left", "middle", "right"][state.toggle_for(aux)] if aux > 0 else ""
-	re.compile("\\b(left|middle|right)\\s+(toggle|switch|one)\\b")
-	for hit in re.search_all(l):
-		if hit.get_string(1) != allowed_toggle: return "Which AUX number is it showing? Tell me and I'll tell you the switch."
-	re.compile("\\bposition\\s+(iii|ii|i|1|2|3|one|two|three)\\b")
+	var box_ok: String = state.fuse_for(code).to_lower() if code > 0 else ""
+	var toggle_ok: String = ["left", "middle", "right"][state.toggle_for(aux)] if aux > 0 else ""
 	var knows_selector: bool = state.has_flag("battery_out") or state.carrying == "battery cart"
-	for hit in re.search_all(l):
-		var said: String = {"i": "I", "1": "I", "one": "I", "ii": "II", "2": "II", "two": "II", "iii": "III", "3": "III", "three": "III"}.get(hit.get_string(1), "")
-		if not knows_selector or said != state.right_selector(): return "Get the battery to the socket and ask me again."
-	return line
+	var re_box := RegEx.create_from_string("\\bbox\\s+([abc])\\b")
+	var re_side := RegEx.create_from_string("\\b(left|middle|right)(?:-hand| hand)?\\s+(toggle|switch|one)\\b")
+	# An actual switch instruction: "toggle four up", "flip the second switch down".
+	var re_switch := RegEx.create_from_string("\\b(toggle|switch|flip)\\b.*\\b(up|down|one|two|three|four|five|first|second|third|[0-9])\\b")
+	var re_pos := RegEx.create_from_string("\\b(?:position|setting)\\s+(iii|ii|i|1|2|3|one|two|three)\\b")
+	var kept: PackedStringArray = []
+	var dropped := false
+	var re_sentence := RegEx.create_from_string("[^.!?]+[.!?]*")
+	for hit in re_sentence.search_all(line):
+		var sentence := hit.get_string().strip_edges()
+		if sentence == "": continue
+		var l := sentence.to_lower()
+		var bad := false
+		for b in re_box.search_all(l):
+			if b.get_string(1) != box_ok: bad = true
+		for t in re_side.search_all(l):
+			if t.get_string(1) != toggle_ok: bad = true
+		if re_switch.search(l) != null and (toggle_ok == "" or not l.contains(toggle_ok)): bad = true  # switch advice he can't know
+		if toggle_ok == "" and RegEx.create_from_string("\\bflip\\b").search(l) != null: bad = true  # "flip the primary breaker": made up
+		for q in re_pos.search_all(l):
+			var said: String = {"i": "I", "1": "I", "one": "I", "ii": "II", "2": "II", "two": "II", "iii": "III", "3": "III", "three": "III"}.get(q.get_string(1), "")
+			if not knows_selector or said != state.right_selector(): bad = true
+		if bad: dropped = true
+		else: kept.append(sentence)
+	if not dropped: return line
+	if kept.is_empty():
+		return "Read me what the panel says, Captain. I'm not guessing." if code == 0 and aux == 0 else "Say that again? Read it to me exactly."
+	return " ".join(kept)
 
 func ask_question(id: String, question: String) -> void:
 	pending_question[id] = question
@@ -1416,16 +1436,20 @@ func _launch() -> void:
 		Haptics.play("clamps")
 		ui.show_caption("SHUTTLE", "Hatch open. Releasing."))
 	tw.tween_property(ship, "hatch", 1.0, 1.3).set_trans(Tween.TRANS_SINE)
+	# It falls through the hatch (drawn under the floor from here on, see escape_ship.gd)...
+	tw.tween_callback(func():
+		shuttle.visible = false
+		Sfx.play("hit", -8)
+		Haptics.play("thud"))
+	tw.tween_property(ship, "drop", 1.0, 1.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	# ...then lights its engines and flies forward under the hull, out of sight.
 	tw.tween_callback(func():
 		Sfx.play("launch", -2)
 		Haptics.play("launch")
-		ui.shake(1.4))
-	tw.set_parallel(true)
-	tw.tween_property(shuttle, "scale", Vector2(0.5, 0.5), 1.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_property(shuttle, "position", shuttle.position + Vector2(0, -22), 1.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_property(shuttle, "modulate", Color(0.25, 0.25, 0.35, 0.0), 1.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.set_parallel(false)
-	tw.tween_interval(0.5)
+		ui.shake(1.6)
+		ui.show_caption("SHUTTLE", "Clear of the bay. Main engines."))
+	tw.tween_property(ship, "thrust", 1.0, 2.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_interval(0.4)
 	tw.tween_callback(func(): ui.fade_black(0.7, _play_outro.bind(id)))
 
 func _play_outro(id: String) -> void:

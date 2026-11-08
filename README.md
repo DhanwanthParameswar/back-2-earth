@@ -280,7 +280,7 @@ The escape prototype's ship is data, not code: `tools/make_escape_map.py` holds 
 
 - **Rooms:** gameplay starts where the film ends: in the CORRIDOR on the safe side of the sealed barrier (MAIN POWER OFFLINE screen, emergency panel), facing the locker the impact threw across the hallway. Past the barrier, sealed but visible: the BREACH and the CABIN (the film's seating room, where the crew slept). Past the locker: JUNCTION (launch terminal) with ENGINEERING north, LABORATORY south, SHUTTLE BAY east. To explore: FLIGHT DECK (cockpit window, helm, nav table), GALLEY, STORAGE, OBSERVATION lounge, MEDBAY, HYDROPONICS, SUIT ROOM (airlock).
 - **Art:** `tools/make_ship_art.py` draws every floor, wall, piece of furniture and gameplay prop in the film's palette (`assets/ship/`, contact sheet `docs/ship_art.png`).
-- **Lighting:** dim emergency light until the shuttle bay has power, red alarm lamps by the barrier, a pulsing reactor.
+- **Lighting:** dim emergency light until the shuttle bay has power, rotating red alarm beacons spread along the rooms' back walls (`scripts/prototype/escape_alarm.gd`), a pulsing reactor.
 - **Editing:** move or add things in the tables in `make_escape_map.py`, rerun it (`python3 tools/make_escape_map.py`), then run the prototype tests.
 
 ## Opening story

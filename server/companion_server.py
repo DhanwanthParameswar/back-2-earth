@@ -64,6 +64,11 @@ PORT = int(os.environ.get("COMPANION_PORT", "8787"))
 
 # --- Text model: Google Gemini (preferred) or Anthropic --------------------------------
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+# Extra keys to share the load (comma-separated). Requests take turns across all keys,
+# and a key that hits its rate limit (HTTP 429) sits out for a while.
+GEMINI_KEYS = list(dict.fromkeys(k.strip() for k in [GEMINI_API_KEY, *os.environ.get("GEMINI_API_KEYS", "").split(",")] if k.strip()))
+GEMINI_API_KEY = GEMINI_API_KEY or (GEMINI_KEYS[0] if GEMINI_KEYS else "")
+KEY_COOLDOWN = float(os.environ.get("GEMINI_KEY_COOLDOWN", "30"))
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_URL = os.environ.get(
     "GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
@@ -311,6 +316,35 @@ def _post_json(url: str, body: dict, headers: dict, timeout: float) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+_key_lock = threading.Lock()
+_key_next = 0
+_key_resting: dict[str, float] = {}
+
+
+def _gemini_post(url: str, body: dict, timeout: float) -> dict:
+    """POST to Gemini with the next available key; on a rate limit, try the others."""
+    global _key_next
+    with _key_lock:
+        start = _key_next
+        _key_next = (_key_next + 1) % max(1, len(GEMINI_KEYS))
+    last: Exception | None = None
+    for i in range(len(GEMINI_KEYS)):
+        key = GEMINI_KEYS[(start + i) % len(GEMINI_KEYS)]
+        with _key_lock:
+            if _key_resting.get(key, 0.0) > time.time():
+                continue
+        try:
+            return _post_json(url, body, {"x-goog-api-key": key}, timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429:
+                raise
+            last = exc
+            with _key_lock:
+                _key_resting[key] = time.time() + KEY_COOLDOWN
+            print(f"[gemini] key #{(start + i) % len(GEMINI_KEYS) + 1} rate-limited; trying the next", file=sys.stderr)
+    raise last or ValueError("every Gemini key is resting after a rate limit")
+
+
 def generate_text(system: str, turns: list[tuple[str, str]], max_tokens: int, timeout: float) -> str:
     """turns = [("user"|"model", text), ...], ending with "user". Raises on any failure."""
     if not LIMITS.spend_text_call():
@@ -322,11 +356,10 @@ def generate_text(system: str, turns: list[tuple[str, str]], max_tokens: int, ti
                 contents[-1]["parts"][0]["text"] += "\n" + text
             else:
                 contents.append({"role": role, "parts": [{"text": text}]})
-        payload = _post_json(
+        payload = _gemini_post(
             GEMINI_URL.format(model=GEMINI_MODEL),
             {"systemInstruction": {"parts": [{"text": system}]}, "contents": contents,
-             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.9}},
-            {"x-goog-api-key": GEMINI_API_KEY}, timeout)
+             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.9}}, timeout)
         candidates = payload.get("candidates") or []
         if not candidates:
             raise ValueError(f"no candidates (blocked?): {str(payload.get('promptFeedback'))[:120]}")

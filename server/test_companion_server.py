@@ -77,12 +77,12 @@ class NpcValidationTests(unittest.TestCase):
             sent.update(url=url, body=body, headers=headers)
             return {"candidates": [{"content": {"parts": [{"text": "Terminal first, then power."}]}}]}
 
-        old = (cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS)
-        cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS = "gemini", "test-key", fake_post, cs.Limits()
+        old = (cs.PROVIDER, cs.GEMINI_API_KEY, cs.GEMINI_KEYS, cs._post_json, cs.LIMITS)
+        cs.PROVIDER, cs.GEMINI_API_KEY, cs.GEMINI_KEYS, cs._post_json, cs.LIMITS = "gemini", "test-key", ["test-key"], fake_post, cs.Limits()
         try:
             text = cs.generate_text("sys", [("user", "a"), ("user", "b"), ("model", "c"), ("user", "d")], 50, 1)
         finally:
-            cs.PROVIDER, cs.GEMINI_API_KEY, cs._post_json, cs.LIMITS = old
+            cs.PROVIDER, cs.GEMINI_API_KEY, cs.GEMINI_KEYS, cs._post_json, cs.LIMITS = old
         self.assertEqual(text, "Terminal first, then power.")
         self.assertIn(cs.GEMINI_MODEL, sent["url"])
         self.assertEqual(sent["headers"]["x-goog-api-key"], "test-key")
@@ -205,6 +205,44 @@ class ServerTests(unittest.TestCase):
     def test_health(self):
         with urllib.request.urlopen(self.base + "/health", timeout=5) as r:
             self.assertTrue(json.loads(r.read())["ok"])
+
+class GeminiKeyRotationTests(unittest.TestCase):
+    def test_keys_take_turns_and_rate_limited_keys_rest(self):
+        import io
+        import urllib.error
+        from unittest.mock import patch
+        import companion_server as server
+        used = []
+
+        def post(url, body, headers, timeout):
+            key = headers["x-goog-api-key"]
+            used.append(key)
+            if key == "k2":
+                raise urllib.error.HTTPError(url, 429, "quota", {}, io.BytesIO(b"{}"))
+            return {"ok": key}
+
+        with patch.object(server, "GEMINI_KEYS", ["k1", "k2", "k3"]), patch.object(server, "_post_json", post), \
+                patch.object(server, "_key_next", 0), patch.object(server, "_key_resting", {}):
+            self.assertEqual(server._gemini_post("u", {}, 1)["ok"], "k1")
+            self.assertEqual(server._gemini_post("u", {}, 1)["ok"], "k3", "k2 is rate-limited: the next key answers")
+            self.assertEqual(server._gemini_post("u", {}, 1)["ok"], "k3")
+            used.clear()
+            self.assertEqual(server._gemini_post("u", {}, 1)["ok"], "k1")
+            self.assertNotIn("k2", used, "a resting key isn't tried again straight away")
+
+    def test_all_keys_limited_raises(self):
+        import io
+        import urllib.error
+        from unittest.mock import patch
+        import companion_server as server
+
+        def post(url, body, headers, timeout):
+            raise urllib.error.HTTPError(url, 429, "quota", {}, io.BytesIO(b"{}"))
+
+        with patch.object(server, "GEMINI_KEYS", ["k1", "k2"]), patch.object(server, "_post_json", post), \
+                patch.object(server, "_key_next", 0), patch.object(server, "_key_resting", {}):
+            with self.assertRaises(urllib.error.HTTPError):
+                server._gemini_post("u", {}, 1)
 
 
 if __name__ == "__main__":
