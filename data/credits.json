@@ -6,25 +6,23 @@
     {
       "heading": "TEAM",
       "lines": [
-        "Gameplay & integration — your name",
-        "Level & puzzles — your name",
-        "ECHO companion & backend — your name",
-        "Art, UI & release — your name"
+        "Johnny",
+        "Dhan",
+        "Kien",
+        "Aaron"
       ]
     },
     {
       "heading": "ART & SOUND",
       "lines": [
-        "Astronaut suits, videos and opening story — the Back2Earth team",
-        "Tiles, chiptune effects, intro footage — generated in-repo (tools/)"
+        "Original pixel art by the Back2Earth team",
+        "Royalty-free music and sound effects, free for commercial use"
       ]
     },
     {
       "heading": "BUILT WITH",
       "lines": [
-        "Godot Engine 4.7",
-        "Monocraft font by Idrees Hassan (SIL Open Font License 1.1)",
-        "ECHO's live lines via a language model (labeled LIVE in-game)"
+        "Godot Engine 4.7"
       ]
     }
   ]
